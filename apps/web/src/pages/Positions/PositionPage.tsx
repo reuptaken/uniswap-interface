@@ -24,11 +24,12 @@ import { LP_INCENTIVES_REWARD_TOKEN } from 'components/LpIncentives/constants'
 import { MouseoverTooltip } from 'components/Tooltip'
 import { useCurrencyInfo } from 'hooks/Tokens'
 import { useAccount } from 'hooks/useAccount'
+import { useV3NFTPositionManagerContract } from 'hooks/useContract'
 import { useSrcColor } from 'hooks/useColor'
 import { useLpIncentivesFormattedEarnings } from 'hooks/useLpIncentivesFormattedEarnings'
 import { usePositionTokenURI } from 'hooks/usePositionTokenURI'
 import NotFound from 'pages/NotFound'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft } from 'react-feather'
 import { Helmet } from 'react-helmet-async/lib/index'
 import { Trans, useTranslation } from 'react-i18next'
@@ -68,11 +69,14 @@ import { useCurrencyInfos } from 'uniswap/src/features/tokens/useCurrencyInfo'
 import { useUSDCValue } from 'uniswap/src/features/transactions/hooks/useUSDCPrice'
 import { usePositionVisibilityCheck } from 'uniswap/src/features/visibility/hooks/usePositionVisibilityCheck'
 import { areAddressesEqual } from 'uniswap/src/utils/addresses'
+import { ExplorerDataType, getExplorerLink } from 'uniswap/src/utils/linking'
 import { buildCurrencyId, currencyId, currencyIdToAddress } from 'uniswap/src/utils/currencyId'
 import { NumberType } from 'utilities/src/format/types'
 import { isMobileWeb } from 'utilities/src/platform'
 import { useEvent } from 'utilities/src/react/hooks'
 import { useChainIdFromUrlParam } from 'utils/chainParams'
+
+const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'BUSD', 'FRAX', 'LUSD']
 
 const BodyWrapper = styled(Main, {
   backgroundColor: '$surface1',
@@ -99,6 +103,266 @@ function parseTokenId(tokenId: string | undefined): BigNumber | undefined {
   } catch {
     return undefined
   }
+}
+
+function parseDisplayedNumber(s: string): number {
+  return parseFloat(s.replace(/[^0-9.\-]/g, ''))
+}
+
+function useFlashColor(displayedValue: string | undefined): string | undefined {
+  const prevValueRef = useRef<string | undefined>(undefined)
+  const [flashColor, setFlashColor] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    const prev = prevValueRef.current
+    prevValueRef.current = displayedValue
+
+    if (prev === undefined || displayedValue === undefined || prev === displayedValue) {
+      return
+    }
+
+    const prevNum = parseDisplayedNumber(prev)
+    const currNum = parseDisplayedNumber(displayedValue)
+    if (Number.isNaN(prevNum) || Number.isNaN(currNum) || prevNum === currNum) {
+      return
+    }
+
+    setFlashColor(currNum > prevNum ? '$statusSuccess' : '$statusCritical')
+    const timer = setTimeout(() => setFlashColor(undefined), 3000)
+    return () => clearTimeout(timer)
+  }, [displayedValue])
+
+  return flashColor
+}
+
+interface PositionEvent {
+  type: 'mint' | 'increase' | 'decrease' | 'collect' | 'decrease_collect' | 'burn'
+  timestamp: number
+  txHash: string
+  amount0: BigNumber
+  amount1: BigNumber
+}
+
+interface MintData {
+  timestamp: number | undefined
+  totalDeposited0: BigNumber | undefined
+  totalDeposited1: BigNumber | undefined
+  totalCollected0: BigNumber | undefined
+  totalCollected1: BigNumber | undefined
+  events: PositionEvent[]
+}
+
+function useMintData(
+  chainId: EVMUniverseChainId | undefined,
+  tokenId: string | undefined,
+  version: ProtocolVersion | undefined,
+): MintData {
+  const [data, setData] = useState<MintData>({
+    timestamp: undefined,
+    totalDeposited0: undefined,
+    totalDeposited1: undefined,
+    totalCollected0: undefined,
+    totalCollected1: undefined,
+    events: [],
+  })
+  const contract = useV3NFTPositionManagerContract(false, chainId)
+  const fetchedRef = useRef(false)
+
+  useEffect(() => {
+    if (!contract || !tokenId || version !== ProtocolVersion.V3 || fetchedRef.current) {
+      return
+    }
+
+    fetchedRef.current = true
+    let cancelled = false
+    const tokenIdBN = BigNumber.from(tokenId)
+
+    const fetchData = async () => {
+      try {
+        const [mintTransfers, burnTransfers, increaseEvents, decreaseEvents, collectEvents] = await Promise.all([
+          contract.queryFilter(contract.filters.Transfer(ZERO_ADDRESS, null, tokenIdBN)),
+          contract.queryFilter(contract.filters.Transfer(null, ZERO_ADDRESS, tokenIdBN)),
+          contract.queryFilter(contract.filters.IncreaseLiquidity(tokenIdBN, null, null, null)),
+          contract.queryFilter(contract.filters.DecreaseLiquidity(tokenIdBN, null, null, null)),
+          contract.queryFilter(contract.filters.Collect(tokenIdBN, null, null, null)),
+        ])
+
+        if (cancelled) {
+          return
+        }
+
+        // Collect all raw events with block numbers
+        const rawEvents: Array<{
+          type: PositionEvent['type']
+          blockNumber: number
+          txHash: string
+          amount0: BigNumber
+          amount1: BigNumber
+        }> = []
+
+        for (const ev of mintTransfers) {
+          rawEvents.push({
+            type: 'mint',
+            blockNumber: ev.blockNumber,
+            txHash: ev.transactionHash,
+            amount0: BigNumber.from(0),
+            amount1: BigNumber.from(0),
+          })
+        }
+        for (const ev of burnTransfers) {
+          rawEvents.push({
+            type: 'burn',
+            blockNumber: ev.blockNumber,
+            txHash: ev.transactionHash,
+            amount0: BigNumber.from(0),
+            amount1: BigNumber.from(0),
+          })
+        }
+        for (const ev of increaseEvents) {
+          rawEvents.push({
+            type: 'increase',
+            blockNumber: ev.blockNumber,
+            txHash: ev.transactionHash,
+            amount0: ev.args.amount0,
+            amount1: ev.args.amount1,
+          })
+        }
+        for (const ev of decreaseEvents) {
+          rawEvents.push({
+            type: 'decrease',
+            blockNumber: ev.blockNumber,
+            txHash: ev.transactionHash,
+            amount0: ev.args.amount0,
+            amount1: ev.args.amount1,
+          })
+        }
+        for (const ev of collectEvents) {
+          rawEvents.push({
+            type: 'collect',
+            blockNumber: ev.blockNumber,
+            txHash: ev.transactionHash,
+            amount0: ev.args.amount0,
+            amount1: ev.args.amount1,
+          })
+        }
+
+        if (cancelled) {
+          return
+        }
+
+        // Deduplicate block numbers and fetch timestamps
+        const uniqueBlocks = [...new Set(rawEvents.map((e) => e.blockNumber))]
+        const blockTimestamps = new Map<number, number>()
+        const blockPromises = uniqueBlocks.map(async (bn) => {
+          const block = await contract.provider.getBlock(bn)
+          blockTimestamps.set(bn, block.timestamp)
+        })
+        await Promise.all(blockPromises)
+
+        if (cancelled) {
+          return
+        }
+
+        // Build sorted event list
+        const events: PositionEvent[] = rawEvents
+          .map((raw) => ({
+            type: raw.type,
+            timestamp: blockTimestamps.get(raw.blockNumber) ?? 0,
+            txHash: raw.txHash,
+            amount0: raw.amount0,
+            amount1: raw.amount1,
+          }))
+          .sort((a, b) => a.timestamp - b.timestamp || a.type.localeCompare(b.type))
+
+        // Merge related events in the same tx:
+        // 1. Mint + IncreaseLiquidity → show as mint with amounts
+        // 2. DecreaseLiquidity + Collect → show as "decrease_collect" with combined amounts
+        const mintTxHashes = new Set(events.filter((e) => e.type === 'mint').map((e) => e.txHash))
+        const decreaseTxHashes = new Set(events.filter((e) => e.type === 'decrease').map((e) => e.txHash))
+        const consumedTxTypes = new Set<string>() // "txHash:type" entries already merged
+        const mergedEvents: PositionEvent[] = []
+
+        for (const ev of events) {
+          const key = `${ev.txHash}:${ev.type}`
+          if (consumedTxTypes.has(key)) {
+            continue
+          }
+
+          if (ev.type === 'mint') {
+            const matchingIncrease = events.find((e) => e.type === 'increase' && e.txHash === ev.txHash)
+            if (matchingIncrease) {
+              consumedTxTypes.add(`${ev.txHash}:increase`)
+            }
+            mergedEvents.push({
+              ...ev,
+              amount0: matchingIncrease?.amount0 ?? BigNumber.from(0),
+              amount1: matchingIncrease?.amount1 ?? BigNumber.from(0),
+            })
+          } else if (ev.type === 'increase' && mintTxHashes.has(ev.txHash)) {
+            // Skip — already merged into the mint event
+            continue
+          } else if (ev.type === 'decrease') {
+            // Check if there's a Collect in the same tx → merge
+            const matchingCollect = events.find((e) => e.type === 'collect' && e.txHash === ev.txHash)
+            if (matchingCollect) {
+              consumedTxTypes.add(`${ev.txHash}:collect`)
+              mergedEvents.push({
+                type: 'decrease_collect',
+                timestamp: ev.timestamp,
+                txHash: ev.txHash,
+                amount0: matchingCollect.amount0,
+                amount1: matchingCollect.amount1,
+              })
+            } else {
+              mergedEvents.push(ev)
+            }
+          } else if (ev.type === 'collect' && decreaseTxHashes.has(ev.txHash)) {
+            // Skip — already merged into the decrease_collect event
+            continue
+          } else {
+            mergedEvents.push(ev)
+          }
+        }
+
+        // Compute sums
+        let dep0 = BigNumber.from(0)
+        let dep1 = BigNumber.from(0)
+        for (const ev of increaseEvents) {
+          dep0 = dep0.add(ev.args.amount0)
+          dep1 = dep1.add(ev.args.amount1)
+        }
+
+        let col0 = BigNumber.from(0)
+        let col1 = BigNumber.from(0)
+        for (const ev of collectEvents) {
+          col0 = col0.add(ev.args.amount0)
+          col1 = col1.add(ev.args.amount1)
+        }
+
+        const ts = mergedEvents.length > 0 ? mergedEvents[0].timestamp : undefined
+
+        if (!cancelled) {
+          setData({
+            timestamp: ts,
+            totalDeposited0: dep0,
+            totalDeposited1: dep1,
+            totalCollected0: col0,
+            totalCollected1: col1,
+            events: mergedEvents,
+          })
+        }
+      } catch {
+        // silently fail — RPC may not support historical log queries
+      }
+    }
+
+    fetchData()
+    return () => {
+      cancelled = true
+    }
+  }, [contract, tokenId, version])
+
+  return data
 }
 
 export default function PositionPageWrapper() {
@@ -139,7 +403,26 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
   const position = data?.position
   const positionInfo = useMemo(() => parseRestPosition(position), [position])
   const metadata = usePositionTokenURI({ tokenId, chainId, version: positionInfo?.version })
+  const {
+    timestamp: mintTimestamp,
+    totalDeposited0,
+    totalDeposited1,
+    totalCollected0,
+    totalCollected1,
+    events: positionEvents,
+  } = useMintData(
+    chainId,
+    tokenIdFromUrl,
+    positionInfo?.version,
+  )
   usePendingLPTransactionsChangeListener(refetch)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refetch()
+    }, 20_000)
+    return () => clearInterval(interval)
+  }, [refetch])
 
   const isLpIncentivesEnabled = useFeatureFlag(FeatureFlags.LpIncentives)
 
@@ -147,10 +430,44 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
   const { t } = useTranslation()
 
   const { currency0Amount, currency1Amount, status, fee0Amount, fee1Amount } = positionInfo ?? {}
-  const fiatFeeValue0 = useUSDCValue(fee0Amount, PollingInterval.Slow)
-  const fiatFeeValue1 = useUSDCValue(fee1Amount, PollingInterval.Slow)
-  const fiatValue0 = useUSDCValue(currency0Amount, PollingInterval.Slow)
-  const fiatValue1 = useUSDCValue(currency1Amount, PollingInterval.Slow)
+  const fiatValue0Raw = useUSDCValue(currency0Amount, PollingInterval.Slow)
+  const fiatValue1Raw = useUSDCValue(currency1Amount, PollingInterval.Slow)
+  const fiatFeeValue0Raw = useUSDCValue(fee0Amount, PollingInterval.Slow)
+  const fiatFeeValue1Raw = useUSDCValue(fee1Amount, PollingInterval.Slow)
+
+  const depositedCurrency0Amount = useMemo(
+    () =>
+      totalDeposited0 && currency0Amount
+        ? CurrencyAmount.fromRawAmount(currency0Amount.currency, totalDeposited0.toString())
+        : undefined,
+    [totalDeposited0, currency0Amount],
+  )
+  const depositedCurrency1Amount = useMemo(
+    () =>
+      totalDeposited1 && currency1Amount
+        ? CurrencyAmount.fromRawAmount(currency1Amount.currency, totalDeposited1.toString())
+        : undefined,
+    [totalDeposited1, currency1Amount],
+  )
+  const collectedCurrency0Amount = useMemo(
+    () =>
+      totalCollected0 && currency0Amount
+        ? CurrencyAmount.fromRawAmount(currency0Amount.currency, totalCollected0.toString())
+        : undefined,
+    [totalCollected0, currency0Amount],
+  )
+  const collectedCurrency1Amount = useMemo(
+    () =>
+      totalCollected1 && currency1Amount
+        ? CurrencyAmount.fromRawAmount(currency1Amount.currency, totalCollected1.toString())
+        : undefined,
+    [totalCollected1, currency1Amount],
+  )
+  const depositedFiat0 = useUSDCValue(depositedCurrency0Amount)
+  const depositedFiat1 = useUSDCValue(depositedCurrency1Amount)
+  const collectedFiat0 = useUSDCValue(collectedCurrency0Amount)
+  const collectedFiat1 = useUSDCValue(collectedCurrency1Amount)
+
   const priceOrdering = useMemo(() => {
     if (positionInfo?.version === ProtocolVersion.V2 || !positionInfo?.position) {
       return {}
@@ -314,6 +631,128 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
 
   const token0Price = positionInfo.version !== ProtocolVersion.V2 ? positionInfo.poolOrPair?.token0Price : undefined
   const token1Price = positionInfo.version !== ProtocolVersion.V2 ? positionInfo.poolOrPair?.token1Price : undefined
+
+  const token0IsStable = STABLECOIN_SYMBOLS.includes(currency0Amount.currency.symbol ?? '')
+  const token1IsStable = STABLECOIN_SYMBOLS.includes(currency1Amount.currency.symbol ?? '')
+
+  // Use API-derived fiat values when available, otherwise fall back to pool price
+  // if one side of the pair is a stablecoin (treating 1 stablecoin = 1 USD).
+  const fiatValue0 = (() => {
+    if (fiatValue0Raw) return fiatValue0Raw
+    if (token0IsStable) return currency0Amount
+    if (token1IsStable && token0Price) {
+      try { return token0Price.quote(currency0Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const fiatValue1 = (() => {
+    if (fiatValue1Raw) return fiatValue1Raw
+    if (token1IsStable) return currency1Amount
+    if (token0IsStable && token1Price) {
+      try { return token1Price.quote(currency1Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const fiatFeeValue0 = (() => {
+    if (fiatFeeValue0Raw) return fiatFeeValue0Raw
+    if (!fee0Amount) return null
+    if (token0IsStable) return fee0Amount
+    if (token1IsStable && token0Price) {
+      try { return token0Price.quote(fee0Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const fiatFeeValue1 = (() => {
+    if (fiatFeeValue1Raw) return fiatFeeValue1Raw
+    if (!fee1Amount) return null
+    if (token1IsStable) return fee1Amount
+    if (token0IsStable && token1Price) {
+      try { return token1Price.quote(fee1Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const depositedFiatValue0 = (() => {
+    if (depositedFiat0) return depositedFiat0
+    if (!depositedCurrency0Amount) return null
+    if (token0IsStable) return depositedCurrency0Amount
+    if (token1IsStable && token0Price) {
+      try { return token0Price.quote(depositedCurrency0Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const depositedFiatValue1 = (() => {
+    if (depositedFiat1) return depositedFiat1
+    if (!depositedCurrency1Amount) return null
+    if (token1IsStable) return depositedCurrency1Amount
+    if (token0IsStable && token1Price) {
+      try { return token1Price.quote(depositedCurrency1Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const collectedFiatValue0 = (() => {
+    if (collectedFiat0) return collectedFiat0
+    if (!collectedCurrency0Amount) return null
+    if (token0IsStable) return collectedCurrency0Amount
+    if (token1IsStable && token0Price) {
+      try { return token0Price.quote(collectedCurrency0Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const collectedFiatValue1 = (() => {
+    if (collectedFiat1) return collectedFiat1
+    if (!collectedCurrency1Amount) return null
+    if (token1IsStable) return collectedCurrency1Amount
+    if (token0IsStable && token1Price) {
+      try { return token1Price.quote(collectedCurrency1Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const { profitLoss, realizedApr, feesApr } = (() => {
+    if (
+      !mintTimestamp ||
+      !fiatValue0 ||
+      !fiatValue1 ||
+      !fiatFeeValue0 ||
+      !fiatFeeValue1 ||
+      !depositedFiatValue0 ||
+      !depositedFiatValue1 ||
+      !collectedFiatValue0 ||
+      !collectedFiatValue1
+    ) {
+      return { profitLoss: undefined, realizedApr: undefined, feesApr: undefined }
+    }
+
+    const currentValueUsd =
+      parseFloat(fiatValue0.toExact()) + parseFloat(fiatValue1.toExact()) +
+      parseFloat(fiatFeeValue0.toExact()) + parseFloat(fiatFeeValue1.toExact())
+    const totalDepositedUsd = parseFloat(depositedFiatValue0.toExact()) + parseFloat(depositedFiatValue1.toExact())
+    const totalCollectedUsd = parseFloat(collectedFiatValue0.toExact()) + parseFloat(collectedFiatValue1.toExact())
+    const uncollectedFeesUsd = parseFloat(fiatFeeValue0.toExact()) + parseFloat(fiatFeeValue1.toExact())
+
+    const pl = currentValueUsd + totalCollectedUsd - totalDepositedUsd
+
+    const ageSeconds = Date.now() / 1000 - mintTimestamp
+    if (totalDepositedUsd === 0 || ageSeconds < 86400) {
+      return { profitLoss: pl, realizedApr: undefined, feesApr: undefined }
+    }
+
+    const annualizer = (365 * 24 * 3600) / ageSeconds
+    const totalReturn = (currentValueUsd + totalCollectedUsd - totalDepositedUsd) / totalDepositedUsd
+    const feesReturn = (totalCollectedUsd + uncollectedFeesUsd) / totalDepositedUsd
+    return {
+      profitLoss: pl,
+      realizedApr: totalReturn * annualizer * 100,
+      feesApr: feesReturn * annualizer * 100,
+    }
+  })()
 
   const isOwner = areAddressesEqual({
     addressInput1: { address: positionInfo.owner, chainId: positionInfo.chainId },
@@ -563,7 +1002,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                   />
                 ))}
             </Flex>
-            <Flex mt="$spacing24">
+            <Flex mt="$spacing24" gap="$spacing16">
               <PriceRangeSection
                 maxPrice={maxPrice}
                 minPrice={minPrice}
@@ -575,9 +1014,126 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                 priceInverted={priceInverted}
                 setPriceInverted={setPriceInverted}
               />
+              {positionEvents.length > 0 && currency0Amount && currency1Amount && chainId && (
+                <Flex gap="$spacing12" mt="$spacing12">
+                  <Text variant="body2" color="$neutral2" fontWeight="600">
+                    Position history
+                  </Text>
+                  <Flex gap="$spacing8">
+                    {positionEvents.map((ev, idx) => {
+                      const date = new Date(ev.timestamp * 1000)
+                      const dd = String(date.getDate()).padStart(2, '0')
+                      const mm = String(date.getMonth() + 1).padStart(2, '0')
+                      const yyyy = date.getFullYear()
+                      const hh = String(date.getHours()).padStart(2, '0')
+                      const min = String(date.getMinutes()).padStart(2, '0')
+                      const ss = String(date.getSeconds()).padStart(2, '0')
+                      const dateStr = `${dd}/${mm}/${yyyy} ${hh}:${min}:${ss}`
+
+                      const amt0 = CurrencyAmount.fromRawAmount(
+                        currency0Amount.currency,
+                        ev.amount0.toString(),
+                      ).toSignificant(6)
+                      const amt1 = CurrencyAmount.fromRawAmount(
+                        currency1Amount.currency,
+                        ev.amount1.toString(),
+                      ).toSignificant(6)
+                      const sym0 = currency0Amount.currency.symbol ?? ''
+                      const sym1 = currency1Amount.currency.symbol ?? ''
+
+                      const shortTx = `${ev.txHash.slice(0, 6)}...${ev.txHash.slice(-4)}`
+                      const txUrl = getExplorerLink({
+                        chainId: chainId as UniverseChainId,
+                        data: ev.txHash,
+                        type: ExplorerDataType.TRANSACTION,
+                      })
+
+                      let emoji: string
+                      let label: string
+                      switch (ev.type) {
+                        case 'mint':
+                          emoji = '🎉'
+                          label = 'Minted'
+                          break
+                        case 'increase':
+                          emoji = '➕'
+                          label = 'Added liquidity'
+                          break
+                        case 'decrease':
+                          emoji = '➖'
+                          label = 'Removed liquidity'
+                          break
+                        case 'decrease_collect':
+                          emoji = '📤'
+                          label = 'Removed liquidity & collected fees'
+                          break
+                        case 'collect':
+                          emoji = '💰'
+                          label = 'Collected fees'
+                          break
+                        case 'burn':
+                          emoji = '🔥'
+                          label = 'Burned'
+                          break
+                      }
+
+                      const hasAmounts = !ev.amount0.isZero() || !ev.amount1.isZero()
+                      const amountParts: string[] = []
+                      if (!ev.amount0.isZero()) {
+                        amountParts.push(`${amt0} ${sym0}`)
+                      }
+                      if (!ev.amount1.isZero()) {
+                        amountParts.push(`${amt1} ${sym1}`)
+                      }
+
+                      return (
+                        <Flex key={`${ev.txHash}-${ev.type}-${idx}`} row alignItems="flex-start" gap="$spacing8">
+                          <Text variant="body3" style={{ minWidth: 22 }}>
+                            {emoji}
+                          </Text>
+                          <Text variant="body3" color="$neutral3" style={{ lineHeight: 22 }}>
+                            <Text variant="body3" color="$neutral2" fontWeight="500">
+                              {label}
+                            </Text>
+                            {hasAmounts ? ` · ${amountParts.join(' + ')}` : ''}
+                            {' · '}
+                            <Text variant="body3" color="$neutral3">
+                              {dateStr}
+                            </Text>
+                            {' · '}
+                            <Text
+                              variant="body3"
+                              color="$accent1"
+                              cursor="pointer"
+                              hoverStyle={{ opacity: 0.7 }}
+                              onPress={() => window.open(txUrl, '_blank')}
+                            >
+                              {shortTx}
+                            </Text>
+                          </Text>
+                        </Flex>
+                      )
+                    })}
+                  </Flex>
+                </Flex>
+              )}
             </Flex>
           </Flex>
           <Flex gap="$spacing20">
+            <TotalValueSection
+              position={position}
+              currency0Amount={currency0Amount}
+              currency1Amount={currency1Amount}
+              fee0Amount={fee0Amount}
+              fee1Amount={fee1Amount}
+              fiatValue0={fiatValue0}
+              fiatValue1={fiatValue1}
+              fiatFeeValue0={fiatFeeValue0}
+              fiatFeeValue1={fiatFeeValue1}
+              profitLoss={profitLoss}
+              realizedApr={realizedApr}
+              feesApr={feesApr}
+            />
             <PositionSection
               position={position}
               currency0Amount={currency0Amount}
@@ -641,6 +1197,235 @@ const SectionContainer = ({ children }: { children: React.ReactNode }) => {
   )
 }
 
+const TotalValueSection = ({
+  position,
+  currency0Amount,
+  currency1Amount,
+  fee0Amount,
+  fee1Amount,
+  fiatValue0,
+  fiatValue1,
+  fiatFeeValue0,
+  fiatFeeValue1,
+  profitLoss,
+  realizedApr,
+  feesApr,
+}: {
+  position: Position
+  currency0Amount: CurrencyAmount<Currency>
+  currency1Amount: CurrencyAmount<Currency>
+  fee0Amount?: CurrencyAmount<Currency>
+  fee1Amount?: CurrencyAmount<Currency>
+  fiatValue0: Maybe<CurrencyAmount<Currency>>
+  fiatValue1: Maybe<CurrencyAmount<Currency>>
+  fiatFeeValue0: Maybe<CurrencyAmount<Currency>>
+  fiatFeeValue1: Maybe<CurrencyAmount<Currency>>
+  profitLoss?: number
+  realizedApr?: number
+  feesApr?: number
+}) => {
+  const { convertFiatAmountFormatted, formatPercent, formatCurrencyAmount } = useLocalizationContext()
+  const { t } = useTranslation()
+  const colors = useSporeColors()
+  const currencyInfo0 = useCurrencyInfo(currency0Amount.currency)
+  const currencyInfo1 = useCurrencyInfo(currency1Amount.currency)
+  const token0Color = useSrcColor({
+    src: currencyInfo0?.logoUrl ?? undefined,
+    currencyName: currencyInfo0?.currency.name,
+    backgroundColor: colors.surface2.val,
+  }).tokenColor
+  const token1Color = useSrcColor({
+    src: currencyInfo1?.logoUrl ?? undefined,
+    currencyName: currencyInfo1?.currency.name,
+    backgroundColor: colors.surface2.val,
+  }).tokenColor
+
+  const totalFiat0 = useMemo(() => {
+    if (!fiatValue0) {
+      return undefined
+    }
+    return fiatFeeValue0 ? parseFloat(fiatValue0.toExact()) + parseFloat(fiatFeeValue0.toExact()) : parseFloat(fiatValue0.toExact())
+  }, [fiatValue0, fiatFeeValue0])
+
+  const totalFiat1 = useMemo(() => {
+    if (!fiatValue1) {
+      return undefined
+    }
+    return fiatFeeValue1 ? parseFloat(fiatValue1.toExact()) + parseFloat(fiatFeeValue1.toExact()) : parseFloat(fiatValue1.toExact())
+  }, [fiatValue1, fiatFeeValue1])
+
+  const totalValueExact = useMemo(() => {
+    if (totalFiat0 === undefined || totalFiat1 === undefined) {
+      return undefined
+    }
+    return totalFiat0 + totalFiat1
+  }, [totalFiat0, totalFiat1])
+
+  const formattedTotalValue = useMemo(
+    () => (totalValueExact !== undefined ? convertFiatAmountFormatted(totalValueExact, NumberType.FiatTokenPrice) : undefined),
+    [totalValueExact, convertFiatAmountFormatted],
+  )
+  const totalValueFlashColor = useFlashColor(formattedTotalValue)
+
+  const formattedPL = useMemo(
+    () => (profitLoss !== undefined ? convertFiatAmountFormatted(profitLoss, NumberType.FiatTokenPrice) : undefined),
+    [profitLoss, convertFiatAmountFormatted],
+  )
+  const plFlashColor = useFlashColor(formattedPL)
+
+  const formattedApr = useMemo(
+    () => (realizedApr !== undefined ? formatPercent(realizedApr) : undefined),
+    [realizedApr, formatPercent],
+  )
+  const aprFlashColor = useFlashColor(formattedApr)
+
+  const formattedFeesApr = useMemo(
+    () => (feesApr !== undefined ? formatPercent(feesApr) : undefined),
+    [feesApr, formatPercent],
+  )
+  const feesAprFlashColor = useFlashColor(formattedFeesApr)
+
+  const totalAmount0 = useMemo(
+    () => (fee0Amount ? currency0Amount.add(fee0Amount) : currency0Amount),
+    [currency0Amount, fee0Amount],
+  )
+  const totalAmount1 = useMemo(
+    () => (fee1Amount ? currency1Amount.add(fee1Amount) : currency1Amount),
+    [currency1Amount, fee1Amount],
+  )
+
+  const bars = useMemo(() => {
+    if (
+      totalFiat0 === undefined ||
+      totalFiat1 === undefined ||
+      totalValueExact === undefined ||
+      totalValueExact === 0 ||
+      !token0Color ||
+      !token1Color ||
+      !currencyInfo0 ||
+      !currencyInfo1
+    ) {
+      return []
+    }
+
+    const bips0 = Math.round((totalFiat0 / totalValueExact) * 10000)
+    const bips1 = 10000 - bips0
+
+    return [
+      { value: new Percent(bips0, 10000), color: token0Color, currencyInfo: currencyInfo0 },
+      { value: new Percent(bips1, 10000), color: token1Color, currencyInfo: currencyInfo1 },
+    ]
+  }, [totalFiat0, totalFiat1, totalValueExact, token0Color, token1Color, currencyInfo0, currencyInfo1])
+
+  const totalRowFiat0 = useMemo(
+    () => (fiatValue0 && fiatFeeValue0 ? fiatValue0.add(fiatFeeValue0) : fiatValue0),
+    [fiatValue0, fiatFeeValue0],
+  )
+  const totalRowFiat1 = useMemo(
+    () => (fiatValue1 && fiatFeeValue1 ? fiatValue1.add(fiatFeeValue1) : fiatValue1),
+    [fiatValue1, fiatFeeValue1],
+  )
+  const formattedTotalRow0 = useMemo(
+    () => formatCurrencyAmount({ value: totalAmount0, type: NumberType.TokenNonTx }),
+    [totalAmount0, formatCurrencyAmount],
+  )
+  const formattedTotalRow1 = useMemo(
+    () => formatCurrencyAmount({ value: totalAmount1, type: NumberType.TokenNonTx }),
+    [totalAmount1, formatCurrencyAmount],
+  )
+  const totalRow0FlashColor = useFlashColor(formattedTotalRow0)
+  const totalRow1FlashColor = useFlashColor(formattedTotalRow1)
+
+  const rows = useMemo(() => {
+    if (!currencyInfo0 || !currencyInfo1 || totalFiat0 === undefined || totalFiat1 === undefined) {
+      return []
+    }
+
+    return [
+      {
+        currencyInfo: currencyInfo0,
+        currencyAmount: totalAmount0,
+        fiatValue: totalRowFiat0,
+        flashColor: totalRow0FlashColor,
+      },
+      {
+        currencyInfo: currencyInfo1,
+        currencyAmount: totalAmount1,
+        fiatValue: totalRowFiat1,
+        flashColor: totalRow1FlashColor,
+      },
+    ]
+  }, [currencyInfo0, currencyInfo1, totalAmount0, totalAmount1, totalRowFiat0, totalRowFiat1, totalRow0FlashColor, totalRow1FlashColor, totalFiat0, totalFiat1])
+
+  return (
+    <SectionContainer>
+      <Flex gap="$gap8">
+        <Text color="$neutral2" variant="body2">
+          {t('common.totalValue')}
+        </Text>
+        {position.status === PositionStatus.CLOSED ? (
+          <Text variant="heading2" $lg={{ variant: 'heading3' }}>
+            {convertFiatAmountFormatted(0, NumberType.FiatTokenPrice)}
+          </Text>
+        ) : (
+          <>
+            <Text variant="heading2" mb="$spacing12" color={totalValueFlashColor ?? '$neutral1'}>
+              {formattedTotalValue ? (
+                formattedTotalValue
+              ) : (
+                <MouseoverTooltip text={t('pool.positions.usdValueUnavailable.tooltip')} placement="right">
+                  <Flex alignItems="center" row gap="$gap8">
+                    <Text variant="body1" color="$neutral2">
+                      {t('pool.positions.usdValueUnavailable')}
+                    </Text>
+                    <InfoCircleFilled color="$neutral2" size="$icon.16" />
+                  </Flex>
+                </MouseoverTooltip>
+              )}
+            </Text>
+            {formattedPL !== undefined && (
+              <Flex row gap="$gap8" mb="$spacing4">
+                <Text variant="body2" color="$neutral2">
+                  P/L
+                </Text>
+                <Text variant="body2" color={plFlashColor ?? '$neutral1'}>
+                  {profitLoss !== undefined && profitLoss >= 0 ? '+' : ''}{formattedPL}
+                </Text>
+              </Flex>
+            )}
+            {formattedApr !== undefined && (
+              <Flex row gap="$gap8" mb="$spacing4">
+                <Text variant="body2" color="$neutral2">
+                  APR
+                </Text>
+                <Text variant="body2" color={aprFlashColor ?? '$neutral1'}>
+                  {formattedApr}
+                </Text>
+              </Flex>
+            )}
+            {formattedFeesApr !== undefined && (
+              <Flex row gap="$gap8" mb="$spacing8">
+                <Text variant="body2" color="$neutral2">
+                  Fees APR
+                </Text>
+                <Text variant="body2" color={feesAprFlashColor ?? '$neutral1'}>
+                  {formattedFeesApr}
+                </Text>
+              </Flex>
+            )}
+            {bars.length > 0 && (
+              <Flex mb="$spacing24">
+                <LiquidityPositionStackedBars bars={bars} />
+              </Flex>
+            )}
+            {rows.length > 0 && <LiquidityPositionAmountRows rows={rows} />}
+          </>
+        )}
+      </Flex>
+    </SectionContainer>
+  )
+}
+
 const PositionSection = ({
   position,
   currency0Amount,
@@ -654,7 +1439,7 @@ const PositionSection = ({
   fiatValue0: Maybe<CurrencyAmount<Currency>>
   fiatValue1: Maybe<CurrencyAmount<Currency>>
 }) => {
-  const { convertFiatAmountFormatted } = useLocalizationContext()
+  const { convertFiatAmountFormatted, formatCurrencyAmount: formatCurrencyAmountPos } = useLocalizationContext()
   const { t } = useTranslation()
   const colors = useSporeColors()
   const currencyInfo0 = useCurrencyInfo(currency0Amount.currency)
@@ -670,6 +1455,11 @@ const PositionSection = ({
     backgroundColor: colors.surface2.val,
   }).tokenColor
   const totalFiatValue = fiatValue0?.add(fiatValue1 ?? CurrencyAmount.fromRawAmount(fiatValue0.currency, 0))
+  const formattedTotal = useMemo(
+    () => (fiatValue0 && fiatValue1 ? convertFiatAmountFormatted(fiatValue0.add(fiatValue1).toExact(), NumberType.FiatTokenPrice) : undefined),
+    [fiatValue0, fiatValue1, convertFiatAmountFormatted],
+  )
+  const positionFlashColor = useFlashColor(formattedTotal)
   const bars = useMemo(() => {
     const percent0 =
       totalFiatValue?.greaterThan(0) && fiatValue0
@@ -691,6 +1481,17 @@ const PositionSection = ({
     ]
   }, [currencyInfo0, currencyInfo1, fiatValue0, fiatValue1, token0Color, token1Color, totalFiatValue])
 
+  const formattedPosRow0 = useMemo(
+    () => formatCurrencyAmountPos({ value: currency0Amount, type: NumberType.TokenNonTx }),
+    [currency0Amount, formatCurrencyAmountPos],
+  )
+  const formattedPosRow1 = useMemo(
+    () => formatCurrencyAmountPos({ value: currency1Amount, type: NumberType.TokenNonTx }),
+    [currency1Amount, formatCurrencyAmountPos],
+  )
+  const posRow0FlashColor = useFlashColor(formattedPosRow0)
+  const posRow1FlashColor = useFlashColor(formattedPosRow1)
+
   const rows = useMemo(() => {
     if (!currencyInfo0 || !currencyInfo1) {
       return []
@@ -701,14 +1502,16 @@ const PositionSection = ({
         currencyInfo: currencyInfo0,
         currencyAmount: currency0Amount,
         fiatValue: fiatValue0,
+        flashColor: posRow0FlashColor,
       },
       {
         currencyInfo: currencyInfo1,
         currencyAmount: currency1Amount,
         fiatValue: fiatValue1,
+        flashColor: posRow1FlashColor,
       },
     ]
-  }, [currencyInfo0, currencyInfo1, currency0Amount, currency1Amount, fiatValue0, fiatValue1])
+  }, [currencyInfo0, currencyInfo1, currency0Amount, currency1Amount, fiatValue0, fiatValue1, posRow0FlashColor, posRow1FlashColor])
 
   return (
     <SectionContainer>
@@ -722,7 +1525,7 @@ const PositionSection = ({
           </Text>
         ) : (
           <>
-            <Text variant="heading2" mb="$spacing12">
+            <Text variant="heading2" mb="$spacing12" color={positionFlashColor ?? '$neutral1'}>
               {fiatValue0 && fiatValue1 ? (
                 convertFiatAmountFormatted(fiatValue0.add(fiatValue1).toExact(), NumberType.FiatTokenPrice)
               ) : (
@@ -820,7 +1623,7 @@ const EarningsSection = ({
   fee0Amount?: CurrencyAmount<Currency>
   fee1Amount?: CurrencyAmount<Currency>
 }) => {
-  const { convertFiatAmountFormatted } = useLocalizationContext()
+  const { convertFiatAmountFormatted, formatCurrencyAmount: formatCurrencyAmountEarn } = useLocalizationContext()
   const { t } = useTranslation()
   const colors = useSporeColors()
   const isLpIncentivesEnabled = useFeatureFlag(FeatureFlags.LpIncentives)
@@ -831,6 +1634,12 @@ const EarningsSection = ({
       fiatFeeValue0,
       fiatFeeValue1,
     })
+
+  const formattedEarnings = useMemo(
+    () => (totalEarningsFiatValue ? convertFiatAmountFormatted(totalEarningsFiatValue.toExact(), NumberType.FiatRewards) : undefined),
+    [totalEarningsFiatValue, convertFiatAmountFormatted],
+  )
+  const earningsFlashColor = useFlashColor(formattedEarnings)
 
   // TODO(WEB-4920): skip GraphQL call once backend provides image URLs
   const [currencyInfo0, currencyInfo1, rewardCurrencyInfo] = useCurrencyInfos([
@@ -905,6 +1714,17 @@ const EarningsSection = ({
     rewardCurrencyInfo,
   ])
 
+  const formattedFeeRow0 = useMemo(
+    () => (fee0Amount ? formatCurrencyAmountEarn({ value: fee0Amount, type: NumberType.TokenNonTx }) : undefined),
+    [fee0Amount, formatCurrencyAmountEarn],
+  )
+  const formattedFeeRow1 = useMemo(
+    () => (fee1Amount ? formatCurrencyAmountEarn({ value: fee1Amount, type: NumberType.TokenNonTx }) : undefined),
+    [fee1Amount, formatCurrencyAmountEarn],
+  )
+  const feeRow0FlashColor = useFlashColor(formattedFeeRow0)
+  const feeRow1FlashColor = useFlashColor(formattedFeeRow1)
+
   const feeRows = useMemo(() => {
     if (!currencyInfo0 || !currencyInfo1 || !fee0Amount || !fee1Amount) {
       return []
@@ -915,14 +1735,16 @@ const EarningsSection = ({
         currencyInfo: currencyInfo0,
         currencyAmount: fee0Amount,
         fiatValue: fiatFeeValue0,
+        flashColor: feeRow0FlashColor,
       },
       {
         currencyInfo: currencyInfo1,
         currencyAmount: fee1Amount,
         fiatValue: fiatFeeValue1,
+        flashColor: feeRow1FlashColor,
       },
     ]
-  }, [currencyInfo0, currencyInfo1, fee0Amount, fee1Amount, fiatFeeValue0, fiatFeeValue1])
+  }, [currencyInfo0, currencyInfo1, fee0Amount, fee1Amount, fiatFeeValue0, fiatFeeValue1, feeRow0FlashColor, feeRow1FlashColor])
 
   const rewardRows = useMemo(() => {
     if (!isLpIncentivesEnabled || !rewardCurrencyInfo || !hasRewards) {
@@ -948,7 +1770,7 @@ const EarningsSection = ({
           <Text variant="heading2">{convertFiatAmountFormatted(0, NumberType.FiatRewards)}</Text>
         ) : (
           <>
-            <Text variant="heading2" mb="$spacing12">
+            <Text variant="heading2" mb="$spacing12" color={earningsFlashColor ?? '$neutral1'}>
               {totalEarningsFiatValue ? (
                 convertFiatAmountFormatted(totalEarningsFiatValue.toExact(), NumberType.FiatRewards)
               ) : (
@@ -1008,12 +1830,14 @@ const PriceDisplay = ({
   price,
   tokenASymbol,
   tokenBSymbol,
+  priceColor,
   setPriceInverted,
 }: {
   labelText: string
   price: string | React.ReactNode
   tokenASymbol?: string
   tokenBSymbol?: string
+  priceColor?: string
   setPriceInverted: (value: React.SetStateAction<boolean>) => void
 }) => {
   return (
@@ -1021,7 +1845,7 @@ const PriceDisplay = ({
       <Text variant="subheading2" color="$neutral2">
         {labelText}
       </Text>
-      <Text variant="subheading1">{price}</Text>
+      <Text variant="subheading1" color={priceColor}>{price}</Text>
       <Flex group row>
         <Flex row gap="$gap8" alignItems="center">
           <Text variant="body4" color="$neutral2">
@@ -1072,6 +1896,7 @@ const PriceRangeSection = ({
       type: NumberType.TokenTx,
     })
   }, [priceInverted, token0CurrentPrice, token1CurrentPrice, formatNumberOrString])
+  const marketPriceFlashColor = useFlashColor(formattedMarketPrice)
 
   if (isFullRange) {
     return null
@@ -1102,6 +1927,7 @@ const PriceRangeSection = ({
         <PriceDisplay
           labelText={t('common.marketPrice')}
           price={formattedMarketPrice}
+          priceColor={marketPriceFlashColor}
           tokenASymbol={tokenASymbol}
           tokenBSymbol={tokenBSymbol}
           setPriceInverted={setPriceInverted}

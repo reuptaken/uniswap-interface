@@ -20,6 +20,7 @@ interface LiquidityPositionFeeStatsProps extends LiquidityPositionMinMaxRangePro
   cardHovered: boolean
   currency0Info: Maybe<CurrencyInfo>
   currency1Info: Maybe<CurrencyInfo>
+  formattedTotalValue?: string
   formattedUsdValue?: string
   formattedUsdFees?: string
   formattedLpIncentiveEarnings?: string
@@ -86,6 +87,7 @@ export function LiquidityPositionFeeStatsLoader() {
 }
 
 export function LiquidityPositionFeeStats({
+  formattedTotalValue,
   formattedUsdValue,
   formattedUsdFees,
   formattedLpIncentiveEarnings,
@@ -121,6 +123,16 @@ export function LiquidityPositionFeeStats({
       <Flex row gap="$gap20" grow $sm={{ row: false }}>
         <WrapChildrenForMediaSize>
           <FeeStat>
+            {formattedTotalValue ? (
+              <PrimaryText>{formattedTotalValue}</PrimaryText>
+            ) : (
+              <MouseoverTooltip text={<Trans i18nKey="position.valueUnavailable" />} placement="top">
+                <PrimaryText>-</PrimaryText>
+              </MouseoverTooltip>
+            )}
+            <SecondaryText>{t('common.totalValue')}</SecondaryText>
+          </FeeStat>
+          <FeeStat>
             {formattedUsdValue ? (
               <PrimaryText>{formattedUsdValue}</PrimaryText>
             ) : (
@@ -150,17 +162,6 @@ export function LiquidityPositionFeeStats({
             </SecondaryText>
           </FeeStat>
         </WrapChildrenForMediaSize>
-        {lpIncentiveRewardApr ? (
-          <LPIncentiveFeeStat
-            currency0Info={currency0Info}
-            currency1Info={currency1Info}
-            poolApr={apr}
-            lpIncentiveRewardApr={lpIncentiveRewardApr}
-            totalApr={totalApr}
-          />
-        ) : (
-          <APRFeeStat apr={apr} />
-        )}
       </Flex>
       <Flex $md={{ display: 'none' }}>
         <MinMaxRange

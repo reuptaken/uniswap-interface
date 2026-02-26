@@ -15,6 +15,7 @@ type AmountRow = {
   currencyInfo: CurrencyInfo
   fiatValue: Maybe<CurrencyAmount<Currency>>
   currencyAmount: CurrencyAmount<Currency>
+  flashColor?: string
 }
 
 type LiquidityPositionAmountRowsProps = {
@@ -50,7 +51,7 @@ export function LiquidityPositionAmountRows({ rows }: LiquidityPositionAmountRow
           </TouchableArea>
           <Flex alignItems="flex-end" gap="$gap4">
             <Flex row alignItems="center" justifyContent="flex-end" gap="$gap4">
-              <Text variant="body2" color="$neutral2">
+              <Text variant="body2" color={row.flashColor ?? '$neutral2'}>
                 {formatCurrencyAmount({ value: row.currencyAmount, type: NumberType.TokenNonTx })}{' '}
                 {row.currencyAmount.currency.symbol}
               </Text>

@@ -227,6 +227,8 @@ function useDropdownOptions({
   ])
 }
 
+const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'BUSD', 'FRAX', 'LUSD']
+
 export function LiquidityPositionCard({
   liquidityPosition,
   isMiniVersion,
@@ -256,10 +258,59 @@ export function LiquidityPositionCard({
   const isSmallScreen = media.sm
 
   const { fee0Amount, fee1Amount } = liquidityPosition
-  const fiatFeeValue0 = useUSDCValue(fee0Amount, PollingInterval.Slow)
-  const fiatFeeValue1 = useUSDCValue(fee1Amount, PollingInterval.Slow)
-  const fiatValue0 = useUSDCValue(liquidityPosition.currency0Amount, PollingInterval.Slow)
-  const fiatValue1 = useUSDCValue(liquidityPosition.currency1Amount, PollingInterval.Slow)
+  const fiatFeeValue0Raw = useUSDCValue(fee0Amount, PollingInterval.Slow)
+  const fiatFeeValue1Raw = useUSDCValue(fee1Amount, PollingInterval.Slow)
+  const fiatValue0Raw = useUSDCValue(liquidityPosition.currency0Amount, PollingInterval.Slow)
+  const fiatValue1Raw = useUSDCValue(liquidityPosition.currency1Amount, PollingInterval.Slow)
+
+  const token0Price = liquidityPosition.version !== ProtocolVersion.V2
+    ? liquidityPosition.poolOrPair?.token0Price
+    : undefined
+  const token1Price = liquidityPosition.version !== ProtocolVersion.V2
+    ? liquidityPosition.poolOrPair?.token1Price
+    : undefined
+
+  const token0IsStable = STABLECOIN_SYMBOLS.includes(liquidityPosition.currency0Amount.currency.symbol ?? '')
+  const token1IsStable = STABLECOIN_SYMBOLS.includes(liquidityPosition.currency1Amount.currency.symbol ?? '')
+
+  const fiatValue0 = (() => {
+    if (fiatValue0Raw) return fiatValue0Raw
+    if (token0IsStable) return liquidityPosition.currency0Amount
+    if (token1IsStable && token0Price) {
+      try { return token0Price.quote(liquidityPosition.currency0Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const fiatValue1 = (() => {
+    if (fiatValue1Raw) return fiatValue1Raw
+    if (token1IsStable) return liquidityPosition.currency1Amount
+    if (token0IsStable && token1Price) {
+      try { return token1Price.quote(liquidityPosition.currency1Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const fiatFeeValue0 = (() => {
+    if (fiatFeeValue0Raw) return fiatFeeValue0Raw
+    if (!fee0Amount) return null
+    if (token0IsStable) return fee0Amount
+    if (token1IsStable && token0Price) {
+      try { return token0Price.quote(fee0Amount) } catch { return null }
+    }
+    return null
+  })()
+
+  const fiatFeeValue1 = (() => {
+    if (fiatFeeValue1Raw) return fiatFeeValue1Raw
+    if (!fee1Amount) return null
+    if (token1IsStable) return fee1Amount
+    if (token0IsStable && token1Price) {
+      try { return token1Price.quote(fee1Amount) } catch { return null }
+    }
+    return null
+  })()
+
   const priceOrdering = useMemo(() => {
     if (liquidityPosition.version === ProtocolVersion.V2 || !liquidityPosition.position) {
       return {}
@@ -289,6 +340,15 @@ export function LiquidityPositionCard({
     fiatValue0 && fiatValue1
       ? convertFiatAmountFormatted(fiatValue0.add(fiatValue1).toExact(), NumberType.FiatTokenPrice)
       : undefined
+
+  const formattedTotalValue = (() => {
+    if (!fiatValue0 || !fiatValue1) return undefined
+    const positionUsd = parseFloat(fiatValue0.add(fiatValue1).toExact())
+    const feesUsd =
+      (fiatFeeValue0 ? parseFloat(fiatFeeValue0.toExact()) : 0) +
+      (fiatFeeValue1 ? parseFloat(fiatFeeValue1.toExact()) : 0)
+    return convertFiatAmountFormatted(positionUsd + feesUsd, NumberType.FiatTokenPrice)
+  })()
 
   const { totalFormattedEarnings, hasRewards, formattedFeesValue } = useLpIncentivesFormattedEarnings({
     liquidityPosition,
@@ -342,6 +402,7 @@ export function LiquidityPositionCard({
           menuOptions={dropdownOptions}
           disabled={disabled}
           positionInfo={liquidityPosition}
+          formattedTotalValue={formattedTotalValue}
           formattedUsdValue={formattedUsdValue}
           formattedUsdFees={formattedFeesValue}
           priceOrdering={priceOrdering}
@@ -375,7 +436,7 @@ export function LiquidityPositionCard({
             <LiquidityPositionInfo
               positionInfo={liquidityPosition}
               isMiniVersion={isSmallScreen}
-              showMigrateButton={showMigrateButton}
+              showMigrateButton={false}
             />
             <WrappedLiquidityPositionRangeChart
               version={liquidityPosition.version}
@@ -403,6 +464,7 @@ export function LiquidityPositionCard({
             </Flex>
           </Flex>
           <LiquidityPositionFeeStats
+            formattedTotalValue={formattedTotalValue}
             formattedUsdValue={formattedUsdValue}
             formattedUsdFees={formattedFeesValue}
             formattedLpIncentiveEarnings={totalFormattedEarnings}
@@ -414,20 +476,9 @@ export function LiquidityPositionCard({
             version={liquidityPosition.version}
             currency0Info={currency0Info}
             currency1Info={currency1Info}
-            apr={liquidityPosition.apr}
             cardHovered={hover && !disabled}
             pricesInverted={priceInverted}
             setPricesInverted={setPriceInverted}
-            lpIncentiveRewardApr={
-              isLPIncentivesEnabled && liquidityPosition.version === ProtocolVersion.V4
-                ? liquidityPosition.boostedApr
-                : undefined
-            }
-            totalApr={
-              isLPIncentivesEnabled && liquidityPosition.version === ProtocolVersion.V4
-                ? liquidityPosition.totalApr
-                : undefined
-            }
           />
           {!isTouchDevice && !disabled && <PositionDropdownMoreMenu menuOptions={dropdownOptions} isLast={isLast} />}
         </Flex>
@@ -439,6 +490,7 @@ export function LiquidityPositionCard({
 function MiniPositionCard({
   positionInfo,
   menuOptions,
+  formattedTotalValue,
   formattedUsdFees,
   formattedUsdValue,
   priceOrdering,
@@ -451,6 +503,7 @@ function MiniPositionCard({
 }: {
   positionInfo: PositionInfo
   menuOptions: MenuOptionItem[]
+  formattedTotalValue?: string
   formattedUsdFees?: string
   formattedUsdValue?: string
   priceOrdering: PriceOrdering
@@ -486,6 +539,12 @@ function MiniPositionCard({
     >
       <LiquidityPositionInfo hideStatusIndicator positionInfo={positionInfo} currencyLogoSize={32} isMiniVersion />
       <Flex row gap="$gap12">
+        <Flex>
+          <Text variant="body2">{formattedTotalValue ?? '-'}</Text>
+          <Text variant="body4" color="$neutral2">
+            {t('common.totalValue')}
+          </Text>
+        </Flex>
         <Flex>
           {formattedUsdValue ? (
             <Text variant="body2">{formattedUsdValue}</Text>
