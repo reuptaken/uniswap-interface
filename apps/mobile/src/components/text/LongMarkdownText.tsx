@@ -1,10 +1,10 @@
+import { Flex, fonts, SpaceTokens, Text } from '@universe/mycelium'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
 import React, { useCallback, useReducer, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LayoutChangeEvent } from 'react-native'
 import Markdown, { MarkdownProps } from 'react-native-markdown-display'
-import { Flex, SpaceTokens, Text, useSporeColors } from 'ui/src'
-import { fonts } from 'ui/src/theme'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 import { openUri } from 'uniswap/src/utils/linking'
 
 type LongMarkdownTextProps = {
@@ -92,8 +92,8 @@ export function LongMarkdownText(props: LongMarkdownTextProps): JSX.Element {
           <Markdown
             style={{
               ...markdownStyle,
-              body: { ...markdownStyle.body, height: 'auto' },
-              paragraph: { ...markdownStyle.paragraph, lineHeight: fonts[variant].lineHeight },
+              body: { ...markdownStyle['body'], height: 'auto' },
+              paragraph: { ...markdownStyle['paragraph'], lineHeight: fonts[variant].lineHeight },
             }}
             {...{ children: '.' }}
           />

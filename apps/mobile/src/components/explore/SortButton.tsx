@@ -1,14 +1,19 @@
 import { CustomRankingType, RankingType } from '@universe/api'
+import { Flex, Text } from '@universe/mycelium'
+import { Chart } from '@universe/mycelium/icons/Chart'
+import { ChartPie } from '@universe/mycelium/icons/ChartPie'
+import { ChartPyramid } from '@universe/mycelium/icons/ChartPyramid'
+import { CheckCircleFilled } from '@universe/mycelium/icons/CheckCircleFilled'
+import { TrendDown } from '@universe/mycelium/icons/TrendDown'
+import { TrendUp } from '@universe/mycelium/icons/TrendUp'
+import { TestID } from '@universe/test'
 import React, { memo, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getTokensOrderByMenuLabel, getTokensOrderBySelectedLabel } from 'src/features/explore/utils'
-import { Flex, Text } from 'ui/src'
-import { Chart, ChartPie, ChartPyramid, CheckCircleFilled, TrendDown, TrendUp } from 'ui/src/components/icons'
 import { ActionSheetDropdown } from 'uniswap/src/components/dropdowns/ActionSheetDropdown'
 import { MenuItemProp } from 'uniswap/src/components/modals/ActionSheetModal'
 import { MobileEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 import { logger } from 'utilities/src/logger/logger'
 import { ExploreOrderBy } from 'wallet/src/features/wallet/types'
 
@@ -26,7 +31,7 @@ interface MenuAction {
   active: boolean
 }
 
-function _SortButton({ orderBy, onOrderByChange }: FilterGroupProps): JSX.Element {
+function SortButtonInner({ orderBy, onOrderByChange }: FilterGroupProps): JSX.Element {
   const { t } = useTranslation()
 
   const menuActions = useMemo<MenuAction[]>(() => {
@@ -118,16 +123,7 @@ function _SortButton({ orderBy, onOrderByChange }: FilterGroupProps): JSX.Elemen
   }, [MenuItem, menuActions, handleOrderByChange])
 
   return (
-    <Flex
-      row
-      centered
-      backgroundColor="$surface3"
-      borderRadius="$rounded20"
-      gap="$spacing4"
-      pl="$spacing12"
-      pr="$spacing8"
-      testID={TestID.ExploreSortButton}
-    >
+    <Flex row centered gap="$spacing4" testID={TestID.ExploreSortButton}>
       <ActionSheetDropdown showArrow options={options} styles={{ alignment: 'right' }}>
         <Text ellipse color="$neutral2" flexShrink={1} numberOfLines={1} variant="buttonLabel3">
           {getTokensOrderBySelectedLabel(orderBy, t)}
@@ -137,4 +133,4 @@ function _SortButton({ orderBy, onOrderByChange }: FilterGroupProps): JSX.Elemen
   )
 }
 
-export const SortButton = memo(_SortButton)
+export const SortButton = memo(SortButtonInner)

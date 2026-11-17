@@ -1,4 +1,7 @@
 import { EventConsumer, EventMapBase } from '@react-navigation/core'
+import { isWebPlatform } from '@universe/environment'
+import { Flex, type FlexProps, AnimatedFlex, useIsDarkMode } from '@universe/mycelium'
+import { UNISWAP_LOGO } from '@universe/mycelium/assets'
 import { ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
 import { LayoutChangeEvent } from 'react-native'
 import Animated, {
@@ -13,12 +16,9 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { Circle, Defs, Svg } from 'react-native-svg'
-import { Flex, FlexProps, Image, useIsDarkMode } from 'ui/src'
+import { Image } from 'ui/src'
 import { Jiggly } from 'ui/src/animations'
-import { UNISWAP_LOGO } from 'ui/src/assets'
-import { AnimatedFlex } from 'ui/src/components/layout/AnimatedFlex'
 import { imageSizes } from 'ui/src/theme'
-import { isWebPlatform } from 'utilities/src/platform'
 import { ONE_SECOND_MS } from 'utilities/src/time/time'
 import { useTimeout } from 'utilities/src/time/timing'
 import {
@@ -76,6 +76,7 @@ const OnboardingAnimation = ({
         easing: Easing.elastic(1.1),
       }),
     )
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
   }, [])
 
   useTimeout(() => {
@@ -184,6 +185,7 @@ const AnimatedElements = ({
     )
     innerAnimation.value = withDelay(INNER_CIRCLE_SHOW_DELAY, withSpring(0.8))
     outerAnimation.value = withDelay(OUTER_CIRCLE_SHOW_DELAY, withSpring(0.8))
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
   }, [])
 
   const innerCircleStyle = useAnimatedStyle(() => {

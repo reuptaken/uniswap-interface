@@ -1,24 +1,57 @@
 import { FetchError } from '@universe/api/src/clients/base/errors'
+import { resolveFirstPartyFetch } from '@universe/api/src/clients/base/fetchImplProvider'
 import type {
   CustomOptions,
   FetchClient,
   FetchClientContext,
   StandardFetchOptions,
 } from '@universe/api/src/clients/base/types'
+import { requireSessionFetch } from '@universe/sessions'
+import { logger, type Logger } from 'utilities/src/logger/logger'
 
 export function createFetchClient({
   baseUrl,
+  getBaseUrl,
   getHeaders,
+  onResponse,
   getSessionService,
+  getSession,
+  source = 'fetch',
+  getLogger = (): Logger => logger,
   defaultOptions = {},
 }: FetchClientContext): FetchClient {
+  // Helper to resolve the base URL - prefers getBaseUrl for dynamic resolution
+  const resolveBaseUrl = (): string => getBaseUrl?.() ?? baseUrl ?? ''
+
+  // Resolve `x-session-id` *per underlying request* so the gate's post-recovery
+  // retry carries the freshly-recovered id, not the stale one captured before
+  // the first attempt. Web uses cookies (no header); mobile sends the header.
+  const sessionIdFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const sessionState = await getSessionService().getSessionState()
+    const headers = new Headers(init?.headers)
+    if (sessionState?.sessionId) {
+      headers.set('x-session-id', sessionState.sessionId)
+    }
+    // First-party traffic honors an installed fetch override (e.g. nitro-fetch
+    // behind its gate on mobile); everything else uses the platform stack.
+    return resolveFirstPartyFetch(input)(input, { ...init, headers })
+  }
+
+  // No-op when getSession returns null; awaits ready + retries once on 401 otherwise.
+  const doFetch = requireSessionFetch({ getSession: getSession ?? ((): null => null), source, getLogger })(
+    sessionIdFetch,
+  )
+
   return {
     get context() {
       return () => {
         return {
-          baseUrl,
+          baseUrl: resolveBaseUrl(),
+          getBaseUrl,
           getHeaders,
+          onResponse,
           getSessionService,
+          getSession,
           defaultOptions,
         }
       }
@@ -26,23 +59,24 @@ export function createFetchClient({
 
     get fetch() {
       return async <T = Response>(path: string, options: StandardFetchOptions): Promise<T> => {
-        const sessionService = getSessionService()
-        const sessionState = await sessionService.getSessionState()
-
         const additionalHeaders = getHeaders?.() ?? {}
 
+        // `x-session-id` is injected by `sessionIdFetch` per attempt — not here —
+        // so it stays correct across the gate's recover-and-retry.
         const headers = new Headers({
+          // oxlint-disable-next-line typescript-eslint/no-misused-spread
           ...additionalHeaders,
+          // oxlint-disable-next-line typescript-eslint/no-misused-spread
           ...options?.headers,
         })
-        if (sessionState?.sessionId) {
-          headers.set('x-session-id', sessionState.sessionId)
-        }
-        return fetch(`${baseUrl}${path}`, {
+        const response = await doFetch(`${resolveBaseUrl()}${path}`, {
           ...defaultOptions,
           ...options,
           headers,
-        }) as Promise<T>
+        })
+        // Surface the raw Response (headers only) before any body read downstream.
+        onResponse?.(response)
+        return response as T
       }
     },
 
@@ -86,7 +120,8 @@ export function createFetchClient({
 
         _options.headers = {
           'Content-Type': 'application/json',
-          ...(options.headers ?? {}),
+          // oxlint-disable-next-line typescript-eslint/no-misused-spread
+          ...options.headers,
         }
 
         return (await this.get(path, { ..._options, method: 'POST' })) as T
@@ -99,7 +134,8 @@ export function createFetchClient({
 
         _options.headers = {
           'Content-Type': 'application/json',
-          ...(options.headers ?? {}),
+          // oxlint-disable-next-line typescript-eslint/no-misused-spread
+          ...options.headers,
         }
 
         return (await this.get(path, { ..._options, method: 'PUT' })) as T
@@ -118,7 +154,8 @@ export function createFetchClient({
 
         _options.headers = {
           'Content-Type': 'application/json',
-          ...(options.headers ?? {}),
+          // oxlint-disable-next-line typescript-eslint/no-misused-spread
+          ...options.headers,
         }
 
         return await this.get(path, { ..._options, method: 'PATCH' })

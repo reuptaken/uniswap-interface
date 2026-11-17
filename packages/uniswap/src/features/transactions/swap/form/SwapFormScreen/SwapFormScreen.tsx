@@ -1,15 +1,16 @@
 import type { BottomSheetView } from '@gorhom/bottom-sheet'
+import { isExtensionApp, isMobileApp, isWebApp } from '@universe/environment'
+import { Flex } from '@universe/mycelium'
 import type { ComponentProps } from 'react'
-import type { FlexProps } from 'ui/src'
-import { Flex } from 'ui/src'
-import { chainIdToPlatform } from 'uniswap/src/features/platforms/utils/chains'
+import { useEffect } from 'react'
+import { PermissionedSwapBanner } from 'uniswap/src/features/permissionedTokens/PermissionedSwapBanner'
 import type { TransactionSettingConfig } from 'uniswap/src/features/transactions/components/settings/types'
-import { filterSettingsByPlatform } from 'uniswap/src/features/transactions/components/settings/utils'
 import { TransactionModalInnerContainer } from 'uniswap/src/features/transactions/components/TransactionModal/TransactionModal'
 import { useTransactionModalContext } from 'uniswap/src/features/transactions/components/TransactionModal/TransactionModalContext'
-import { SwapFormSettings } from 'uniswap/src/features/transactions/swap/components/SwapFormSettings/SwapFormSettings'
 import { Slippage } from 'uniswap/src/features/transactions/swap/components/SwapFormSettings/settingsConfigurations/slippage/Slippage/Slippage'
 import { TradeRoutingPreference } from 'uniswap/src/features/transactions/swap/components/SwapFormSettings/settingsConfigurations/TradeRoutingPreference/TradeRoutingPreference'
+import { SwapFormSettings } from 'uniswap/src/features/transactions/swap/components/SwapFormSettings/SwapFormSettings'
+import { SwapFormScreenStoreContextProvider } from 'uniswap/src/features/transactions/swap/form/stores/swapFormScreenStore/SwapFormScreenStoreContextProvider'
 import { SwapFormCurrencyInputPanel } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/SwapFormCurrencyInputPanel'
 import { SwapFormCurrencyOutputPanel } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/SwapFormCurrencyOutputPanel'
 import { SwapFormDecimalPad } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/SwapFormDecimalPad/SwapFormDecimalPad'
@@ -17,16 +18,11 @@ import { SwapFormHeader } from 'uniswap/src/features/transactions/swap/form/Swap
 import { SwapFormScreenDetails } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/SwapFormScreenDetails/SwapFormScreenDetails'
 import { SwapTokenSelector } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/SwapTokenSelector/SwapTokenSelector'
 import { SwitchCurrenciesButton } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/SwitchCurrenciesButton'
-import { YouReceiveDetails } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/YouReceiveDetails/YouReceiveDetails'
-import { SwapFormScreenStoreContextProvider } from 'uniswap/src/features/transactions/swap/form/stores/swapFormScreenStore/SwapFormScreenStoreContextProvider'
-import { useSwapFormScreenStore } from 'uniswap/src/features/transactions/swap/form/stores/swapFormScreenStore/useSwapFormScreenStore'
-import { usePriceUXEnabled } from 'uniswap/src/features/transactions/swap/hooks/usePriceUXEnabled'
-import {
-  useSwapFormStore,
-  useSwapFormStoreDerivedSwapInfo,
-} from 'uniswap/src/features/transactions/swap/stores/swapFormStore/useSwapFormStore'
-import { BridgeTrade } from 'uniswap/src/features/transactions/swap/types/trade'
-import { isExtensionApp, isWebApp } from 'utilities/src/platform'
+import { useResetGasOverridesOnTokenChange } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/useResetGasOverridesOnTokenChange'
+import { useSwapFormStore } from 'uniswap/src/features/transactions/swap/stores/swapFormStore/useSwapFormStore'
+import { useSwapFlowTimer } from 'uniswap/src/features/transactions/swap/utils/SwapFlowTimerContext'
+import { DDRumManualTiming } from 'utilities/src/logger/datadog/datadogEvents'
+import { usePerformanceLogger } from 'utilities/src/logger/usePerformanceLogger'
 
 interface SwapFormScreenProps {
   hideContent: boolean
@@ -34,9 +30,8 @@ interface SwapFormScreenProps {
   settings: TransactionSettingConfig[]
   tokenColor?: string
   focusHook?: ComponentProps<typeof BottomSheetView>['focusHook']
+  onCurrencyPanelsLayout?: (height: number) => void
 }
-
-const EXIT_STYLE: FlexProps['exitStyle'] = { opacity: 0 }
 
 /**
  * IMPORTANT: In the Extension, this component remains mounted when the user moves to the `SwapReview` screen.
@@ -44,31 +39,34 @@ const EXIT_STYLE: FlexProps['exitStyle'] = { opacity: 0 }
  */
 export function SwapFormScreen({
   hideContent,
+  // oxlint-disable-next-line typescript/no-useless-default-assignment -- defensive default
   settings = [Slippage, TradeRoutingPreference],
   tokenColor,
   focusHook,
+  onCurrencyPanelsLayout,
 }: SwapFormScreenProps): JSX.Element {
   const { bottomSheetViewStyles } = useTransactionModalContext()
-  const { selectingCurrencyField, hideSettings } = useSwapFormStore((s) => ({
-    selectingCurrencyField: s.selectingCurrencyField,
-    hideSettings: s.hideSettings,
-  }))
+  const tracker = useSwapFlowTimer()
 
-  const { trade, chainId } = useSwapFormStoreDerivedSwapInfo((s) => ({ trade: s.trade, chainId: s.chainId }))
+  useEffect(() => {
+    tracker?.mark(DDRumManualTiming.SwapFormScreenMount)
+  }, [tracker])
 
-  const filteredSettings = filterSettingsByPlatform(settings, chainIdToPlatform(chainId))
+  const selectingCurrencyField = useSwapFormStore((s) => s.selectingCurrencyField)
+
+  useResetGasOverridesOnTokenChange()
 
   const showTokenSelector = !hideContent && !!selectingCurrencyField
-  const isBridgeTrade = trade instanceof BridgeTrade
 
   return (
     <TransactionModalInnerContainer fullscreen bottomSheetViewStyles={bottomSheetViewStyles}>
       {!isWebApp && <SwapFormHeader /> /* Interface renders its own header with multiple tabs */}
-      {!hideSettings && <SwapFormSettings settings={filteredSettings} isBridgeTrade={isBridgeTrade} />}
+      {/* On web the settings gear lives in the page header row alongside the tabs */}
+      {!isWebApp && <SwapFormSettings settings={settings} />}
 
       {!hideContent && (
         <SwapFormScreenStoreContextProvider tokenColor={tokenColor}>
-          <SwapFormContent />
+          <SwapFormContent onCurrencyPanelsLayout={onCurrencyPanelsLayout} />
         </SwapFormScreenStoreContextProvider>
       )}
 
@@ -77,32 +75,25 @@ export function SwapFormScreen({
   )
 }
 
-function SwapFormContent(): JSX.Element {
-  const { trade, isCrossChain } = useSwapFormScreenStore((state) => ({
-    trade: state.trade,
-    isCrossChain: state.isCrossChain,
-  }))
-
-  const priceUXEnabled = usePriceUXEnabled()
+function SwapFormContent({
+  onCurrencyPanelsLayout,
+}: {
+  onCurrencyPanelsLayout?: (height: number) => void
+}): JSX.Element {
+  usePerformanceLogger(DDRumManualTiming.SwapFormContentRender, [])
 
   return (
     <Flex grow gap="$spacing8" justifyContent="space-between">
-      <Flex gap="$spacing4" animation="quick" exitStyle={EXIT_STYLE} grow={isExtensionApp}>
-        <Flex gap="$spacing2">
+      <Flex gap="$spacing4" grow={isExtensionApp}>
+        <Flex gap="$spacing2" onLayout={(e) => onCurrencyPanelsLayout?.(e.nativeEvent.layout.height)}>
           <SwapFormCurrencyInputPanel />
           <SwitchCurrenciesButton />
           <SwapFormCurrencyOutputPanel />
         </Flex>
 
+        {isMobileApp && <PermissionedSwapBanner />}
+
         <Flex>
-          {priceUXEnabled && (
-            <YouReceiveDetails
-              isIndicative={Boolean(trade.indicativeTrade && !trade.trade)}
-              isLoadingIndicative={trade.isIndicativeLoading}
-              isLoading={Boolean(trade.isFetching)}
-              isBridge={isCrossChain}
-            />
-          )}
           <SwapFormScreenDetails />
         </Flex>
       </Flex>

@@ -1,12 +1,22 @@
+import { Code, ConnectError } from '@connectrpc/connect'
 import { WalletSignTransactionError } from '@solana/wallet-adapter-base'
 import { TFunction } from 'i18next'
+import { didUserReject, errorTextParts, someInErrorChain } from 'utilities/src/errors/walletRejection'
 import { logger } from 'utilities/src/logger/logger'
-import { UserRejectedRequestError } from 'utils/errors'
+
+export { didUserReject }
 
 /** Attempts to extract a string from an error, based on common error object formats */
 function getReason(error: any): string | undefined {
   let reason: string | undefined
+  const seen = new WeakSet()
   while (error) {
+    if (typeof error === 'object' && seen.has(error)) {
+      break
+    }
+    if (typeof error === 'object') {
+      seen.add(error)
+    }
     reason = error.reason ?? error.message ?? reason
     if (typeof error === 'string') {
       return error
@@ -17,39 +27,19 @@ function getReason(error: any): string | undefined {
   return reason
 }
 
-export function didUserReject(error: any): boolean {
-  const reason = getReason(error)
-  if (
-    error?.code === 4001 ||
-    // eip-5792 upgrade rejected error https://eips.ethereum.org/EIPS/eip-5792#error-codes
-    error?.code === 5750 ||
-    // ethers v5.7.0 wrapped error
-    error?.code === 'ACTION_REJECTED' ||
-    // For Rainbow :
-    (reason?.match(/request/i) && reason.match(/reject/i)) ||
-    // For Frame:
-    reason?.match(/declined/i) ||
-    // For SafePal:
-    reason?.match(/cancell?ed by user/i) ||
-    // For Trust:
-    reason?.match(/user cancell?ed/i) ||
-    // For Coinbase:
-    reason?.match(/user denied/i) ||
-    // For Fireblocks
-    reason?.match(/user rejected/i) ||
-    // For Binance:
-    reason?.match(/closed modal/i) ||
-    // For Solflare connection:
-    reason?.match(/connection rejected/i) ||
-    // For Solflare transaction rejection:
-    reason?.match(/transaction cancelled/i) ||
-    error instanceof UserRejectedRequestError
-  ) {
+function isBlockedAccountOneLevel(error: any): boolean {
+  if (error instanceof ConnectError && error.code === Code.Unauthenticated) {
     return true
   }
-  return false
+  return errorTextParts(error).some((part) => part.match(/account is blocked/i))
 }
 
+/** A backend UnauthorizedError for a sanctioned/blocked wallet (ConnectRPC `Code.Unauthenticated` or an "account is blocked" reason anywhere in the chain). */
+export function isBlockedAccountError(error: any): boolean {
+  return someInErrorChain(error, isBlockedAccountOneLevel)
+}
+
+// oxlint-disable-next-line no-unused-expressions -- biome-parity: oxlint is stricter here
 WalletSignTransactionError
 /**
  * This is hacking out the revert reason from the ethers provider thrown error however it can.
@@ -59,6 +49,10 @@ WalletSignTransactionError
 export function swapErrorToUserReadableMessage(t: TFunction, error: any): string {
   if (didUserReject(error)) {
     return t('swap.error.rejected')
+  }
+
+  if (isBlockedAccountError(error)) {
+    return t('swap.error.accountBlocked')
   }
 
   let reason = getReason(error)

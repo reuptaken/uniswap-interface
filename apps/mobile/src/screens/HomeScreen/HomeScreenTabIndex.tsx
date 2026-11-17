@@ -1,6 +1,5 @@
 export enum HomeScreenTabIndex {
   Tokens = 0,
-  NFTs = 1,
-  Activity = 2,
-  Feed = 3,
+  Pools = 1,
+  NFTs = 2,
 }

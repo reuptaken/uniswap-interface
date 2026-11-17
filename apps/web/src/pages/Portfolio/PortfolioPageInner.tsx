@@ -1,51 +1,53 @@
-import { PortfolioConnectWalletBanner } from 'pages/Portfolio/ConnectWalletBanner'
-import { ConnectWalletFixedBottomButton } from 'pages/Portfolio/ConnectWalletFixedBottomButton'
-import { PortfolioHeader } from 'pages/Portfolio/Header/Header'
-import useIsConnected from 'pages/Portfolio/Header/hooks/useIsConnected'
-import { PortfolioContent } from 'pages/Portfolio/PortfolioContent'
-import { Flex } from 'ui/src'
+import { FeatureFlags, useFeatureFlag } from '@universe/gating'
+import { Flex } from '@universe/mycelium'
+import { PortfolioConnectWalletBanner } from '~/pages/Portfolio/ConnectWalletBanner'
+import { ConnectWalletFixedBottomButton } from '~/pages/Portfolio/ConnectWalletFixedBottomButton'
+import { PortfolioHeader } from '~/pages/Portfolio/Header/Header'
+import { usePortfolioRoutes } from '~/pages/Portfolio/Header/hooks/usePortfolioRoutes'
+import { usePortfolioHeartbeatCoordinator } from '~/pages/Portfolio/hooks/usePortfolioHeartbeatCoordinator'
+import { useShowDemoView } from '~/pages/Portfolio/hooks/useShowDemoView'
+import { PortfolioContent } from '~/pages/Portfolio/PortfolioContent'
+import { PortfolioOutageProvider } from '~/pages/Portfolio/PortfolioOutageContext'
 
 interface PortfolioPageInnerProps {
-  scrollY: number
-  isBannerVisible: boolean
-  mb?: number | string
+  mb?: number
 }
 
-export function PortfolioPageInner({ scrollY, isBannerVisible, mb }: PortfolioPageInnerProps): JSX.Element {
-  const isConnected = useIsConnected()
+export function PortfolioPageInner({ mb }: PortfolioPageInnerProps): JSX.Element {
+  const showDemoView = useShowDemoView()
+  const { tab } = usePortfolioRoutes()
+  const portfolioPoolsBalancesEnabled = useFeatureFlag(FeatureFlags.PortfolioPoolsBalances)
+
+  usePortfolioHeartbeatCoordinator({ tab, poolsEnabled: portfolioPoolsBalancesEnabled })
 
   return (
-    <Flex
-      flexDirection="column"
-      gap="$spacing40"
-      maxWidth="$maxWidth1200"
-      width="100%"
-      p="$spacing24"
-      pt="$none"
-      position="relative"
-      mb={mb}
-      $sm={{ p: '$spacing8' }}
-    >
-      {!isConnected && <PortfolioConnectWalletBanner />}
-      {!isConnected && <ConnectWalletFixedBottomButton shouldShow={!isBannerVisible} />}
-
-      {isConnected ? (
-        <>
-          <PortfolioHeader scrollY={scrollY} />
-
-          {/* Animated Content Area - All routes show same content, filtered by chain */}
-          <PortfolioContent />
-        </>
-      ) : (
-        <>
-          <PortfolioHeader />
-
-          {/* Animated Content Area - All routes show same content, filtered by chain */}
-          <Flex cursor="not-allowed">
-            <PortfolioContent disabled />
-          </Flex>
-        </>
-      )}
-    </Flex>
+    <PortfolioOutageProvider>
+      <Flex
+        flexDirection="column"
+        gap="$spacing40"
+        maxWidth={1200}
+        width="100%"
+        p="$spacing24"
+        pt="$none"
+        position="relative"
+        mb={mb}
+        $md={{ px: '$none' }}
+        $sm={{ py: '$spacing8' }}
+      >
+        {showDemoView && <PortfolioConnectWalletBanner />}
+        {showDemoView && <ConnectWalletFixedBottomButton />}
+        {/* Animated Content Area - All routes show same content, filtered by chain */}
+        <Flex gap="$spacing24">
+          <PortfolioHeader enableScrollCompact={!showDemoView} />
+          {showDemoView ? (
+            <Flex cursor="not-allowed">
+              <PortfolioContent disabled />
+            </Flex>
+          ) : (
+            <PortfolioContent />
+          )}
+        </Flex>
+      </Flex>
+    </PortfolioOutageProvider>
   )
 }

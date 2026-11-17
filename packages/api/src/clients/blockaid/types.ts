@@ -1,5 +1,4 @@
-// The eslint rule is disabled because we want to use the zod schema factory pattern to avoid bundle size bloat
-/* eslint-disable @typescript-eslint/explicit-function-return-type */
+/* oxlint-disable typescript/explicit-function-return-type, max-lines -- zod schema factory pattern to avoid bundle size bloat; one file mirrors the Blockaid API surface */
 import { z } from 'zod'
 
 /**
@@ -26,11 +25,11 @@ export const getBlockaidScanSiteHitResponseSchema = () =>
     is_reachable: z.boolean(),
     is_web3_site: z.boolean(),
     is_malicious: z.boolean(),
-    attack_types: z.record(z.unknown()),
+    attack_types: z.record(z.string(), z.unknown()),
     network_operations: z.array(z.string()),
     json_rpc_operations: z.array(z.string()),
-    contract_write: z.record(z.unknown()),
-    contract_read: z.record(z.unknown()),
+    contract_write: z.record(z.string(), z.unknown()),
+    contract_read: z.record(z.string(), z.unknown()),
   })
 
 export type BlockaidScanSiteHitResponse = z.infer<ReturnType<typeof getBlockaidScanSiteHitResponseSchema>>
@@ -98,7 +97,7 @@ export const getBlockaidScanTransactionRequestSchema = () =>
     options: z.array(z.enum(['validation', 'simulation', 'gas_estimation', 'events'])).optional(),
     metadata: getMetadataDappSchema(),
     block: z.union([z.number(), z.string()]).optional(),
-    state_override: z.record(z.unknown()).optional(),
+    state_override: z.record(z.string(), z.unknown()).optional(),
     simulate_with_estimated_gas: z.boolean().optional(),
     account_address: z.string(),
     data: getTransactionDataSchema(),
@@ -116,12 +115,12 @@ const getTransactionFeatureSchema = () =>
     description: z.string(),
     address: z.string().optional(),
     entity: z.string().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
   })
 
 /**
  * Lazy-loaded Zod schema factory for asset amount
- * Note: For NFTs (ERC721/ERC1155), 'value' is not present, only 'token_id'
+ * ERC721 entries use token_id without value; ERC1155 entries include both.
  */
 const getAssetAmountSchema = () =>
   z.object({
@@ -137,11 +136,12 @@ const getAssetAmountSchema = () =>
 
 /**
  * Lazy-loaded Zod schema factory for balance change
+ * `value` is omitted when Blockaid cannot scale the amount (no known decimals, e.g. NONERC assets).
  */
 const getBalanceChangeSchema = () =>
   z.object({
     usd_price: z.string().optional(),
-    value: z.union([z.string(), z.number()]),
+    value: z.union([z.string(), z.number()]).optional(),
     raw_value: z.string(),
   })
 
@@ -183,6 +183,21 @@ const getERC1155TokenDetailsSchema = () =>
   })
 
 /**
+ * Lazy-loaded Zod schema factory for NONERC token details
+ * Blockaid can return this metadata on transfers and approval exposures. Only `address` is
+ * guaranteed; the label alone does not establish the token interface or approval semantics.
+ */
+const getNonErcTokenDetailsSchema = () =>
+  z.object({
+    type: z.literal('NONERC'),
+    address: z.string(),
+    name: z.string().optional(),
+    symbol: z.string().optional(),
+    decimals: z.number().optional(),
+    logo_url: z.string().optional(),
+  })
+
+/**
  * Lazy-loaded Zod schema factory for native asset details
  */
 const getNativeAssetDetailsSchema = () =>
@@ -204,6 +219,7 @@ const getAssetDetailsSchema = () =>
     getERC20TokenDetailsSchema(),
     getERC721TokenDetailsSchema(),
     getERC1155TokenDetailsSchema(),
+    getNonErcTokenDetailsSchema(),
     getNativeAssetDetailsSchema(),
   ])
 
@@ -242,6 +258,10 @@ const getSpenderExposureSchema = () =>
     summary: z.string().optional(),
     exposure: z.array(getAssetAmountSchema()).optional(),
     approval: z.string().optional(),
+    // NFT spender exposures use this instead of the ERC20-only `approval` amount. It reports the
+    // post-simulation approval-for-all state: `true` confirms a collection-wide grant, while `false`
+    // can corroborate a decoded revoke. An absent value provides no directional evidence.
+    is_approved_for_all: z.boolean().optional(),
   })
 
 /**
@@ -251,7 +271,7 @@ const getExposureSchema = () =>
   z.object({
     asset_type: z.string().optional(),
     asset: getAssetDetailsSchema(),
-    spenders: z.record(getSpenderExposureSchema()),
+    spenders: z.record(z.string(), getSpenderExposureSchema()),
   })
 
 /**
@@ -290,7 +310,7 @@ const getAccountSummarySchema = () =>
     traces: z.array(getAssetTraceSchema()),
     total_usd_diff: getUsdDiffSchema().optional(),
     exposures: z.array(getExposureSchema()),
-    total_usd_exposure: z.record(z.string()),
+    total_usd_exposure: z.record(z.string(), z.string()),
   })
 
 /**
@@ -331,7 +351,7 @@ const getTransactionParamsSchema = () =>
 const getTransactionSimulationSuccessSchema = () =>
   z.object({
     status: z.literal('Success'),
-    assets_diffs: z.record(z.array(getAssetDiffSchema())),
+    assets_diffs: z.record(z.string(), z.array(getAssetDiffSchema())),
     transaction_actions: z.array(
       z.union([
         z.enum([
@@ -348,14 +368,14 @@ const getTransactionSimulationSuccessSchema = () =>
         z.string(),
       ]),
     ),
-    total_usd_diff: z.record(getUsdDiffSchema()),
-    exposures: z.record(z.array(getExposureSchema())),
-    total_usd_exposure: z.record(z.record(z.string())),
-    address_details: z.record(getAddressDetailSchema()),
+    total_usd_diff: z.record(z.string(), getUsdDiffSchema()),
+    exposures: z.record(z.string(), z.array(getExposureSchema())),
+    total_usd_exposure: z.record(z.string(), z.record(z.string(), z.string())),
+    address_details: z.record(z.string(), getAddressDetailSchema()),
     account_summary: getAccountSummarySchema(),
     params: getTransactionParamsSchema().optional(),
-    contract_management: z.record(z.unknown()).optional(),
-    session_key: z.record(z.unknown()).optional(),
+    contract_management: z.record(z.string(), z.unknown()).optional(),
+    session_key: z.record(z.string(), z.unknown()).optional(),
     missing_balances: z.array(getMissingBalanceSchema()).optional(),
     simulation_run_count: z.number().optional(),
   })
@@ -414,7 +434,7 @@ const getTransactionValidationSchema = () =>
 const getEventParamSchema = () =>
   z.object({
     type: z.string(),
-    value: z.union([z.string(), z.record(z.unknown()), z.array(z.unknown())]),
+    value: z.union([z.string(), z.record(z.string(), z.unknown()), z.array(z.unknown())]),
     internalType: z.string().optional(),
     name: z.string().optional(),
   })
@@ -442,7 +462,7 @@ export const getBlockaidScanTransactionResponseSchema = () =>
     events: z.array(getTransactionEventSchema()).optional(),
     gas_estimation: z.unknown().optional(),
     user_operation_gas_estimation: z.unknown().optional(),
-    features: z.record(z.unknown()).optional(),
+    features: z.record(z.string(), z.unknown()).optional(),
     block: z.string(),
     chain: z.string(),
     account_address: z.string().optional(),
@@ -483,7 +503,7 @@ export const getBlockaidScanJsonRpcRequestSchema = () =>
     options: z.array(z.enum(['validation', 'simulation', 'gas_estimation', 'events'])).optional(),
     metadata: getMetadataDappSchema(),
     block: z.union([z.number(), z.string()]).optional(),
-    state_override: z.record(z.unknown()).optional(),
+    state_override: z.record(z.string(), z.unknown()).optional(),
     simulate_with_estimated_gas: z.boolean().optional(),
     account_address: z.string().optional(),
     data: getJsonRpcDataSchema(),

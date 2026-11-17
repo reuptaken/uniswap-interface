@@ -4,6 +4,7 @@ import { useDispatch } from 'react-redux'
 import type { TradeableAsset } from 'uniswap/src/entities/assets'
 import { useMaxAmountSpend } from 'uniswap/src/features/gas/hooks/useMaxAmountSpend'
 import { useSwapAnalytics } from 'uniswap/src/features/transactions/swap/analytics'
+import { useEthAsErc20UniswapXQualifyingEvent } from 'uniswap/src/features/transactions/swap/hooks/useEthAsErc20UniswapXQualifyingEvent'
 import {
   createSwapFormStore,
   INITIAL_SWAP_FORM_STATE,
@@ -35,6 +36,7 @@ const useCalculatedInitialDerivedSwapInfo = (
     | 'exactCurrencyField'
     | 'focusOnCurrencyField'
     | 'input'
+    | 'isEarnFlow'
     | 'output'
     | 'selectingCurrencyField'
     | 'txId'
@@ -60,6 +62,7 @@ const useCalculatedInitialDerivedSwapInfo = (
     exactAmountFiat: debouncedExactAmountFiat,
     focusOnCurrencyField: partialSwapFormState.focusOnCurrencyField,
     selectingCurrencyField: partialSwapFormState.selectingCurrencyField,
+    isEarnFlow: partialSwapFormState.isEarnFlow,
     isDebouncing: isDebouncingExactAmountToken || isDebouncingExactAmountFiat,
   })
 }
@@ -79,6 +82,7 @@ function SwapFormStoreContextProviderInitializer({
     exactCurrencyField: initialState.exactCurrencyField,
     focusOnCurrencyField: initialState.focusOnCurrencyField ?? INITIAL_SWAP_FORM_STATE.focusOnCurrencyField,
     input: initialState.input ?? INITIAL_SWAP_FORM_STATE.input,
+    isEarnFlow: initialState.isEarnFlow ?? INITIAL_SWAP_FORM_STATE.isEarnFlow,
     output: initialState.output ?? INITIAL_SWAP_FORM_STATE.output,
     selectingCurrencyField: initialState.selectingCurrencyField ?? INITIAL_SWAP_FORM_STATE.selectingCurrencyField,
     txId: initialState.txId ?? INITIAL_SWAP_FORM_STATE.txId,
@@ -95,13 +99,11 @@ function SwapFormStoreContextProviderInitializer({
 function SwapFormStoreContextProviderBase({
   children,
   hideFooter,
-  hideSettings,
   prefilledState,
   initialStateToUse,
   initialDerivedSwapInfo,
 }: PropsWithChildren<{
   hideFooter?: boolean
-  hideSettings?: boolean
   prefilledState?: SwapFormState
   initialStateToUse: SwapFormState
   initialDerivedSwapInfo: DerivedSwapInfo
@@ -112,7 +114,6 @@ function SwapFormStoreContextProviderBase({
   const [{ store, cleanup }] = useState(() =>
     createSwapFormStore({
       hideFooter,
-      hideSettings,
       initialState: initialStateToUse,
       derivedSwapInfo: initialDerivedSwapInfo,
       dependenciesForSideEffect: {
@@ -134,6 +135,7 @@ function SwapFormStoreContextProviderBase({
     exactCurrencyField,
     focusOnCurrencyField,
     input,
+    isEarnFlow,
     isMax,
     isSelectingCurrencyFieldPrefilled,
     isSubmitting,
@@ -151,6 +153,7 @@ function SwapFormStoreContextProviderBase({
       exactCurrencyField: s.exactCurrencyField,
       focusOnCurrencyField: s.focusOnCurrencyField,
       input: s.input,
+      isEarnFlow: s.isEarnFlow,
       isMax: s.isMax,
       isSelectingCurrencyFieldPrefilled: s.isSelectingCurrencyFieldPrefilled,
       isSubmitting: s.isSubmitting,
@@ -158,7 +161,6 @@ function SwapFormStoreContextProviderBase({
       selectingCurrencyField: s.selectingCurrencyField,
       txId: s.txId,
       hideFooter,
-      hideSettings,
     })),
   )
 
@@ -181,24 +183,26 @@ function SwapFormStoreContextProviderBase({
     setSwapForm: setSwapFormState,
   })
 
-  const latestDerivedSwapInfo = useCalculatedInitialDerivedSwapInfo({
+  const dangerouslyGetLatestDerivedSwapInfo = useCalculatedInitialDerivedSwapInfo({
     exactAmountFiat,
     exactAmountToken,
     exactCurrencyField,
     focusOnCurrencyField,
     input,
+    isEarnFlow,
     output,
     selectingCurrencyField,
     txId,
   })
 
   // This prevents the swap form from displaying a new trade while an old one is still being submitted.
-  const derivedSwapInfo = useFreezeWhileSubmitting(latestDerivedSwapInfo, isSubmitting)
+  const derivedSwapInfo = useFreezeWhileSubmitting(dangerouslyGetLatestDerivedSwapInfo, isSubmitting)
 
   const inputAmount = derivedSwapInfo.currencyAmounts[CurrencyField.INPUT]
   const inputBalanceAmount = derivedSwapInfo.currencyBalances[CurrencyField.INPUT]
 
   useSwapAnalytics(derivedSwapInfo)
+  useEthAsErc20UniswapXQualifyingEvent(derivedSwapInfo)
 
   // for native transfers, this is the balance - (estimated gas fee for one transaction * multiplier from flag);
   // for ERC20 transfers, this is the balance
@@ -248,7 +252,12 @@ function SwapFormStoreContextProviderBase({
       exactAmountTokenRef.current = updatedState.exactAmountToken
     }
 
-    if (isAmountUpdated || updatedState.exactCurrencyField !== CurrencyField.OUTPUT) {
+    const shouldRecomputeIsMax =
+      updatedState.exactAmountToken !== undefined ||
+      updatedState.isMax !== undefined ||
+      updatedState.exactCurrencyField !== undefined
+
+    if (shouldRecomputeIsMax) {
       const isMaxTokenAmount =
         !!maxInputAmountAsRef.current &&
         !!updatedState.exactAmountToken &&
@@ -276,16 +285,16 @@ function SwapFormStoreContextProviderBase({
   const derivedState: Partial<SwapFormStateForConsumers> = useMemo(
     () => ({
       derivedSwapInfo,
+      dangerouslyGetLatestDerivedSwapInfo,
       hideFooter,
-      hideSettings,
       prefilledCurrencies,
       isSelectingCurrencyFieldPrefilled,
       isMax: maybeUpdatedIsMax,
     }),
     [
       derivedSwapInfo,
+      dangerouslyGetLatestDerivedSwapInfo,
       hideFooter,
-      hideSettings,
       prefilledCurrencies,
       isSelectingCurrencyFieldPrefilled,
       maybeUpdatedIsMax,
@@ -305,11 +314,9 @@ function SwapFormStoreContextProviderBase({
 export const SwapFormStoreContextProvider = ({
   children,
   hideFooter,
-  hideSettings,
   prefilledState,
 }: PropsWithChildren<{
   hideFooter?: boolean
-  hideSettings?: boolean
   prefilledState?: SwapFormState
 }>): JSX.Element => {
   // Get default state for store initialization
@@ -330,7 +337,6 @@ export const SwapFormStoreContextProvider = ({
   return (
     <SwapFormStoreContextProviderBase
       hideFooter={hideFooter}
-      hideSettings={hideSettings}
       prefilledState={prefilledState}
       initialStateToUse={initialStateToUse}
       initialDerivedSwapInfo={initialDerivedSwapInfo}

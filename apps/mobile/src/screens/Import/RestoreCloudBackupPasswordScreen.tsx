@@ -1,5 +1,8 @@
 import { useFocusEffect } from '@react-navigation/core'
 import { NativeStackScreenProps } from '@react-navigation/native-stack'
+import { Button, Flex, Text, TouchableArea } from '@universe/mycelium'
+import { Cloud } from '@universe/mycelium/icons/Cloud'
+import { TestID } from '@universe/test'
 import React, { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TextInput } from 'react-native'
@@ -12,15 +15,16 @@ import {
   resetPasswordAttempts,
   setLockoutEndTime,
 } from 'src/features/CloudBackup/passwordLockoutSlice'
-import { restoreMnemonicFromCloudStorage } from 'src/features/CloudBackup/RNCloudStorageBackupsManager'
+import {
+  getCloudBackupErrorCode,
+  restoreMnemonicFromCloudStorage,
+} from 'src/features/CloudBackup/RNCloudStorageBackupsManager'
 import { selectLockoutEndTime, selectPasswordAttempts } from 'src/features/CloudBackup/selectors'
+import { CloudBackupErrorCode } from 'src/features/CloudBackup/types'
 import { PasswordError } from 'src/features/onboarding/PasswordError'
 import { SafeKeyboardOnboardingScreen } from 'src/features/onboarding/SafeKeyboardOnboardingScreen'
 import { onRestoreComplete } from 'src/screens/Import/onRestoreComplete'
 import { useNavigationHeader } from 'src/utils/useNavigationHeader'
-import { Button, Flex, Text, TouchableArea } from 'ui/src'
-import { Cloud } from 'ui/src/components/icons'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 import { ImportType } from 'uniswap/src/types/onboarding'
 import { OnboardingScreens } from 'uniswap/src/types/screens/mobile'
 import { getCloudProviderName } from 'uniswap/src/utils/cloud-backup/getCloudProviderName'
@@ -128,8 +132,14 @@ export function RestoreCloudBackupPasswordScreen({ navigation, route: { params }
           navigation,
           screen: OnboardingScreens.RestoreCloudBackupPassword,
         })
-      } catch {
+      } catch (error) {
         setIsLoading(false)
+        if (getCloudBackupErrorCode(error) === CloudBackupErrorCode.UploadNotConfirmed) {
+          setErrorMessage(
+            t('settings.setting.backup.error.message.unconfirmed', { cloudProviderName: getCloudProviderName() }),
+          )
+          return
+        }
         dispatch(incrementPasswordAttempts())
         const updatedLockoutEndTime = calculateLockoutEndTime(passwordAttemptCount + 1)
         if (updatedLockoutEndTime) {
@@ -158,7 +168,7 @@ export function RestoreCloudBackupPasswordScreen({ navigation, route: { params }
       footer={
         <Flex row>
           <Button
-            isDisabled={!enteredPassword || isLockedOut || isLoading}
+            disabled={!enteredPassword || isLockedOut || isLoading}
             testID={TestID.Continue}
             variant="branded"
             size="large"

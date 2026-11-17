@@ -7,6 +7,7 @@
 
 import Foundation
 import OSLog
+import UIKit
 import WidgetKit
 
 let APP_GROUP = "group.com.uniswap.widgets"
@@ -26,12 +27,14 @@ public struct TokenInput: Decodable {
 }
 
 public struct WidgetDataAccounts: Decodable {
-  
-  public init(_ accounts: [Account]) {
+
+  public init(_ accounts: [Account], activeAddress: String? = nil) {
     self.accounts = accounts
+    self.activeAddress = activeAddress
   }
-  
+
   public var accounts: [Account]
+  public var activeAddress: String?
 }
 
 public struct WidgetDataI18n: Decodable {
@@ -49,6 +52,21 @@ public struct Account: Decodable {
   public var address: String
   public var name: String?
   public var isSigner: Bool
+}
+
+public struct WidgetDataChains: Decodable {
+
+  public init(_ chains: [WidgetChain]) {
+    self.chains = chains
+  }
+
+  public var chains: [WidgetChain]
+}
+
+public struct WidgetChain: Decodable {
+  public var chainId: Int
+  public var name: String
+  public var nativeAddress: String?
 }
 
 public struct WidgetDataConfiguration: Codable {
@@ -99,6 +117,8 @@ public struct UniswapUserDefaults {
   static let keyFavorites = buildString + ".widgets.favorites"
   static let keyAccounts = buildString + ".widgets.accounts"
   static let keyI18n = buildString + ".widgets.i18n"
+  static let keyChains = buildString + ".widgets.chains"
+  static let keyTokenColors = buildString + ".widgets.tokenColors"
   
   static let userDefaults = UserDefaults.init(suiteName: APP_GROUP)
   
@@ -140,6 +160,18 @@ public struct UniswapUserDefaults {
     return parsedData
   }
   
+  public static func readChains() -> WidgetDataChains {
+    let data = readData(key: keyChains)
+    guard let data = data else {
+      return WidgetDataChains([])
+    }
+    let decoder = JSONDecoder()
+    guard let parsedData = try? decoder.decode(WidgetDataChains.self, from: data) else {
+      return WidgetDataChains([])
+    }
+    return parsedData
+  }
+
   public static func readI18n() -> WidgetDataI18n {
     let data = readData(key: keyI18n)
     guard let data = data else {
@@ -194,5 +226,32 @@ public struct UniswapUserDefaults {
       let json = String(data: JSONdata, encoding: String.Encoding.utf8)
       userDefaults!.set(json, forKey: keyEvents)
     }
+  }
+
+  private static func tokenColorKey(chain: String, address: String?) -> String {
+    return "\(chain.lowercased()):\(address?.lowercased() ?? "native")"
+  }
+
+  /// Last background color extracted for a token, so the widget can keep it while a refresh is failing.
+  public static func readTokenColor(chain: String, address: String?) -> UIColor? {
+    guard let colors = userDefaults?.dictionary(forKey: keyTokenColors),
+          let rgba = colors[tokenColorKey(chain: chain, address: address)] as? [Double],
+          rgba.count == 4 else {
+      return nil
+    }
+    return UIColor(red: rgba[0], green: rgba[1], blue: rgba[2], alpha: rgba[3])
+  }
+
+  public static func writeTokenColor(chain: String, address: String?, color: UIColor) {
+    guard let userDefaults = userDefaults else {
+      return
+    }
+    var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+    guard color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+      return
+    }
+    var colors = userDefaults.dictionary(forKey: keyTokenColors) ?? [:]
+    colors[tokenColorKey(chain: chain, address: address)] = [red, green, blue, alpha].map { Double($0) }
+    userDefaults.set(colors, forKey: keyTokenColors)
   }
 }

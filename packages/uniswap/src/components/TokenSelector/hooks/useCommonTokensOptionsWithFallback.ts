@@ -1,32 +1,34 @@
-import { GqlResult } from '@universe/api'
+import { UniverseChainId } from '@universe/chains'
 import { useMemo } from 'react'
 import { TokenOption } from 'uniswap/src/components/lists/items/types'
 import { useCommonTokensOptions } from 'uniswap/src/components/TokenSelector/hooks/useCommonTokensOptions'
-import { useCurrencies } from 'uniswap/src/components/TokenSelector/hooks/useCurrencies'
 import {
   currencyInfosToTokenOptions,
   useCurrencyInfosToTokenOptions,
 } from 'uniswap/src/components/TokenSelector/hooks/useCurrencyInfosToTokenOptions'
+import { type PortfolioBalancesResult } from 'uniswap/src/components/TokenSelector/hooks/usePortfolioBalancesForAddressById'
 import { COMMON_BASES } from 'uniswap/src/constants/routing'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import { useMultichainCurrencyInfosWithoutBridgedNatives } from 'uniswap/src/features/tokens/useMultichainCurrencyInfos'
 import { currencyId } from 'uniswap/src/utils/currencyId'
+import type { DerivedQueryResult } from 'utilities/src/reactQuery/types'
 
 export function useCommonTokensOptionsWithFallback({
-  evmAddress,
-  svmAddress,
   chainFilter,
+  portfolioData,
 }: {
-  evmAddress: Address | undefined
-  svmAddress: Address | undefined
   chainFilter: UniverseChainId | null
-}): GqlResult<TokenOption[] | undefined> {
-  const { data, error, refetch, loading } = useCommonTokensOptions({ evmAddress, svmAddress, chainFilter })
-  const commonBases = chainFilter ? currencyInfosToTokenOptions(COMMON_BASES[chainFilter]) : undefined
+  portfolioData: PortfolioBalancesResult
+}): DerivedQueryResult<TokenOption[] | undefined> {
+  const { data, error, refetch, isLoading } = useCommonTokensOptions({ chainFilter, portfolioData })
+  const commonBases = useMemo(
+    () => (chainFilter ? currencyInfosToTokenOptions(COMMON_BASES[chainFilter]) : undefined),
+    [chainFilter],
+  )
   const commonBasesCurrencyIds = useMemo(
     () => commonBases?.map((token) => currencyId(token.currencyInfo.currency)).filter(Boolean) ?? [],
     [commonBases],
   )
-  const { data: commonBasesCurrencies } = useCurrencies(commonBasesCurrencyIds)
+  const { data: commonBasesCurrencies } = useMultichainCurrencyInfosWithoutBridgedNatives(commonBasesCurrencyIds)
   const commonBasesTokenOptions = useCurrencyInfosToTokenOptions({
     currencyInfos: commonBasesCurrencies,
     portfolioBalancesById: {},
@@ -37,10 +39,10 @@ export function useCommonTokensOptionsWithFallback({
   return useMemo(
     () => ({
       data: shouldFallback ? commonBasesTokenOptions : data,
-      error: shouldFallback ? undefined : error,
+      error: shouldFallback ? null : error,
       refetch,
-      loading,
+      isLoading,
     }),
-    [commonBasesTokenOptions, data, error, loading, refetch, shouldFallback],
+    [commonBasesTokenOptions, data, error, isLoading, refetch, shouldFallback],
   )
 }

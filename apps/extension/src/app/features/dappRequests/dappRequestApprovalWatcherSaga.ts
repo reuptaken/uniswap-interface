@@ -1,6 +1,11 @@
-/* eslint-disable complexity */
+/* oxlint-disable complexity */
 import { providerErrors, serializeError } from '@metamask/rpc-errors'
 import { PayloadAction } from '@reduxjs/toolkit'
+import { Platform } from '@universe/chains'
+import {
+  IMPERSONATION_SIGNING_ERROR_MESSAGE,
+  isImpersonatedSigningError,
+} from 'src/app/features/accounts/impersonation'
 import { getAccount, getAccountRequest } from 'src/app/features/dappRequests/accounts'
 import {
   confirmRequest,
@@ -64,7 +69,8 @@ import {
 import { dappResponseMessageChannel } from 'src/background/messagePassing/messageChannels'
 import { call, put, select, takeEvery } from 'typed-redux-saga'
 import { DappRequestType, DappResponseType } from 'uniswap/src/features/dappRequests/types'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
+import { pushNotification } from 'uniswap/src/features/notifications/slice/slice'
+import { AppNotificationType } from 'uniswap/src/features/notifications/slice/types'
 import { getEnabledChainIdsSaga } from 'uniswap/src/features/settings/saga'
 import { logger } from 'utilities/src/logger/logger'
 
@@ -82,7 +88,7 @@ function* dappRequestApproval({
         requestId: existingRequest.dappRequest.requestId,
       }
 
-      yield* call(dappResponseMessageChannel.sendMessageToTab, existingRequest.senderTabInfo.id, errorResponse)
+      yield* call(dappResponseMessageChannel.sendMessageToFrame, existingRequest.senderTabInfo, errorResponse)
     }
 
     yield* put(dappRequestActions.removeAll())
@@ -92,7 +98,7 @@ function* dappRequestApproval({
   const requestId =
     ('dappRequest' in request && request.dappRequest.requestId) ||
     ('errorResponse' in request && request.errorResponse.requestId)
-  const { id: senderTabId } = request.senderTabInfo
+  const { tabId: senderTabId } = request.senderTabInfo
 
   if (!senderTabId) {
     throw new Error('senderTabId is required')
@@ -292,12 +298,22 @@ function* dappRequestApproval({
         requestId: rejectedRequest.errorResponse.requestId,
       }
 
-      yield* call(dappResponseMessageChannel.sendMessageToTab, rejectedRequest.senderTabInfo.id, errorResponse)
+      yield* call(dappResponseMessageChannel.sendMessageToFrame, rejectedRequest.senderTabInfo, errorResponse)
     }
   } catch (error) {
-    logger.error(error, {
-      tags: { file: 'dappRequestApprovalWatcherSaga', function: 'dappRequestApprovalWatcher' },
-    })
+    if (isImpersonatedSigningError(error)) {
+      // Expected outcome of dev impersonation, not a fault worth an error report.
+      yield* put(
+        pushNotification({
+          type: AppNotificationType.Error,
+          errorMessage: IMPERSONATION_SIGNING_ERROR_MESSAGE,
+        }),
+      )
+    } else {
+      logger.error(error, {
+        tags: { file: 'dappRequestApprovalWatcherSaga', function: 'dappRequestApprovalWatcher' },
+      })
+    }
 
     const errorResponse: ErrorResponse = {
       type: DappResponseType.ErrorResponse,
@@ -305,7 +321,7 @@ function* dappRequestApproval({
       error: serializeError(error),
     }
 
-    yield* call(dappResponseMessageChannel.sendMessageToTab, senderTabId, errorResponse)
+    yield* call(dappResponseMessageChannel.sendMessageToFrame, request.senderTabInfo, errorResponse)
   } finally {
     yield* put(dappRequestActions.remove(requestId))
   }

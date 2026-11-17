@@ -1,9 +1,10 @@
+import { Flex } from '@universe/mycelium'
+import type { FlexCompatProps as FlexProps, IconSizeTokens } from '@universe/mycelium'
+import { HeightAnimator } from '@universe/mycelium/height-animator'
+import { RotatableChevron } from '@universe/mycelium/icons/RotatableChevron'
 import { PropsWithChildren, ReactElement } from 'react'
-import { Flex, FlexProps, HeightAnimator } from 'ui/src'
-import { RotatableChevron } from 'ui/src/components/icons/RotatableChevron'
-import { iconSizes } from 'ui/src/theme'
 
-export default function Expand({
+export function Expand({
   header,
   button,
   children,
@@ -11,7 +12,7 @@ export default function Expand({
   isOpen,
   padding,
   onToggle,
-  iconSize = 'icon24',
+  iconSize = '$icon.24',
   paddingTop,
   width,
 }: PropsWithChildren<{
@@ -21,7 +22,7 @@ export default function Expand({
   isOpen: boolean
   padding?: FlexProps['p']
   onToggle: () => void
-  iconSize?: keyof typeof iconSizes
+  iconSize?: IconSizeTokens
   paddingTop?: FlexProps['pt']
   width?: FlexProps['width']
 }>) {
@@ -39,7 +40,7 @@ export default function Expand({
           aria-expanded={isOpen}
         >
           {button}
-          <RotatableChevron height={iconSizes[iconSize]} direction={isOpen ? 'up' : 'down'} color="$neutral2" />
+          <RotatableChevron size={iconSize} direction={isOpen ? 'up' : 'down'} color="$neutral2" />
         </Flex>
       </Flex>
       <HeightAnimator open={isOpen}>

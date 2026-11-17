@@ -1,6 +1,6 @@
-import { createStore, Store } from '@reduxjs/toolkit'
-import { ModalsState } from 'src/features/modals/ModalsState'
+import { configureStore, Store } from '@reduxjs/toolkit'
 import { closeModal, initialModalsState, modalsReducer, openModal } from 'src/features/modals/modalSlice'
+import { ModalsState } from 'src/features/modals/ModalsState'
 import { ScannerModalState } from 'uniswap/src/components/ReceiveQRCode/constants'
 import { ModalName } from 'uniswap/src/features/telemetry/constants'
 
@@ -11,7 +11,7 @@ describe('modals reducer', () => {
   let store: Store<ModalsState>
 
   beforeEach(() => {
-    store = createStore(modalsReducer, initialState)
+    store = configureStore({ reducer: modalsReducer, preloadedState: initialState })
   })
 
   it('opens modals and sets initial state', () => {

@@ -1,5 +1,5 @@
 import { Currency } from '@uniswap/sdk-core'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import { UniverseChainId } from '@universe/chains'
 import { WrapType } from 'uniswap/src/features/transactions/types/wrap'
 import { areCurrencyIdsEqual, buildWrappedNativeCurrencyId, currencyId } from 'uniswap/src/utils/currencyId'
 
@@ -13,6 +13,9 @@ export function getWrapType(
 
   const inputChainId = inputCurrency.chainId as UniverseChainId
   const wrappedCurrencyId = buildWrappedNativeCurrencyId(inputChainId)
+  if (!wrappedCurrencyId) {
+    return WrapType.NotApplicable
+  }
 
   if (inputCurrency.isNative && areCurrencyIdsEqual(currencyId(outputCurrency), wrappedCurrencyId)) {
     return WrapType.Wrap

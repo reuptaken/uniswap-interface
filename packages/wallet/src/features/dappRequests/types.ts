@@ -1,5 +1,5 @@
 import { DappVerificationStatus } from '@universe/api'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import type { UniverseChainId } from '@universe/chains'
 import { z } from 'zod'
 
 export const CapabilitySchema = z.record(z.string(), z.unknown())
@@ -34,10 +34,9 @@ export const SendCallsParamsSchema = z.object({
 export const SendCallsResultSchema = z.object({
   id: z.string(),
   capabilities: z
-    .object({
+    .looseObject({
       caip345: Caip345Schema.optional(),
-    })
-    .passthrough() // Allow other capability fields for future extensibility
+    }) // Allow other capability fields for future extensibility
     .optional(),
 })
 
@@ -50,11 +49,15 @@ export const GetCallsStatusTransactionReceiptLogSchema = z.object({
 })
 
 export const GetCallsStatusTransactionReceiptSchema = z.object({
-  logs: z.array(GetCallsStatusTransactionReceiptLogSchema),
+  // logs/blockHash/blockNumber/gasUsed are optional: the embedded-wallet web flow
+  // resolves status via the Trading API `/swaps` feed, which returns the tx hash
+  // and success/failure but not the full receipt. Store-backed (mobile/extension)
+  // receipts still populate them.
+  logs: z.array(GetCallsStatusTransactionReceiptLogSchema).optional(),
   status: z.string(), // Hex 1 or 0 for success or failure
-  blockHash: z.string(),
-  blockNumber: z.string(),
-  gasUsed: z.string(),
+  blockHash: z.string().optional(),
+  blockNumber: z.string().optional(),
+  gasUsed: z.string().optional(),
   transactionHash: z.string(),
 })
 
@@ -63,8 +66,13 @@ export const GetCallsStatusResultSchema = z.object({
   id: z.string(),
   chainId: z.string(),
   status: z.number(), // Status codes as per EIP-5792
+  atomic: z.boolean().optional(),
   receipts: z.array(GetCallsStatusTransactionReceiptSchema).optional(),
-  capabilities: z.record(z.string(), CapabilitySchema).optional(),
+  capabilities: z
+    .looseObject({
+      caip345: Caip345Schema.optional(),
+    })
+    .optional(),
 })
 
 // Export types for use in other files
@@ -84,6 +92,23 @@ export interface DappConnectionInfo {
   name: string
   url: string
   icon: string | null
+  /** Top-level page of the browser tab the request came from. Absent for mobile WalletConnect sessions, which have no tab. */
+  tabUrl?: string
+  /** True when `url` is an iframe whose origin differs from `tabUrl`. Absent for mobile WalletConnect sessions. */
+  isCrossOriginFrame?: boolean
+}
+
+/**
+ * Local errors that can replace or supplement a Blockaid transaction preview.
+ */
+export enum TransactionErrorType {
+  DecodeMessage = 'decode_message',
+  DecodeTransaction = 'decode_transaction',
+  ContractInteraction = 'contract_interaction',
+  UnverifiedRecipient = 'unverified_recipient',
+  ScanFailed = 'scan_failed',
+  /** The scan cannot succeed for this request, so retrying it will not help. */
+  ScanUnavailable = 'scan_unavailable',
 }
 
 /**
@@ -96,6 +121,27 @@ export enum TransactionRiskLevel {
   Warning = 'warning',
   /** Critical/Malicious - high risk transaction */
   Critical = 'critical',
+}
+
+export enum TransactionApprovalScope {
+  SingleToken = 'single-token',
+  Collection = 'collection',
+}
+
+export enum TransactionApprovalAction {
+  Grant = 'grant',
+  Revoke = 'revoke',
+  Change = 'change',
+}
+
+/**
+ * Minimal view of a normalized request call — `EthTransaction` and the sendCalls `Call` both
+ * satisfy it.
+ */
+export interface DappRequestCall {
+  to?: string
+  data?: string
+  value?: string
 }
 
 /**
@@ -120,6 +166,12 @@ export interface TransactionAsset {
   logoUrl?: string
   /** Spender address (for approvals) */
   spenderAddress?: string
+  /** NFT token identifier (for a token-specific approval) */
+  tokenId?: string
+  /** Scope of an NFT approval change */
+  approvalScope?: TransactionApprovalScope
+  /** Whether the approval is granted, revoked, or changed with an ambiguous direction */
+  approvalAction?: TransactionApprovalAction
 }
 
 /**
@@ -129,6 +181,8 @@ export enum TransactionSectionType {
   Sending = 'sending',
   Receiving = 'receiving',
   Approving = 'approving',
+  Depositing = 'depositing',
+  Withdrawing = 'withdrawing',
 }
 
 /**
@@ -137,6 +191,8 @@ export enum TransactionSectionType {
 export interface TransactionSection {
   type: TransactionSectionType
   assets: TransactionAsset[]
+  /** Net APY for an Earn deposit, shown as an "Earning" row beneath the Depositing section. */
+  apyPercent?: number
 }
 
 /**

@@ -1,11 +1,11 @@
 import { useNavigation } from '@react-navigation/native'
+import { ColorTokens, IconSizeTokens, TouchableArea, TouchableAreaProps } from '@universe/mycelium'
+import { TestID } from '@universe/test'
 import React from 'react'
 import { BackButtonView } from 'src/components/layout/BackButtonView'
-import { ColorTokens, TouchableArea, TouchableAreaProps } from 'ui/src'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 
 type Props = {
-  size?: number
+  size?: IconSizeTokens
   color?: ColorTokens
   showButtonLabel?: boolean
   onPressBack?: () => void

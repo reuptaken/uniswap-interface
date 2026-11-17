@@ -1,9 +1,9 @@
-module.exports = {
+export default {
   // Key separator used in your translation keys
   contextSeparator: '_',
 
-  // Save the \_old files
-  createOldCatalogs: true,
+  // No _old catalogs — the output is gitignored and nothing reads it.
+  createOldCatalogs: false,
 
   defaultNamespace: 'translation',
 

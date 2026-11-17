@@ -1,7 +1,7 @@
-import type { TransactionInfo } from 'state/transactions/types'
-import type { UniverseChainId } from 'uniswap/src/features/chains/types'
+import type { UniverseChainId } from '@universe/chains'
 import type {
   TransactionDetails as UniswapTransactionDetails,
+  TransactionTypeInfo,
   WrapTransactionInfo as UniswapWrapTransactionInfo,
 } from 'uniswap/src/features/transactions/types/transactionDetails'
 import { TransactionType } from 'uniswap/src/features/transactions/types/transactionDetails'
@@ -32,7 +32,7 @@ const createUniverseWrapTransaction = (info: UniswapWrapTransactionInfo) => {
   } as UniswapTransactionDetails
 }
 
-const createUniverseTransactionFromInfo = (typeInfo: TransactionInfo): UniswapTransactionDetails =>
+const createUniverseTransactionFromInfo = (typeInfo: TransactionTypeInfo): UniswapTransactionDetails =>
   ({ typeInfo }) as UniswapTransactionDetails
 
 // Maps a web transaction object to a universe transaction object if we can.
@@ -41,12 +41,13 @@ const createUniverseTransactionFromInfo = (typeInfo: TransactionInfo): UniswapTr
 // If a new transaction type is added to web try to map it to a universe transaction type.
 // Some transactions (like APPROVAL) only update the native token balance and don't need to be mapped.
 // TODO(WEB-5565): Align web and universe transaction types
+// oxlint-disable-next-line complexity
 export const createUniverseTransaction = ({
   info,
   chainId,
   address,
 }: {
-  info: TransactionInfo
+  info: TransactionTypeInfo
   chainId: UniverseChainId
   address: string
 }) => {
@@ -70,6 +71,10 @@ export const createUniverseTransaction = ({
     case TransactionType.Wrap:
       transaction = createUniverseWrapTransaction(info)
       break
+    case TransactionType.Plan:
+      // TODO: SWAP-442 - Handle Plan transaction
+      transaction = createUniverseTransactionFromInfo(info)
+      break
     case TransactionType.CreatePool:
     case TransactionType.CreatePair:
     case TransactionType.LiquidityIncrease:
@@ -89,11 +94,22 @@ export const createUniverseTransaction = ({
         outputCurrencyId: info.quoteCurrencyId,
       })
       break
-    // Native token spend cases which are already handled in the refetchGQLQueries saga
+    // Native token spends already handled in the refetchGQLQueries saga, plus the four margin types —
+    // not native spends, but they need no special mapping either, so they share the base shape.
     case TransactionType.Approve:
     case TransactionType.ClaimUni:
     case TransactionType.LPIncentivesClaimRewards:
+    case TransactionType.ToucanBid:
+    case TransactionType.ToucanWithdrawBidAndClaimTokens:
+    case TransactionType.AuctionBid:
+    case TransactionType.AuctionClaimed:
+    case TransactionType.AuctionExited:
+    case TransactionType.AuctionLaunch:
     case TransactionType.Permit2Approve:
+    case TransactionType.MarginOpenPosition:
+    case TransactionType.MarginClosePosition:
+    case TransactionType.MarginDecreasePosition:
+    case TransactionType.MarginAddCollateral:
       return { ...baseTransaction, ...info } as UniswapTransactionDetails
     // NFT and other transaction types that don't need special mapping
     case TransactionType.Receive:
@@ -109,6 +125,9 @@ export const createUniverseTransaction = ({
     case TransactionType.LocalOffRamp:
     case TransactionType.SendCalls:
     case TransactionType.RemoveDelegation:
+    case TransactionType.Deposit:
+    case TransactionType.Withdraw:
+    case TransactionType.UniswapXCancel:
       return { ...baseTransaction, ...info } as UniswapTransactionDetails
     default:
       assertUnreachable(info)

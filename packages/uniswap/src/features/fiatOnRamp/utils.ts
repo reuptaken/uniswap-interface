@@ -1,3 +1,4 @@
+import { isAndroid, isIOS } from '@universe/environment'
 import type { SectionListData } from 'react-native'
 import { PortfolioBalance } from 'uniswap/src/features/dataApi/types'
 import {
@@ -9,11 +10,20 @@ import {
   FORQuote,
   InitialQuoteSelection,
 } from 'uniswap/src/features/fiatOnRamp/types'
-import { isAndroid, isIOS } from 'utilities/src/platform'
-import { v4 as uuid } from 'uuid'
+import { normalizeCurrencyIdForMapLookup } from 'uniswap/src/utils/currencyId'
+import { uuid } from 'utilities/src/primitives/uuid'
 
 const APPLE_PAY = 'Apple Pay'
 const GOOGLE_PAY = 'Google Pay'
+
+/**
+ * Validates that a currency code is a valid 3-letter ISO 4217 currency code.
+ * Must be exactly 3 alphabetic characters (case-insensitive).
+ * Used to validate sourceCurrency/fiatCurrency in on-ramp transactions.
+ */
+export function isValidIsoCurrencyCode(code: unknown): code is string {
+  return typeof code === 'string' && /^[A-Za-z]{3}$/.test(code)
+}
 
 export function transformPaymentMethods(paymentMethods: string[]): string[] {
   return paymentMethods.filter((pm) => !(pm === APPLE_PAY && isAndroid) && !(pm === GOOGLE_PAY && isIOS))
@@ -116,8 +126,7 @@ export function isFiatOnRampApiError(error: unknown): error is FORApiError {
   if (typeof error === 'object' && error !== null) {
     const e = error as FORApiError
     return (
-      typeof e.data === 'object' &&
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      typeof e.data === 'object' && // oxlint-disable-line typescript/no-unnecessary-condition -- biome-parity: oxlint is stricter here
       e.data !== null &&
       typeof e.data.statusCode === 'number' &&
       typeof e.data.errorName === 'string'
@@ -168,13 +177,31 @@ export function isSupportedFORCurrency(currency: FORCurrencyOrBalance): currency
   return (currency as FiatOnRampCurrency).meldCurrencyCode !== undefined
 }
 
+/**
+ * Re-keys portfolio balances by normalized currency id. The FOR currency list and the portfolio can disagree
+ * on EVM address casing for the same token, so look these up with `normalizeCurrencyIdForMapLookup(id)`.
+ */
+export function normalizeBalancesByIdForLookup(
+  balancesById: Record<string, PortfolioBalance> | undefined,
+): Record<string, PortfolioBalance> | undefined {
+  if (!balancesById) {
+    return undefined
+  }
+
+  return Object.fromEntries(
+    Object.entries(balancesById).map(([currencyId, balance]) => [normalizeCurrencyIdForMapLookup(currencyId), balance]),
+  )
+}
+
 export function getUnsupportedFORTokensWithBalance(
   supportedCurrencies: FiatOnRampCurrency[],
   balancesById: Record<string, PortfolioBalance> | undefined,
 ): PortfolioBalance[] {
-  const offRampCurrencyIds = supportedCurrencies.map((currency) => currency.currencyInfo?.currencyId)
+  const offRampCurrencyIds = new Set(
+    supportedCurrencies.map((currency) => normalizeCurrencyIdForMapLookup(currency.currencyInfo?.currencyId)),
+  )
   return Object.values(balancesById || {}).filter(
-    (balance) => !offRampCurrencyIds.includes(balance.currencyInfo.currencyId),
+    (balance) => !offRampCurrencyIds.has(normalizeCurrencyIdForMapLookup(balance.currencyInfo.currencyId)),
   )
 }
 
@@ -184,7 +211,7 @@ export function filterQuotesByPaymentMethod(quotes: Maybe<FORQuote[]>, paymentFi
   }
 
   return quotes.filter((quote) => {
-    return quote.serviceProviderDetails.paymentMethods.some((paymentMethod) => {
+    return (quote.serviceProviderDetails?.paymentMethods ?? []).some((paymentMethod) => {
       const mappedFilter = FORFiltersMap[paymentMethod]
       return mappedFilter === paymentFilter
     })

@@ -1,13 +1,13 @@
-import { Page } from 'components/NavBar/DownloadApp/Modal'
-import { ModalContent } from 'components/NavBar/DownloadApp/Modal/Content'
+import { Flex, Text } from '@universe/mycelium'
+import { Person } from '@universe/mycelium/icons/Person'
 import { Dispatch, SetStateAction, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text } from 'ui/src'
-import { Person } from 'ui/src/components/icons/Person'
 import { ModalName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 import { ClaimUnitagContent } from 'uniswap/src/features/unitags/ClaimUnitagContent'
 import { ExtensionScreens } from 'uniswap/src/types/screens/extension'
+import { Page } from '~/components/NavBar/DownloadApp/Modal/constants'
+import { ModalContent } from '~/components/NavBar/DownloadApp/Modal/Content'
 
 export function ChooseUnitagModal({
   setUnitag,
@@ -18,14 +18,14 @@ export function ChooseUnitagModal({
   setUnitag: Dispatch<SetStateAction<string>>
   setPage: Dispatch<SetStateAction<Page>>
   onClose: () => void
-  goBack: () => void
+  goBack?: () => void
 }) {
   const { t } = useTranslation()
 
   const onContinue = useCallback(
     (unitag: string) => {
       setUnitag(unitag)
-      setPage(Page.PasskeyGeneration)
+      setPage(Page.KeyManagement)
     },
     [setPage, setUnitag],
   )
@@ -49,7 +49,7 @@ export function ChooseUnitagModal({
         onClose={onClose}
         goBack={goBack}
       >
-        <Flex px="$spacing32" width="100%" pb="$spacing32">
+        <Flex width="100%">
           <ClaimUnitagContent animateY={false} entryPoint={ExtensionScreens.Home} onComplete={onContinue} />
         </Flex>
       </ModalContent>

@@ -1,38 +1,59 @@
+import { isAndroid } from '@universe/environment'
+import { ElementAfterText, Flex, Text, TouchableArea } from '@universe/mycelium'
+import { Briefcase } from '@universe/mycelium/icons/Briefcase'
+import { Clock } from '@universe/mycelium/icons/Clock'
+import { Coins } from '@universe/mycelium/icons/Coins'
+import { EarnSparkle } from '@universe/mycelium/icons/EarnSparkle'
+import { Heart } from '@universe/mycelium/icons/Heart'
+import { Person } from '@universe/mycelium/icons/Person'
+import { Pools } from '@universe/mycelium/icons/Pools'
+import { RocketLaunch } from '@universe/mycelium/icons/RocketLaunch'
+import { Search } from '@universe/mycelium/icons/Search'
+import { Shuffle } from '@universe/mycelium/icons/Shuffle'
+import { TrendUp } from '@universe/mycelium/icons/TrendUp'
+import { TestID } from '@universe/test'
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ElementAfterText, Flex } from 'ui/src'
-import { Clock } from 'ui/src/components/icons/Clock'
-import { Coins } from 'ui/src/components/icons/Coins'
-import { Heart } from 'ui/src/components/icons/Heart'
-import { Person } from 'ui/src/components/icons/Person'
-import { PhotoStacked } from 'ui/src/components/icons/PhotoStacked'
-import { Pools } from 'ui/src/components/icons/Pools'
-import { Search } from 'ui/src/components/icons/Search'
-import { Shuffle } from 'ui/src/components/icons/Shuffle'
-import { TrendUp } from 'ui/src/components/icons/TrendUp'
 import { OnchainItemSectionName } from 'uniswap/src/components/lists/OnchainItemList/types'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
-import { isAndroid } from 'utilities/src/platform'
+
+export const SECTION_HEADER_LAYOUT = { pt: '$spacing12', pb: '$spacing4', px: '$spacing20', gap: '$spacing8' } as const
+export const SECTION_HEADER_TITLE_VARIANT = 'subheading2'
 
 export type SectionHeaderProps = {
   sectionKey: OnchainItemSectionName
+  /** Resolved `getSectionRowId`; namespaces the testID the same way as the row keys. */
+  sectionRowId?: string
+  onPress?: () => void
   rightElement?: JSX.Element
   endElement?: JSX.Element
   name?: string
+  sectionHeader?: JSX.Element
+  /** Overrides the default section icon (from `getSectionIcon`) when provided. */
+  icon?: JSX.Element
 }
 
-export const SectionHeader = memo(function _SectionHeader({
+export const SectionHeader = memo(function SectionHeaderInner({
   sectionKey,
+  sectionRowId,
+  onPress,
   rightElement,
   endElement,
   name,
+  sectionHeader,
+  icon,
 }: SectionHeaderProps): JSX.Element | null {
   const title = useSectionTitle(sectionKey)
-  const icon = getSectionIcon(sectionKey)
 
   if (sectionKey === OnchainItemSectionName.SuggestedTokens) {
     return null
   }
+
+  if (sectionHeader) {
+    return sectionHeader
+  }
+
+  const iconElement = icon ?? getSectionIcon(sectionKey)
+  const titleText = name ?? title
 
   return (
     <Flex
@@ -40,20 +61,42 @@ export const SectionHeader = memo(function _SectionHeader({
       backgroundColor="$surface1"
       width="100%"
       justifyContent="space-between"
-      pb="$spacing4"
-      pt="$spacing12"
-      px="$spacing20"
+      pb={SECTION_HEADER_LAYOUT.pb}
+      pt={SECTION_HEADER_LAYOUT.pt}
+      px={SECTION_HEADER_LAYOUT.px}
       alignItems={isAndroid ? 'flex-end' : 'center'}
-      testID={`${TestID.SectionHeaderPrefix}${sectionKey}`}
+      testID={`${TestID.SectionHeaderPrefix}${sectionRowId ?? sectionKey}`}
     >
-      <Flex row alignItems="center" gap="$spacing8" flex={1}>
-        {icon}
-        <ElementAfterText
-          text={name ?? title}
-          textProps={{ color: '$neutral2', variant: 'subheading2' }}
-          wrapperProps={{ flex: 1 }}
-          element={rightElement}
-        />
+      <Flex row alignItems="center" gap={SECTION_HEADER_LAYOUT.gap} flex={1}>
+        {onPress ? (
+          <>
+            <TouchableArea
+              row
+              alignItems="center"
+              flexShrink={1}
+              gap={SECTION_HEADER_LAYOUT.gap}
+              hoverStyle={{ opacity: 0.8 }}
+              pressStyle={{ opacity: 0.6 }}
+              onPress={onPress}
+            >
+              {iconElement}
+              <Text color="$neutral2" variant={SECTION_HEADER_TITLE_VARIANT}>
+                {titleText}
+              </Text>
+            </TouchableArea>
+            {rightElement}
+          </>
+        ) : (
+          <>
+            {iconElement}
+            <ElementAfterText
+              text={titleText}
+              textProps={{ color: '$neutral2', variant: SECTION_HEADER_TITLE_VARIANT }}
+              wrapperProps={{ flex: 1 }}
+              element={rightElement}
+            />
+          </>
+        )}
       </Flex>
       {endElement}
     </Flex>
@@ -78,22 +121,26 @@ function useSectionTitle(section: OnchainItemSectionName): string {
       return t('tokens.selector.section.favorite')
     case OnchainItemSectionName.SearchResults:
       return t('tokens.selector.section.search')
+    case OnchainItemSectionName.Earn:
+      return t('explore.earn.title')
     case OnchainItemSectionName.Tokens:
-      return t('common.tokens')
+      return t('common.token.plural')
     case OnchainItemSectionName.Pools:
       return t('common.pools')
     case OnchainItemSectionName.TrendingPools:
       return t('pool.top.volume')
     case OnchainItemSectionName.Wallets:
       return t('explore.search.section.wallets')
-    case OnchainItemSectionName.NFTCollections:
-      return t('explore.search.section.nft')
-    case OnchainItemSectionName.PopularNFTCollections:
-      return t('explore.search.section.popularNFT')
     case OnchainItemSectionName.FavoriteWallets:
       return t('explore.wallets.favorite.title.default')
+    case OnchainItemSectionName.TopAuctions:
+      return t('explore.search.section.topAuctions')
+    case OnchainItemSectionName.Auctions:
+      return t('explore.search.section.auctions')
     case OnchainItemSectionName.SuggestedTokens: // no suggested tokens header
       return ''
+    case OnchainItemSectionName.Stocks:
+      return t('common.stocks')
     default:
       return section
   }
@@ -109,7 +156,6 @@ function getSectionIcon(section: OnchainItemSectionName): JSX.Element | null {
       return <Coins color="$neutral2" size="$icon.16" />
     case OnchainItemSectionName.TrendingPools:
     case OnchainItemSectionName.TrendingTokens:
-    case OnchainItemSectionName.PopularNFTCollections:
       return <TrendUp color="$neutral2" size="$icon.16" />
     case OnchainItemSectionName.RecentSearches:
       return <Clock color="$neutral2" size="$icon.16" />
@@ -117,14 +163,20 @@ function getSectionIcon(section: OnchainItemSectionName): JSX.Element | null {
       return <Search color="$neutral2" size="$icon.16" />
     case OnchainItemSectionName.FavoriteTokens:
       return <Coins color="$neutral2" size="$icon.16" />
+    case OnchainItemSectionName.Earn:
+      return <EarnSparkle color="$neutral2" size="$icon.16" />
     case OnchainItemSectionName.Pools:
       return <Pools color="$neutral2" size="$icon.16" />
     case OnchainItemSectionName.Wallets:
       return <Person color="$neutral2" size="$icon.16" />
     case OnchainItemSectionName.FavoriteWallets:
       return <Heart color="$neutral2" size="$icon.16" />
-    case OnchainItemSectionName.NFTCollections:
-      return <PhotoStacked color="$neutral2" size="$icon.16" />
+    case OnchainItemSectionName.Stocks:
+      return <Briefcase color="$neutral2" size="$icon.16" />
+    case OnchainItemSectionName.TopAuctions:
+      return <TrendUp color="$neutral2" size="$icon.16" />
+    case OnchainItemSectionName.Auctions:
+      return <RocketLaunch color="$neutral2" size="$icon.16" />
     default:
       return null
   }

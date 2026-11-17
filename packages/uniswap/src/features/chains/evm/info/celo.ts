@@ -1,17 +1,13 @@
-import { GraphQLApi } from '@universe/api'
+import { GraphQLApi, TradingApi } from '@universe/api'
+import { UniverseChainId, Platform } from '@universe/chains'
 import { SwapConfigKey } from '@universe/gating'
-import { CELO_LOGO } from 'ui/src/assets'
+import { CELO_LOGO } from '@universe/mycelium/assets'
 import { config } from 'uniswap/src/config'
-import { getQuicknodeEndpointUrl } from 'uniswap/src/features/chains/evm/rpc'
+import { ALL_APPS_CHAIN_SUPPORTED_APPS } from 'uniswap/src/features/chains/chainAppSupport'
+import { CHAIN_ID_TO_URL_PARAM } from 'uniswap/src/features/chains/chainUrlParam'
+import { getUniRpcEndpointUrl } from 'uniswap/src/features/chains/evm/rpc'
 import { buildChainTokens } from 'uniswap/src/features/chains/evm/tokens'
-import {
-  GqlChainId,
-  NetworkLayer,
-  RPCType,
-  UniverseChainId,
-  UniverseChainInfo,
-} from 'uniswap/src/features/chains/types'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
+import { GqlChainId, NetworkLayer, RPCType, UniverseChainInfo } from 'uniswap/src/features/chains/types'
 import { ElementName } from 'uniswap/src/features/telemetry/constants'
 import { buildUSDC } from 'uniswap/src/features/tokens/stablecoin'
 import { celo } from 'wagmi/chains'
@@ -26,6 +22,7 @@ export const CELO_CHAIN_INFO = {
   ...celo,
   id: UniverseChainId.Celo,
   platform: Platform.EVM,
+  supportedApps: ALL_APPS_CHAIN_SUPPORTED_APPS,
   assetRepoNetworkName: 'celo',
   backendChain: {
     chain: GraphQLApi.Chain.Celo as GqlChainId,
@@ -38,9 +35,8 @@ export const CELO_CHAIN_INFO = {
   docs: 'https://docs.celo.org/',
   elementName: ElementName.ChainCelo,
   explorer: {
-    name: 'Celoscan',
+    name: 'CeloScan',
     url: 'https://celoscan.io/',
-    apiURL: 'https://api.celoscan.io',
   },
   interfaceName: 'celo',
   label: 'Celo',
@@ -54,14 +50,16 @@ export const CELO_CHAIN_INFO = {
     logo: CELO_LOGO,
   },
   networkLayer: NetworkLayer.L1,
+  blockTimeMs: 5000,
   pendingTransactionsRetryOptions: undefined,
   tokens,
   statusPage: undefined,
+  supportedURVersions: [TradingApi.UniversalRouterVersion._2_0, TradingApi.UniversalRouterVersion._2_1_1],
   supportsV4: true,
   supportsNFTs: false,
-  urlParam: 'celo',
+  urlParam: CHAIN_ID_TO_URL_PARAM[UniverseChainId.Celo],
   rpcUrls: {
-    [RPCType.Public]: { http: [getQuicknodeEndpointUrl(UniverseChainId.Celo)] },
+    [RPCType.Public]: { http: [getUniRpcEndpointUrl(UniverseChainId.Celo)] },
     [RPCType.Default]: { http: [`https://forno.celo.org`] },
     [RPCType.Interface]: { http: [`https://celo-mainnet.infura.io/v3/${config.infuraKey}`] },
   },

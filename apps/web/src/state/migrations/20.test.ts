@@ -1,27 +1,32 @@
 import { createMigrate } from 'redux-persist'
-import { migration1 } from 'state/migrations/1'
-import { migration2 } from 'state/migrations/2'
-import { migration3 } from 'state/migrations/3'
-import { migration4 } from 'state/migrations/4'
-import { migration5 } from 'state/migrations/5'
-import { migration6 } from 'state/migrations/6'
-import { migration7 } from 'state/migrations/7'
-import { migration8 } from 'state/migrations/8'
-import { migration9 } from 'state/migrations/9'
-import { migration10 } from 'state/migrations/10'
-import { migration11 } from 'state/migrations/11'
-import { migration12 } from 'state/migrations/12'
-import { migration13 } from 'state/migrations/13'
-import { migration14 } from 'state/migrations/14'
-import { migration15 } from 'state/migrations/15'
-import { migration16 } from 'state/migrations/16'
-import { migration17 } from 'state/migrations/17'
-import { migration18 } from 'state/migrations/18'
-import { migration19 } from 'state/migrations/19'
-import { activeLocalCurrencyAtomName, migration20, PersistAppStateV20 } from 'state/migrations/20'
 import { FiatCurrency } from 'uniswap/src/features/fiatCurrency/constants'
+import { getDeviceFiatCurrency } from 'uniswap/src/features/fiatCurrency/utils'
 import { Language } from 'uniswap/src/features/language/constants'
 import { DeviceAccessTimeout } from 'uniswap/src/features/settings/constants'
+import { migration1 } from '~/state/migrations/1'
+import { migration2 } from '~/state/migrations/2'
+import { migration3 } from '~/state/migrations/3'
+import { migration4 } from '~/state/migrations/4'
+import { migration5 } from '~/state/migrations/5'
+import { migration6 } from '~/state/migrations/6'
+import { migration7 } from '~/state/migrations/7'
+import { migration8 } from '~/state/migrations/8'
+import { migration9 } from '~/state/migrations/9'
+import { migration10 } from '~/state/migrations/10'
+import { migration11 } from '~/state/migrations/11'
+import { migration12 } from '~/state/migrations/12'
+import { migration13 } from '~/state/migrations/13'
+import { migration14 } from '~/state/migrations/14'
+import { migration15 } from '~/state/migrations/15'
+import { migration16 } from '~/state/migrations/16'
+import { migration17 } from '~/state/migrations/17'
+import { migration18 } from '~/state/migrations/18'
+import { migration19 } from '~/state/migrations/19'
+import { activeLocalCurrencyAtomName, migration20, PersistAppStateV20 } from '~/state/migrations/20'
+
+vi.mock('uniswap/src/features/fiatCurrency/utils', () => ({
+  getDeviceFiatCurrency: vi.fn(() => 'USD'),
+}))
 
 const previousState: PersistAppStateV20 = {
   _persist: {
@@ -35,6 +40,7 @@ const previousState: PersistAppStateV20 = {
     hideSpamTokens: true,
     hapticsEnabled: false,
     deviceAccessTimeout: DeviceAccessTimeout.ThirtyMinutes,
+    enableCustomGasFeeEntry: false,
   },
 }
 
@@ -65,9 +71,10 @@ const migrator = createMigrate(
 )
 
 describe('migration to v20', () => {
-  it('should set currency to default value when unset', async () => {
+  it('should set currency to the device currency when unset', async () => {
+    vi.mocked(getDeviceFiatCurrency).mockReturnValueOnce(FiatCurrency.Euro)
     const result: any = await migrator(previousState, 20)
-    expect(result.userSettings.currentCurrency).toEqual(FiatCurrency.UnitedStatesDollar)
+    expect(result.userSettings.currentCurrency).toEqual(FiatCurrency.Euro)
   })
   it('should set user settings currency based on atom value', async () => {
     localStorage.setItem(activeLocalCurrencyAtomName, FiatCurrency.NigerianNaira)

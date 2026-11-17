@@ -2,36 +2,37 @@
 
 ## Developer Quickstart
 
-### Environment variables
+### Build System
 
-Before running the extension, you need to get the environment variables from 1password in order to get full functionality. Run the command `bun extension env:local:download` to copy them to your root folder.
+The extension is built with **WXT** (Vite-based) for both local development and production. The dev server opens a browser automatically.
 
 ### Running the extension locally
 
-To run the extension, run the following from the top level of the monorepo:
+First, install dependencies from the top level of the monorepo:
 
 ```bash
 bun install
-bun extension start
 ```
 
-Then, load the extension into Chrome (if using Webpack):
+---
 
-1. Go to **chrome://extensions**
-2. At the top right, turn on **Developer mode**
-3. Click **Load unpacked**
-4. Find and select the extension folder (apps/extension/dev)
+#### Running with WXT
 
-## Configuring WXT Browser-opening behavior
+```bash
+bun extension dev
+```
 
-To customize the default WXT behavior, create a file `web-ext.config.ts` in this directory.
+WXT automatically opens a browser window with the extension loaded.
 
-``` web-ext.config.ts
+##### Configuring WXT browser behavior
+
+To customize the browser WXT opens, create a file `web-ext.config.ts` in this directory:
+
+```ts
+// web-ext.config.ts
 import { defineWebExtConfig } from 'wxt';
 
 export default defineWebExtConfig({
-  // ...
-
   // Option 1: Connect to already running Chrome (requires Chrome to be started with --remote-debugging-port=9222)
   // chromiumPort: 9222,
 
@@ -47,38 +48,54 @@ export default defineWebExtConfig({
     // Sync with your Google account to get bookmarks, extensions, etc.
     // '--enable-sync',
   ],
-
-  // ...
 });
 ```
 
-## Running the extension locally with an absolute path (for testing scantastic)
-
-Our scantastic API requires a consistent origin header so the build must be loaded from an absolute path. This works because Chrome generates a consistent ID for the extension based on the path it was loaded from.
-
-To run the extension, run the following from the top level of the monorepo:
-
-Mac:
+##### Running WXT with absolute paths (for Scantastic testing)
 
 ```bash
-bun
+# Auto-detect current OS (Mac / Linux / Windows)
 bun extension start:absolute
-```
 
-Windows:
-
-```bash
-bun
+# Windows
 bun extension start:absolute:windows
 ```
 
-Then, load the extension into Chrome (if using Webpack):
+Absolute output directories by platform:
+- Mac: `/Users/Shared/stretch`
+- Linux: `/var/tmp/stretch`
+- Windows: `C:/ProgramData/stretch`
 
-1. Go to **chrome://extensions**
-2. At the top right, turn on **Developer mode**
-3. Click **Load unpacked**
-4. Find and select the extension folder with an absolute path (`/Users/Shared/stretch` on Mac and `C:/ProgramData/stretch` on Windows)
-5. Your chrome extension url should be `chrome-extension://ceofpnbcmdjbibjjdniemjemmgaibeih` on Mac and `chrome-extension://ffogefanhjekjafbpofianlhkonejcoe` on Windows. The backend allows this origin and the ID will be consistently generated based off an absolute path that is consistent on all machines.
+##### Loading into your own Chrome (no managed browser)
+
+`start:absolute` auto-launches a separate web-ext-managed Chrome with its own
+profile, so it onboards fresh on every run. To instead build/watch to the
+absolute path and load it into your everyday Chrome — keeping your login and
+completed onboarding, the way the old `start:webpack:absolute` worked:
+
+```bash
+bun extension start:absolute:no-browser
+```
+
+Then load the output directory (e.g. `/Users/Shared/stretch` on Mac) once via
+`chrome://extensions` → **Load unpacked**. Because it lives in your own profile,
+state persists across reruns and you only onboard once. The dev server still
+hot-reloads the unpacked extension.
+
+### Reusing an already-onboarded extension state (managed browser)
+
+`start:absolute` persists its Chrome profile by default — the profile lives in a
+sibling directory of the output dir (e.g. `/Users/Shared/stretch-chrome-data` on
+Mac), so it survives the outdir wipe WXT performs on each build. Complete
+onboarding once and it's preserved (local storage + persisted Redux state) across
+reruns.
+
+To point at a different profile directory, set `WXT_CHROME_USER_DATA_DIR` to any
+stable path **outside** the output dir:
+
+```bash
+WXT_CHROME_USER_DATA_DIR=/var/tmp/uniswap-extension-chrome-data bun extension start:absolute
+```
 
 ## Migrations
 

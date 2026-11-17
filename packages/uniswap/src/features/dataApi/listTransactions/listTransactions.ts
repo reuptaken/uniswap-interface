@@ -1,23 +1,44 @@
-import { PartialMessage } from '@bufbuild/protobuf'
-import { FiatOnRampParams, ListTransactionsResponse } from '@uniswap/client-data-api/dist/data/v1/api_pb'
+import type { PartialMessage } from '@bufbuild/protobuf'
+import type { FiatOnRampParams, ListTransactionsResponse } from '@uniswap/client-data-api/dist/data/v1/api_pb'
+import type { TransactionTypeFilter } from '@uniswap/client-data-api/dist/data/v1/types_pb'
+import type { UniverseChainId } from '@universe/chains'
+import { isWebPlatform } from '@universe/environment'
 import { useMemo } from 'react'
 import { useSelector } from 'react-redux'
-import { useListTransactionsQuery } from 'uniswap/src/data/rest/listTransactions'
-import { parseRestResponseToTransactionDetails } from 'uniswap/src/features/activity/parseRestResponse'
+import { useListTransactionsQuery } from 'uniswap/src/data/apiClients/dataApiService/activity/listTransactions'
+import { parseToTransactionDetails } from 'uniswap/src/features/activity/parseToTransactionDetails'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { mapRestStatusToNetworkStatus } from 'uniswap/src/features/dataApi/balances/utils'
-import { BaseResult, PaginationControls } from 'uniswap/src/features/dataApi/types'
+import type { BaseResult, PaginationControls } from 'uniswap/src/features/dataApi/types'
 import { useHideReportedActivitySetting } from 'uniswap/src/features/settings/hooks'
-import { TransactionDetails } from 'uniswap/src/features/transactions/types/transactionDetails'
+import type { TransactionDetails } from 'uniswap/src/features/transactions/types/transactionDetails'
 import { selectActivityVisibility } from 'uniswap/src/features/visibility/selectors'
-import { CurrencyIdToVisibility, NFTKeyToVisibility } from 'uniswap/src/features/visibility/slice'
+import type { CurrencyIdToVisibility, NFTKeyToVisibility } from 'uniswap/src/features/visibility/slice'
 
-const DEFAULT_PAGE_SIZE = 100
+const DEFAULT_PAGE_SIZE = isWebPlatform ? 100 : 20
+
+// The backend rejects `search_text` outside of this range with an `invalid_argument` error, so
+// out-of-range input is normalized here instead of being sent and surfacing as a failed request.
+const MIN_SEARCH_TEXT_LENGTH = 2
+const MAX_SEARCH_TEXT_LENGTH = 64
+
+/**
+ * Returns the search text to send to the API, or `undefined` when the input can't be searched on
+ * (i.e. too short) and results should stay unfiltered.
+ */
+export function normalizeTransactionSearchText(searchText: string | undefined): string | undefined {
+  const trimmed = searchText?.trim()
+
+  if (!trimmed || trimmed.length < MIN_SEARCH_TEXT_LENGTH) {
+    return undefined
+  }
+
+  return trimmed.slice(0, MAX_SEARCH_TEXT_LENGTH)
+}
 
 export type TransactionListDataResult = BaseResult<TransactionDetails[]> &
   PaginationControls & {
     isFetching: boolean
+    isFetchNextPageError: boolean
   }
 type ListTransactionsQueryArgs = {
   evmAddress?: Address
@@ -28,6 +49,9 @@ type ListTransactionsQueryArgs = {
   nftVisibility?: NFTKeyToVisibility
   chainIds?: UniverseChainId[]
   fiatOnRampParams?: PartialMessage<FiatOnRampParams>
+  filterTransactionTypes?: TransactionTypeFilter[]
+  searchText?: string
+  refetchInterval?: number
 }
 
 /**
@@ -43,6 +67,9 @@ export function useListTransactions({
   chainIds,
   skip,
   fiatOnRampParams,
+  filterTransactionTypes,
+  searchText,
+  refetchInterval,
 }: ListTransactionsQueryArgs & { skip?: boolean }): TransactionListDataResult {
   const { chains: defaultChainIds } = useEnabledChains()
   // Use provided chainIds or fallback to default chains
@@ -56,10 +83,13 @@ export function useListTransactions({
     isFetching,
     error,
     refetch,
-    status: restStatus,
+    isPending,
+    isError,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    isFetchNextPageError,
+    dataUpdatedAt,
   } = useListTransactionsQuery({
     input: {
       evmAddress,
@@ -67,8 +97,11 @@ export function useListTransactions({
       chainIds: finalChainIds,
       pageSize: finalPageSize,
       fiatOnRampParams,
+      filterTransactionTypes,
+      searchText: normalizeTransactionSearchText(searchText),
     },
     enabled: !!(evmAddress || svmAddress) && !skip,
+    refetchInterval,
   })
 
   // Flatten all pages and parse transaction data
@@ -82,7 +115,7 @@ export function useListTransactions({
       .flatMap((page) => Array.from(page.transactions))
       // Transactions appear incomplete when the app first loads
       // Type assertion needed because protobuf types assume transaction always exists
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      // oxlint-disable-next-line typescript/no-unnecessary-condition
       .filter((transaction) => transaction.transaction !== undefined)
 
     const dedupedTransactions = dedupeTransactions(flattenedTransactions)
@@ -93,8 +126,8 @@ export function useListTransactions({
       nextPageToken: infiniteData.pages[infiniteData.pages.length - 1]?.nextPageToken,
     } as ListTransactionsResponse
 
-    const parsedTransactions = parseRestResponseToTransactionDetails({
-      data: flattenedResponse,
+    const parsedTransactions = parseToTransactionDetails({
+      transactions: flattenedResponse.transactions,
       hideSpamTokens,
       nftVisibility,
       tokenVisibilityOverrides,
@@ -109,12 +142,15 @@ export function useListTransactions({
     data: filteredTransactions,
     loading: isLoading,
     isFetching,
-    networkStatus: mapRestStatusToNetworkStatus(restStatus),
+    isPending,
+    isError,
     refetch,
-    error: error ?? undefined,
+    error: error || undefined,
+    dataUpdatedAt: dataUpdatedAt || undefined,
     fetchNextPage,
     hasNextPage: !!hasNextPage,
     isFetchingNextPage,
+    isFetchNextPageError: !!isFetchNextPageError,
   }
 }
 
@@ -156,6 +192,8 @@ function useFilteredTransactionsByVisibility(
 
 function getUniqueTransactionId(transaction: ListTransactionsResponse['transactions'][0]): string | undefined {
   switch (transaction.transaction.case) {
+    case 'plan':
+      return transaction.transaction.value.planId
     case 'onChain':
       return transaction.transaction.value.transactionHash
     case 'uniswapX':

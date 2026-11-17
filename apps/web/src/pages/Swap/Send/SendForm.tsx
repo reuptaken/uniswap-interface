@@ -1,24 +1,16 @@
 import { useMutation } from '@tanstack/react-query'
-import { useAccountDrawer } from 'components/AccountDrawer/MiniPortfolio/hooks'
-import { useGroupedRecentTransfers } from 'hooks/useGroupedRecentTransfers'
-import { useModalState } from 'hooks/useModalState'
-import { useSendCallback } from 'hooks/useSendCallback'
-import { NewAddressSpeedBumpModal } from 'pages/Swap/Send/NewAddressSpeedBump'
-import SendCurrencyInputForm from 'pages/Swap/Send/SendCurrencyInputForm'
-import { SendRecipientForm } from 'pages/Swap/Send/SendRecipientForm'
-import { SendReviewModalInner } from 'pages/Swap/Send/SendReviewModal'
-import { SmartContractSpeedBumpModal } from 'pages/Swap/Send/SmartContractSpeedBump'
+import { chainIdToPlatform, isSVMChain, areAddressesEqual } from '@universe/chains'
+import { Button, Flex, Text } from '@universe/mycelium'
+import { Lock } from '@universe/mycelium/icons/Lock'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSendContext } from 'state/send/SendContext'
-import { CurrencyState } from 'state/swap/types'
-import { Button, Flex } from 'ui/src'
 import { GetHelpHeader } from 'uniswap/src/components/dialog/GetHelpHeader'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
+import { UniswapHelpUrls } from 'uniswap/src/constants/urls'
 import { useActiveAddress, useConnectionStatus } from 'uniswap/src/features/accounts/store/hooks'
 import { useIsSmartContractAddress } from 'uniswap/src/features/address/useIsSmartContractAddress'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { isSVMChain } from 'uniswap/src/features/platforms/utils/chains'
+import { useIsPermissionedSendBlocked } from 'uniswap/src/features/permissionedTokens/useIsPermissionedSendBlocked'
+import { useRecentTransfersByAddress } from 'uniswap/src/features/send/useRecentTransfersByAddress'
 import { ElementName, InterfaceEventName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 import { useCurrencyInfo } from 'uniswap/src/features/tokens/useCurrencyInfo'
@@ -29,6 +21,20 @@ import {
 } from 'uniswap/src/features/transactions/components/TransactionModal/TransactionModalContext'
 import { CompatibleAddressModal } from 'uniswap/src/features/transactions/modals/CompatibleAddressModal'
 import { currencyId } from 'uniswap/src/utils/currencyId'
+import { logger } from 'utilities/src/logger/logger'
+import { useAccountDrawer } from '~/components/AccountDrawer/MiniPortfolio/hooks'
+import { useSendCallback } from '~/features/Swap/hooks/useSendCallback'
+import type { CurrencyState } from '~/features/Swap/state/types'
+import { useAccount } from '~/hooks/useAccount'
+import { useModalState } from '~/hooks/useModalState'
+import { NewAddressSpeedBumpModal } from '~/pages/Swap/Send/NewAddressSpeedBump'
+import { SelfSendSpeedBumpModal } from '~/pages/Swap/Send/SelfSendSpeedBump'
+import { SendCurrencyInputForm } from '~/pages/Swap/Send/SendCurrencyInputForm'
+import { SendRecipientForm } from '~/pages/Swap/Send/SendRecipientForm'
+import { SendReviewModalInner } from '~/pages/Swap/Send/SendReviewModal'
+import { SmartContractSpeedBumpModal } from '~/pages/Swap/Send/SmartContractSpeedBump'
+import { useSendContext } from '~/pages/Swap/Send/state/SendContext'
+import { UserRejectedRequestError } from '~/utils/errors'
 
 export type SendFormProps = {
   onCurrencyChange?: (selected: CurrencyState) => void
@@ -37,7 +43,7 @@ export type SendFormProps = {
 
 function useSendButtonState() {
   const { sendState, derivedSendInfo } = useSendContext()
-  const { recipient, inputCurrency } = sendState
+  const { recipient, inputCurrency, exactAmountFiat, exactAmountToken, inputInFiat } = sendState
   const { parsedTokenAmount, recipientData } = derivedSendInfo
   const { t } = useTranslation()
 
@@ -59,6 +65,15 @@ function useSendButtonState() {
     }
 
     if (!parsedTokenAmount) {
+      const exactAmount = inputInFiat ? exactAmountFiat : exactAmountToken
+
+      if (exactAmount && parseFloat(exactAmount) > 0) {
+        return {
+          label: t('swap.warning.enterLargerAmount.title'),
+          disabled: true,
+        }
+      }
+
       return {
         label: t('common.noAmount.error'),
         disabled: true,
@@ -76,17 +91,19 @@ function useSendButtonState() {
       label: t('common.send.button'),
       disabled: false,
     }
-  }, [recipient, recipientData, parsedTokenAmount, t, isSolanaToken])
+  }, [recipient, recipientData, parsedTokenAmount, inputInFiat, exactAmountFiat, exactAmountToken, t, isSolanaToken])
 }
 
 enum SendFormModalState {
   None = 'None',
+  SELF_SEND_SPEED_BUMP = 'SELF_SEND_SPEED_BUMP',
   SMART_CONTRACT_SPEED_BUMP = 'SMART_CONTRACT_SPEED_BUMP',
   NEW_ADDRESS_SPEED_BUMP = 'NEW_ADDRESS_SPEED_BUMP',
   COMPATIBLE_ADDRESS = 'COMPATIBLE_ADDRESS',
 }
 
 enum SendSpeedBump {
+  SELF_SEND_SPEED_BUMP = 'SELF_SEND_SPEED_BUMP',
   SMART_CONTRACT_SPEED_BUMP = 'SMART_CONTRACT_SPEED_BUMP',
   NEW_ADDRESS_SPEED_BUMP = 'NEW_ADDRESS_SPEED_BUMP',
   COMPATIBLE_ADDRESS = 'COMPATIBLE_ADDRESS',
@@ -101,12 +118,13 @@ function SendFormInner({ disableTokenInputs = false, onCurrencyChange }: SendFor
 
   const [sendFormModalState, setSendFormModalState] = useState(SendFormModalState.None)
   const [sendFormSpeedBumpState, setSendFormSpeedBumpState] = useState({
+    [SendSpeedBump.SELF_SEND_SPEED_BUMP]: false,
     [SendSpeedBump.NEW_ADDRESS_SPEED_BUMP]: false,
     [SendSpeedBump.SMART_CONTRACT_SPEED_BUMP]: false,
     [SendSpeedBump.COMPATIBLE_ADDRESS]: false,
   })
   const { sendState, derivedSendInfo } = useSendContext()
-  const { inputError, recipientData } = derivedSendInfo
+  const { inputError, recipientData, gasFee } = derivedSendInfo
   const inputCurrencyId = currencyId(sendState.inputCurrency)
   const inputCurrencyInfo = useCurrencyInfo(inputCurrencyId)
   const chainId = sendState.inputCurrency?.chainId ?? defaultChainId
@@ -123,14 +141,35 @@ function SendFormInner({ disableTokenInputs = false, onCurrencyChange }: SendFor
   const { isDisconnected } = useConnectionStatus()
 
   const accountAddress = useActiveAddress(chainId)
-  const { transfers: recentTransfers, loading: transfersLoading } = useGroupedRecentTransfers(accountAddress)
+  const chainPlatform = chainIdToPlatform(chainId)
+
+  const { isPermissionedSendBlocked, isPermissionedSendBlockedLoading, permissionedSendBlockReason } =
+    useIsPermissionedSendBlocked({
+      sendCurrency: inputCurrencyInfo?.currency,
+      senderAddress: accountAddress,
+      recipientAddress: recipientData?.address,
+    })
+  const sendCurrency = inputCurrencyInfo?.currency
+  const { transfers: recentTransfers, loading: transfersLoading } = useRecentTransfersByAddress(accountAddress)
   const isRecentAddress = useMemo(() => {
     if (!recipientData?.address) {
       return undefined
     }
 
-    return !!recentTransfers?.[recipientData.address]
-  }, [recentTransfers, recipientData?.address])
+    return !!recentTransfers.find((transfer) =>
+      areAddressesEqual({
+        addressInput1: { address: transfer.address, platform: chainPlatform },
+        addressInput2: { address: recipientData.address, platform: chainPlatform },
+      }),
+    )
+  }, [recentTransfers, recipientData?.address, chainPlatform])
+
+  const isCurrentWallet = useMemo(() => {
+    return areAddressesEqual({
+      addressInput1: { address: accountAddress, platform: chainPlatform },
+      addressInput2: { address: recipientData?.address, platform: chainPlatform },
+    })
+  }, [accountAddress, recipientData?.address, chainPlatform])
 
   const sendButtonState = useSendButtonState()
 
@@ -138,17 +177,25 @@ function SendFormInner({ disableTokenInputs = false, onCurrencyChange }: SendFor
     setSendFormModalState(newState ?? SendFormModalState.None)
   }, [])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +recipientData?.address
   useEffect(() => {
     setSendFormSpeedBumpState(() => ({
+      [SendSpeedBump.SELF_SEND_SPEED_BUMP]: isCurrentWallet,
       [SendSpeedBump.SMART_CONTRACT_SPEED_BUMP]: isSmartContractAddress,
       [SendSpeedBump.NEW_ADDRESS_SPEED_BUMP]: !isRecentAddress,
       [SendSpeedBump.COMPATIBLE_ADDRESS]: isUnichainBridgedAsset,
     }))
-  }, [isRecentAddress, isSmartContractAddress, recipientData?.address, isUnichainBridgedAsset])
+  }, [isCurrentWallet, isRecentAddress, isSmartContractAddress, recipientData?.address, isUnichainBridgedAsset])
 
   const handleSendButton = useCallback(
     (prevSpeedBump?: SendSpeedBump) => {
+      if (
+        prevSpeedBump !== SendSpeedBump.SELF_SEND_SPEED_BUMP &&
+        sendFormSpeedBumpState[SendSpeedBump.SELF_SEND_SPEED_BUMP]
+      ) {
+        handleModalState(SendFormModalState.SELF_SEND_SPEED_BUMP)
+        return
+      }
+
       if (
         prevSpeedBump !== SendSpeedBump.SMART_CONTRACT_SPEED_BUMP &&
         sendFormSpeedBumpState[SendSpeedBump.SMART_CONTRACT_SPEED_BUMP]
@@ -177,6 +224,17 @@ function SendFormInner({ disableTokenInputs = false, onCurrencyChange }: SendFor
     },
     [handleModalState, sendFormSpeedBumpState, setScreen],
   )
+
+  const handleConfirmSelfSendSpeedBump = useCallback(() => {
+    setSendFormSpeedBumpState((prev) => ({
+      ...prev,
+      [SendSpeedBump.SELF_SEND_SPEED_BUMP]: false,
+    }))
+    handleModalState(SendFormModalState.None)
+    handleSendButton(SendSpeedBump.SELF_SEND_SPEED_BUMP)
+  }, [handleModalState, handleSendButton])
+
+  const handleCancelSelfSendSpeedBump = useCallback(() => handleModalState(SendFormModalState.None), [handleModalState])
 
   const handleConfirmSmartContractSpeedBump = useCallback(() => {
     setSendFormSpeedBumpState((prev) => ({
@@ -220,13 +278,52 @@ function SendFormInner({ disableTokenInputs = false, onCurrencyChange }: SendFor
     [handleModalState],
   )
 
-  const buttonDisabled = !!inputError || loadingSmartContractAddress || transfersLoading || sendButtonState.disabled
+  // Until the estimate settles we can't know whether the user can cover gas.
+  const buttonDisabled =
+    !!inputError ||
+    !!gasFee?.isLoading ||
+    loadingSmartContractAddress ||
+    transfersLoading ||
+    sendButtonState.disabled ||
+    isPermissionedSendBlocked ||
+    isPermissionedSendBlockedLoading
 
   return (
     <>
       <Flex gap="$spacing8">
         <SendCurrencyInputForm disabled={disableTokenInputs} onCurrencyChange={onCurrencyChange} />
         <SendRecipientForm disabled={disableTokenInputs} />
+        {/* Permissioned-token sends are blocked when the sender or the recipient isn't allowlisted
+            for the token. The verify-identity CTA lives on Swap/TDP; here we just explain why the
+            send is blocked, with sender- vs recipient-specific copy. */}
+        {isPermissionedSendBlocked && (
+          <Flex
+            row
+            backgroundColor="$surface2"
+            borderRadius="$rounded12"
+            p="$padding12"
+            gap="$spacing12"
+            alignItems="flex-start"
+          >
+            <Lock size="$icon.20" color="$neutral2" flexShrink={0} />
+            <Flex flex={1} gap="$spacing2">
+              <Text variant="body3" color="$neutral1">
+                {permissionedSendBlockReason === 'sender'
+                  ? t('permissionedPool.send.senderNotAllowlisted.title')
+                  : t('permissionedPool.send.recipientNotAllowlisted.title')}
+              </Text>
+              <Text variant="body3" color="$neutral2">
+                {permissionedSendBlockReason === 'sender'
+                  ? t('permissionedPool.send.senderNotAllowlisted.message', {
+                      tokenSymbol: sendCurrency?.symbol ?? '',
+                    })
+                  : t('permissionedPool.send.recipientNotAllowlisted.message', {
+                      tokenSymbol: sendCurrency?.symbol ?? '',
+                    })}
+              </Text>
+            </Flex>
+          </Flex>
+        )}
         {isDisconnected ? (
           <Trace
             logPress
@@ -247,7 +344,7 @@ function SendFormInner({ disableTokenInputs = false, onCurrencyChange }: SendFor
                 emphasis="primary"
                 size="large"
                 fill
-                isDisabled={buttonDisabled}
+                disabled={buttonDisabled}
                 onPress={() => handleSendButton()}
               >
                 {sendButtonState.label}
@@ -256,6 +353,11 @@ function SendFormInner({ disableTokenInputs = false, onCurrencyChange }: SendFor
           </Trace>
         )}
       </Flex>
+      <SelfSendSpeedBumpModal
+        isOpen={sendFormModalState === SendFormModalState.SELF_SEND_SPEED_BUMP}
+        onConfirm={handleConfirmSelfSendSpeedBump}
+        onDismiss={handleCancelSelfSendSpeedBump}
+      />
       <SmartContractSpeedBumpModal
         isOpen={sendFormModalState === SendFormModalState.SMART_CONTRACT_SPEED_BUMP}
         onConfirm={handleConfirmSmartContractSpeedBump}
@@ -275,7 +377,7 @@ function SendFormInner({ disableTokenInputs = false, onCurrencyChange }: SendFor
           closeHeaderComponent={
             <GetHelpHeader
               closeModal={handleCancelCompatibleAddressSpeedBump}
-              link={uniswapUrls.helpArticleUrls.bridgedAssets}
+              link={UniswapHelpUrls.articles.bridgedAssets}
               mb="$spacing12"
             />
           }
@@ -289,6 +391,8 @@ export function SendForm(props: SendFormProps) {
   const { setSendState, derivedSendInfo } = useSendContext()
   const { parsedTokenAmount, recipientData, transaction, gasFee } = derivedSendInfo
   const { closeModal } = useModalState(ModalName.Send)
+  const account = useAccount()
+  const sendChainId = parsedTokenAmount?.currency.chainId
 
   const sendCallback = useSendCallback({
     currencyAmount: parsedTokenAmount,
@@ -297,7 +401,13 @@ export function SendForm(props: SendFormProps) {
     gasFee,
   })
 
-  const { mutate: handleSend, isPending: isConfirming } = useMutation({
+  const {
+    mutate: handleSend,
+    isPending: isConfirming,
+    error: sendError,
+    isError,
+    reset: resetSendMutation,
+  } = useMutation({
     mutationFn: sendCallback,
     onSuccess: () => {
       closeModal()
@@ -306,13 +416,39 @@ export function SendForm(props: SendFormProps) {
         exactAmountToken: undefined,
         exactAmountFiat: '',
         recipient: '',
-        validatedRecipient: undefined,
+        validatedRecipientData: undefined,
         inputInFiat: true,
       }))
     },
+    onError: (error) => {
+      // User rejections are expected — don't log them or surface a callout.
+      if (error instanceof UserRejectedRequestError) {
+        return
+      }
+      // Don't log the raw provider error: ethers v5 gas-estimation/submission errors can serialize the
+      // tx object (to/from/value/calldata) into the message and ship it to Datadog RUM. A failed transfer
+      // may never be public onchain, so log a synthetic error with only non-sensitive metadata.
+      logger.error(new Error('Send transaction failed'), {
+        tags: { file: 'SendForm.tsx', function: 'onError', chainId: sendChainId },
+        extra: { connectorType: account.connector?.type },
+      })
+    },
   })
 
+  // Surface non-user-rejection failures on the review screen. Clears on retry: re-invoking the
+  // mutation resets isError to false (and flips isPending true), so the error hides on the next send.
+  const hasError = isError && !(sendError instanceof UserRejectedRequestError)
+
   const { screen, setScreen } = useTransactionModalContext()
+
+  // Clear a prior failure whenever the review screen (re)opens so a stale error from an earlier attempt
+  // doesn't show before the user retries. A fresh failure this session still sets isError after confirm.
+  useEffect(() => {
+    if (screen === TransactionScreen.Review) {
+      resetSendMutation()
+    }
+  }, [screen, resetSendMutation])
+
   switch (screen) {
     case TransactionScreen.Form:
       return <SendFormInner {...props} />
@@ -322,6 +458,7 @@ export function SendForm(props: SendFormProps) {
           onConfirm={handleSend}
           onDismiss={() => setScreen(TransactionScreen.Form)}
           isConfirming={isConfirming}
+          hasError={hasError}
         />
       )
     default:

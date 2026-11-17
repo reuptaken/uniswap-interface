@@ -1,15 +1,18 @@
 import { useMutation } from '@tanstack/react-query'
+import { Flex, SpinningLoader } from '@universe/mycelium'
+import type { AnimationType } from '@universe/mycelium/animate-presence-pager'
+import { TransitionItem } from '@universe/mycelium/animate-presence-pager'
 import { useEffect, useMemo, useRef } from 'react'
 import { useSelector } from 'react-redux'
 import { NavigationType, Outlet, ScrollRestoration, useLocation } from 'react-router'
 import { AutoLockProvider } from 'src/app/components/AutoLockProvider'
 import { SmartWalletNudgeModals } from 'src/app/components/modals/SmartWalletNudgeModals'
+import { SmartWalletNudgesProvider } from 'src/app/context/SmartWalletNudgesContext'
 import { DappRequestQueue } from 'src/app/features/dappRequests/DappRequestQueue'
 import { ForceUpgradeModal } from 'src/app/features/forceUpgrade/ForceUpgradeModal'
 import { HomeScreen } from 'src/app/features/home/HomeScreen'
 import { Locked } from 'src/app/features/lockScreen/Locked'
 import { NotificationToastWrapper } from 'src/app/features/notifications/NotificationToastWrapper'
-import { StorageWarningModal } from 'src/app/features/warnings/StorageWarningModal'
 import { useIsWalletUnlocked } from 'src/app/hooks/useIsWalletUnlocked'
 import { AppRoutes } from 'src/app/navigation/constants'
 import { focusOrCreateOnboardingTab } from 'src/app/navigation/focusOrCreateOnboardingTab'
@@ -17,11 +20,12 @@ import { HideContentsWhenSidebarBecomesInactive } from 'src/app/navigation/HideC
 import { SidebarNavigationProvider } from 'src/app/navigation/providers'
 import { useRouterState } from 'src/app/navigation/state'
 import { isOnboardedSelector } from 'src/app/utils/isOnboardedSelector'
-import { AnimatePresence, Flex, SpinningLoader, styled } from 'ui/src'
 import { TestnetModeBanner } from 'uniswap/src/components/banners/TestnetModeBanner'
 import { useIsChromeWindowFocusedWithTimeout } from 'uniswap/src/extension/useIsChromeWindowFocused'
+import { RemotePriceProvider } from 'uniswap/src/features/prices/RemotePriceProvider'
 import { useEvent, usePrevious } from 'utilities/src/react/hooks'
 import { ONE_SECOND_MS } from 'utilities/src/time/time'
+import { AccountsStoreContextProvider } from 'wallet/src/features/accounts/store/provider'
 import { useHeartbeatReporter } from 'wallet/src/features/telemetry/hooks/useHeartbeatReporter'
 import { useLastBalancesReporter } from 'wallet/src/features/telemetry/hooks/useLastBalancesReporter'
 import { WalletUniswapProvider } from 'wallet/src/features/transactions/contexts/WalletUniswapContext'
@@ -40,7 +44,6 @@ export function MainContent(): JSX.Element {
   return (
     <>
       <BackgroundServices />
-      <StorageWarningModal isOnboarding={false} />
       <HomeScreen />
     </>
   )
@@ -83,6 +86,17 @@ const routeDirections = {
   [AppRoutes.Send]: Direction.Down,
 } satisfies Record<AppRoutes, Direction>
 
+// Intentionally mirrored (`Direction.Up` → `'down'`), not a bug: each entry is
+// matched by exit offset to the legacy pane's exitStyle table (outgoing pane
+// moved toward +x navigating left, +y navigating up — the pager's 'backward' /
+// 'down' offset pairs), so "fixing" it would reverse every transition.
+const pagerAnimationType = {
+  [Direction.Right]: 'forward',
+  [Direction.Left]: 'backward',
+  [Direction.Up]: 'down',
+  [Direction.Down]: 'up',
+} as const satisfies Record<Direction, AnimationType>
+
 const getAppRouteFromPathName = (pathname: string): AppRoutes | null => {
   const val = (pathname.split('/')[1] || '') as AppRoutes
   if (Object.values(AppRoutes).includes(val)) {
@@ -117,18 +131,13 @@ export function WebNavigation(): JSX.Element {
   const shouldRestoreScroll = pathname !== prevPathname
   const childrenMemo = useMemo(() => {
     return (
-      <AnimatePresence custom={{ towards }} initial={false}>
-        <AnimatedPane
-          key={pathname}
-          animation={[
-            isVertical(towards) ? 'quicker' : '100ms',
-            {
-              opacity: {
-                overshootClamping: true,
-              },
-            },
-          ]}
-        >
+      <TransitionItem
+        childKey={pathname}
+        animationType={pagerAnimationType[towards]}
+        distance={isVertical(towards) ? 15 : 30}
+        curve={isVertical(towards) ? 'quicker' : '100ms'}
+      >
+        <Flex fill maxWidth="calc(min(535px, 100vw))" minWidth={319} minHeight="100vh" mx="auto" width="100%">
           <Flex fill grow overflow="visible">
             <TestnetModeBanner />
             {isLoggedIn === null ? (
@@ -143,20 +152,24 @@ export function WebNavigation(): JSX.Element {
               <LoggedOut />
             )}
           </Flex>
-        </AnimatedPane>
-      </AnimatePresence>
+        </Flex>
+      </TransitionItem>
     )
   }, [isLoggedIn, pathname, towards])
 
   return (
     <SidebarNavigationProvider>
       <NativeWalletProvider>
-        <WalletUniswapProvider>
-          <NotificationToastWrapper />
-          {shouldRestoreScroll && <ScrollRestoration />}
-          {childrenMemo}
-          {isLoggedIn && <ForceUpgradeModal />}
-        </WalletUniswapProvider>
+        <RemotePriceProvider>
+          <WalletUniswapProvider>
+            <AccountsStoreContextProvider>
+              <NotificationToastWrapper />
+              {shouldRestoreScroll && <ScrollRestoration />}
+              {childrenMemo}
+              {isLoggedIn && <ForceUpgradeModal />}
+            </AccountsStoreContextProvider>
+          </WalletUniswapProvider>
+        </RemotePriceProvider>
       </NativeWalletProvider>
     </SidebarNavigationProvider>
   )
@@ -169,35 +182,6 @@ function Loading(): JSX.Element {
     </Flex>
   )
 }
-
-const AnimatedPane = styled(Flex, {
-  zIndex: 1,
-  fill: true,
-  position: 'absolute',
-  inset: 0,
-  x: 0,
-  opacity: 1,
-  maxWidth: 'calc(min(535px, 100vw))',
-  minWidth: 319,
-  minHeight: '100vh',
-  mx: 'auto',
-  width: '100%',
-
-  variants: {
-    towards: (dir: Direction) => ({
-      enterStyle: {
-        opacity: 0,
-        zIndex: 1,
-      },
-      exitStyle: {
-        zIndex: 0,
-        x: isVertical(dir) ? 0 : dir === 'left' ? 30 : -30,
-        y: !isVertical(dir) ? 0 : dir === 'up' ? 15 : -15,
-        opacity: 0,
-      },
-    }),
-  } as const,
-})
 
 const isVertical = (dir: Direction): boolean => dir === 'up' || dir === 'down'
 
@@ -235,7 +219,7 @@ function LoggedIn(): JSX.Element {
   const isChromeWindowFocused = useIsChromeWindowFocusedWithTimeout(30 * ONE_SECOND_MS)
 
   return (
-    <>
+    <SmartWalletNudgesProvider>
       {contents}
 
       <QueuedOrderModal />
@@ -245,7 +229,7 @@ function LoggedIn(): JSX.Element {
       <DappRequestQueue />
 
       <SmartWalletNudgeModals />
-    </>
+    </SmartWalletNudgesProvider>
   )
 }
 

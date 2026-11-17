@@ -1,23 +1,40 @@
 import { EventConsumer, EventMapBase } from '@react-navigation/core'
+import { isChrome, isMobileApp, isMobileWeb, isWebPlatform } from '@universe/environment'
+import {
+  type FlexCompatProps as FlexProps,
+  Flex,
+  Input,
+  InputProps,
+  Text,
+  type TextCompatProps as TextProps,
+  TouchableArea,
+  AnimatedFlex,
+} from '@universe/mycelium'
+import { Presence } from '@universe/mycelium/presence'
+import { fonts, spacing } from '@universe/mycelium/tokens'
+import { TestID } from '@universe/test'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { LayoutChangeEvent } from 'react-native'
 import { useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated'
-import { AnimatePresence, Button, Flex, FlexProps, Input, Text, TouchableArea } from 'ui/src'
+import { Button } from 'ui/src'
 import { CheckmarkCircle } from 'ui/src/components/icons/CheckmarkCircle'
 import { InfoCircleFilled } from 'ui/src/components/icons/InfoCircleFilled'
-import { AnimatedFlex } from 'ui/src/components/layout/AnimatedFlex'
 import { useDynamicFontSizing } from 'ui/src/hooks/useDynamicFontSizing'
-import { fonts, imageSizes, spacing } from 'ui/src/theme'
+import { imageSizes } from 'ui/src/theme'
+import {
+  slideFadePresenceChildProps,
+  slideFadePresenceDescendantProps,
+} from 'uniswap/src/components/animations/slideFadePresenceChildProps'
 import { TextInput } from 'uniswap/src/components/input/TextInput'
 import { UnitagEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { UNITAG_SUFFIX } from 'uniswap/src/features/unitags/constants'
-import { getUnitagFormatError, useCanClaimUnitagName } from 'uniswap/src/features/unitags/hooks/useCanClaimUnitagName'
+import { getUnitagFormatError } from 'uniswap/src/features/unitags/getUnitagFormatError'
+import { useCanClaimUnitagName } from 'uniswap/src/features/unitags/hooks/useCanClaimUnitagName'
 import { UnitagInfoModal } from 'uniswap/src/features/unitags/UnitagInfoModal'
 import { UnitagName } from 'uniswap/src/features/unitags/UnitagName'
-import { getYourNameString } from 'uniswap/src/features/unitags/utils'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
+import { getYourNameString, normalizeUnitagUsernameInput } from 'uniswap/src/features/unitags/utils'
 import {
   OnboardingScreens,
   SharedUnitagScreenParams,
@@ -27,24 +44,54 @@ import {
 import { shortenAddress } from 'utilities/src/addresses'
 import { dismissNativeKeyboard } from 'utilities/src/device/keyboard/dismissNativeKeyboard'
 import { logger } from 'utilities/src/logger/logger'
-import { isMobileApp, isWebPlatform } from 'utilities/src/platform'
 import { useEvent } from 'utilities/src/react/hooks'
 import { ONE_SECOND_MS } from 'utilities/src/time/time'
-import { useDebounce } from 'utilities/src/time/timing'
 
-const VERIFICATION_DEBOUNCE_MS = 700
 const MAX_UNITAG_CHAR_LENGTH = 20
 
 const MAX_INPUT_FONT_SIZE = 36
 const MIN_INPUT_FONT_SIZE = 22
 const MAX_CHAR_PIXEL_WIDTH = 20
-const SLIDE_IN_AMOUNT = isWebPlatform ? 0 : 40
+// Because .uni.eth suffix doesn't trail username in other browsers than Chrome,
+// we don't want to slide when there's no place for that.
+const SLIDE_IN_AMOUNT = isWebPlatform && !isChrome ? 0 : 40
 
 // Used in dynamic font size width calculation to ignore `.` characters
 const UNITAG_SUFFIX_CHARS_ONLY = UNITAG_SUFFIX.replaceAll('.', '')
 
 // Accounts for height of image, gap between image and name, and spacing from top of titles
-const UNITAG_NAME_ANIMATE_DISTANCE_Y = imageSizes.image100 + spacing.spacing48 + spacing.spacing24
+const UNITAG_NAME_ANIMATE_DISTANCE_Y = imageSizes.image100 + spacing.spacing24 + spacing.spacing20
+
+const WEB_STYLING: FlexProps = isWebPlatform
+  ? {
+      backgroundColor: '$surface1',
+      borderRadius: '$rounded20',
+      borderWidth: 1,
+      borderColor: '$surface3',
+      py: '$spacing12',
+      px: '$spacing20',
+      width: '100%',
+    }
+  : {}
+
+const SUFFIX_STYLING: TextProps & InputProps = !isWebPlatform
+  ? {
+      editable: false,
+      placeholderTextColor: '$neutral3',
+      value: UNITAG_SUFFIX,
+    }
+  : { children: UNITAG_SUFFIX }
+
+// input-container + suffix (opacity 0, x SLIDE_IN_AMOUNT); availability swap (opacity 0, y 12).
+const SLIDE_X_CONFIG = { axis: 'translateX' as const, offset: SLIDE_IN_AMOUNT }
+const AVAILABILITY_CONFIG = { axis: 'translateY' as const, offset: 12 }
+const inputContainerPresenceProps = slideFadePresenceChildProps('quick', SLIDE_X_CONFIG)
+const suffixPresenceProps = slideFadePresenceDescendantProps('lazy', SLIDE_X_CONFIG)
+const availabilityPresenceProps = slideFadePresenceChildProps('200ms', AVAILABILITY_CONFIG)
+
+// This is a workaround for aligning a unitag suffix with a unitag name.
+// Some devices render text inside text input and text component vertically shifted.
+const SuffixComponent = !isWebPlatform ? TextInput : Text
 
 export type ClaimUnitagContentProps = {
   unitagAddress?: string
@@ -75,8 +122,8 @@ export function ClaimUnitagContent({
   const [isUnitagAvailable, setIsUnitagAvailable] = useState(false)
   const [unitagAvailableError, setUnitagAvailableError] = useState<string>()
   const [showVerificationLoading, setShowVerificationLoading] = useState(false)
-
   const [unitagNameinputMinWidth, setUnitagNameInputMinWidth] = useState<number | undefined>(undefined)
+
   const [addressError, setAddressError] = useState<string>()
 
   const addressViewOpacity = useSharedValue(1)
@@ -87,10 +134,21 @@ export function ClaimUnitagContent({
     }
   }, [addressViewOpacity])
 
-  const debouncedInputValue = useDebounce(unitagInputValue, VERIFICATION_DEBOUNCE_MS)
-  const { error: canClaimUnitagNameError, loading: isCheckingUnitag } = useCanClaimUnitagName(
-    debouncedInputValue || undefined, // set to undefined if the input is empty to clear the error
-  )
+  const unitagInputContainerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: animateY ? unitagInputContainerTranslateY.value : 0 }],
+    }
+  }, [animateY, unitagInputContainerTranslateY])
+
+  const {
+    error: canClaimUnitagNameError,
+    loading: unitagCheckLoading,
+    isDebouncing,
+  } = useCanClaimUnitagName({
+    unitag: unitagInputValue,
+    claimerAddress: unitagAddress,
+  })
+  const isCheckingUnitag = unitagCheckLoading || isDebouncing
 
   const { onLayout, fontSize, onSetFontSize } = useDynamicFontSizing({
     maxCharWidthAtMaxFontSize: MAX_CHAR_PIXEL_WIDTH,
@@ -131,26 +189,35 @@ export function ClaimUnitagContent({
     })
 
     return unsubscribe
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
   }, [navigationEventConsumer, showTextInputView, focusUnitagTextInput])
 
   const onChangeTextInput = useCallback(
     (text: string): void => {
-      if (text.length === 0) {
+      const normalized = normalizeUnitagUsernameInput(text)
+
+      if (normalized.length === 0) {
         onSetFontSize(inputPlaceholder + UNITAG_SUFFIX_CHARS_ONLY)
       } else {
-        onSetFontSize(text + UNITAG_SUFFIX_CHARS_ONLY)
+        onSetFontSize(normalized + UNITAG_SUFFIX_CHARS_ONLY)
       }
 
       setIsUnitagAvailable(false)
       setShowVerificationLoading(false)
       setUnitagAvailableError(undefined)
 
-      if (text.length > MAX_UNITAG_CHAR_LENGTH) {
-        setUnitagAvailableError(getUnitagFormatError(text, t))
+      if (normalized.length > MAX_UNITAG_CHAR_LENGTH) {
+        setUnitagAvailableError(getUnitagFormatError(normalized, t))
+        setUnitagInputValue(normalized.slice(0, MAX_UNITAG_CHAR_LENGTH) || undefined)
         return
       }
 
-      setUnitagInputValue(text.trim())
+      const nextValue = normalized || undefined
+      setUnitagInputValue(nextValue)
+
+      if (!nextValue) {
+        setUnitagNameInputMinWidth(undefined)
+      }
     },
     [inputPlaceholder, onSetFontSize, t],
   )
@@ -167,6 +234,11 @@ export function ClaimUnitagContent({
         result: 'available',
       })
       sendAnalyticsEvent(UnitagEventName.UnitagOnboardingActionTaken, { action: 'select' })
+
+      // Clear availability UI once the user commits; refetches can otherwise report "taken"
+      // after a successful claim and repopulate error state while this screen is still mounted.
+      setUnitagAvailableError(undefined)
+      setAddressError(undefined)
 
       // Animate the Unitag logo in and text input out
       setShowTextInputView(false)
@@ -190,11 +262,18 @@ export function ClaimUnitagContent({
         }
       }, initialDelay + translateYDuration)
     },
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
     [onComplete, onNavigateContinue, entryPoint, unitagAddress, fontSize],
   )
 
   useEffect(() => {
-    if (!!debouncedInputValue && !isCheckingUnitag) {
+    // Do not sync username availability into error state after the user has continued past the input
+    // (query refetch after claim can report unavailable for the chosen name).
+    if (!showTextInputView) {
+      return
+    }
+
+    if (!!unitagInputValue && !isCheckingUnitag) {
       // If unitagError or addressError is defined, it's rendered in UI
       if (entryPoint === OnboardingScreens.Landing && !unitagAddress) {
         const err = new Error('unitagAddress should always be defined')
@@ -214,7 +293,7 @@ export function ClaimUnitagContent({
         setUnitagAvailableError(canClaimUnitagNameError)
       }
     }
-  }, [canClaimUnitagNameError, debouncedInputValue, isCheckingUnitag, entryPoint, unitagAddress, t])
+  }, [canClaimUnitagNameError, unitagInputValue, isCheckingUnitag, entryPoint, unitagAddress, t, showTextInputView])
 
   const shouldBlockContinue = (entryPoint === OnboardingScreens.Landing && !unitagAddress) || !unitagInputValue
 
@@ -229,22 +308,8 @@ export function ClaimUnitagContent({
     }
   })
 
-  const webStyling: FlexProps = isWebPlatform
-    ? {
-        backgroundColor: '$surface1',
-        borderRadius: '$rounded20',
-        borderWidth: 1,
-        borderColor: '$surface3',
-        py: '$spacing12',
-        px: '$spacing20',
-        mb: '$spacing20',
-        width: '100%',
-        justifyContent: 'space-between',
-      }
-    : {}
-
   const getInitialUnitagNameInputWidth = (event: LayoutChangeEvent): void => {
-    if (unitagNameinputMinWidth) {
+    if (isWebPlatform || unitagNameinputMinWidth) {
       return
     }
 
@@ -253,6 +318,8 @@ export function ClaimUnitagContent({
     setUnitagNameInputMinWidth(event.nativeEvent.layout.width + 1)
   }
 
+  const supportsFieldSizing = isChrome && CSS.supports('field-sizing', 'content')
+
   return (
     <>
       <Flex
@@ -260,7 +327,8 @@ export function ClaimUnitagContent({
         gap="$spacing12"
         mt="$spacing24"
         onLayout={(event): void => {
-          onLayout(event)
+          // Safe: mycelium's onLayout event is a subset of LayoutChangeEvent (nativeEvent.layout only).
+          onLayout(event as LayoutChangeEvent)
         }}
       >
         {/* Fixed text that animates in when TextInput is animated out */}
@@ -268,30 +336,27 @@ export function ClaimUnitagContent({
           centered
           width="100%"
           height={fonts.heading2.lineHeight}
-          style={{ transform: [{ translateY: animateY ? unitagInputContainerTranslateY : 0 }] }}
+          style={unitagInputContainerAnimatedStyle}
         >
           {!showTextInputView && (
             <Flex position="absolute">
               <UnitagName animateText animateIcon textProps={{ fontSize }} name={unitagInputValue} opacity={1} />
             </Flex>
           )}
-          <AnimatePresence>
+          <Presence childOwnsNativeAnimation>
             {showTextInputView && (
-              <Flex
-                key="input-container"
-                row
-                animation="quick"
-                enterStyle={{ opacity: 0, x: SLIDE_IN_AMOUNT }}
-                exitStyle={{ opacity: 0, x: SLIDE_IN_AMOUNT }}
-                gap="$none"
-                {...webStyling}
-              >
+              <AnimatedFlex key="input-container" row gap="$none" {...WEB_STYLING} {...inputContainerPresenceProps}>
                 <TextInput
                   ref={textInputRef}
-                  autoFocus={!isMobileApp}
+                  // @ts-expect-error - field-sizing is a web CSS prop, not yet registered as a valid prop,
+                  // that allows to automatically resize the input width to the content
+                  style={supportsFieldSizing ? { fieldSizing: 'content' } : undefined}
+                  autoFocus={!isMobileApp && !isMobileWeb}
                   blurOnSubmit={!isWebPlatform}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  autoComplete="off"
+                  spellCheck={false}
                   borderWidth="$none"
                   borderRadius={isWebPlatform ? 0 : undefined}
                   fontFamily="$heading"
@@ -302,26 +367,25 @@ export function ClaimUnitagContent({
                   placeholder={inputPlaceholder}
                   placeholderTextColor="$neutral3"
                   returnKeyType="done"
+                  enterKeyHint="done"
                   testID={TestID.WalletNameInput}
-                  textAlign="left"
+                  textAlign={isWebPlatform ? 'left' : 'right'}
+                  maxLength={MAX_UNITAG_CHAR_LENGTH}
                   value={unitagInputValue}
-                  width={isWebPlatform ? '100%' : undefined}
-                  minWidth={unitagNameinputMinWidth}
                   allowFontScaling={false}
                   maxFontSizeMultiplier={1}
+                  minWidth={!isWebPlatform && !unitagInputValue ? unitagNameinputMinWidth : undefined}
                   onChangeText={onChangeTextInput}
                   onSubmitEditing={onPressContinue}
                   onLayout={getInitialUnitagNameInputWidth}
+                  // Always expand the TextInput on web so the .uni.eth suffix is right-aligned.
+                  // field-sizing: content still controls min-width on Chrome.
+                  {...(isWebPlatform && { flexGrow: 1 })}
                 />
-                <Flex
-                  animation="lazy"
-                  enterStyle={{ opacity: 0, x: SLIDE_IN_AMOUNT }}
-                  exitStyle={{ opacity: 0, x: SLIDE_IN_AMOUNT }}
-                >
-                  {/* This is a workaround for aligning a unitag suffix with a unitag name.*/}
-                  {/* Some devices render text inside text input and text component vertically shifted.*/}
-                  <TextInput
-                    editable={false}
+                <AnimatedFlex {...suffixPresenceProps}>
+                  <SuffixComponent
+                    // Value of the suffix is provided in the suffixStyling object.
+                    {...SUFFIX_STYLING}
                     borderWidth="$none"
                     borderRadius={isWebPlatform ? 0 : undefined}
                     fontFamily="$heading"
@@ -329,16 +393,14 @@ export function ClaimUnitagContent({
                     fontWeight="$book"
                     numberOfLines={1}
                     p="$none"
-                    placeholderTextColor="$neutral3"
                     textAlign="left"
-                    value={UNITAG_SUFFIX}
                     allowFontScaling={false}
                     maxFontSizeMultiplier={1}
                   />
-                </Flex>
-              </Flex>
+                </AnimatedFlex>
+              </AnimatedFlex>
             )}
-          </AnimatePresence>
+          </Presence>
         </AnimatedFlex>
         {unitagAddress && (
           <AnimatedFlex
@@ -358,12 +420,12 @@ export function ClaimUnitagContent({
         )}
 
         <AvailabilityStatus
-          unitagAvailableError={unitagAvailableError}
+          unitagAvailableError={showTextInputView ? unitagAvailableError : undefined}
           addressError={addressError}
           isUnitagAvailable={isUnitagAvailable}
           showTextInputView={showTextInputView}
-          mt="$spacing4"
-          mb={unitagAddress ? undefined : '$spacing20'}
+          mt="$spacing12"
+          mb={unitagAddress ? undefined : '$spacing12'}
         />
       </Flex>
       {/* Wrap button in a TouchableArea to add onPress capabilities when the button is disabled. */}
@@ -372,7 +434,9 @@ export function ClaimUnitagContent({
           <Button
             size="large"
             variant="branded"
-            isDisabled={shouldBlockContinue || !isUnitagAvailable}
+            animation="200ms"
+            animateOnly={['transform', 'background-color']}
+            disabled={shouldBlockContinue || !isUnitagAvailable || !!unitagAvailableError}
             testID={TestID.Continue}
             loading={showVerificationLoading && isCheckingUnitag} // the validation happens really quickly so only show a loading spinner when the user explicitly tries to continue and we're still checking availability
             onPress={onPressContinue}
@@ -384,11 +448,6 @@ export function ClaimUnitagContent({
       <UnitagInfoModal isOpen={showInfoModal} unitagAddress={unitagAddress} onClose={handleHideInfoModal} />
     </>
   )
-}
-
-const animationProps: FlexProps = {
-  animation: 'quick',
-  enterStyle: { opacity: 0, y: 10 },
 }
 
 function AvailabilityStatus({
@@ -406,22 +465,22 @@ function AvailabilityStatus({
   const { t } = useTranslation()
   return (
     <Flex row gap="$spacing8" minHeight={fonts.body2.lineHeight} {...rest}>
-      <AnimatePresence>
+      <Presence childOwnsNativeAnimation>
         {unitagAvailableError || addressError ? (
-          <Flex key="error" {...animationProps}>
-            <Text key="error" color="$statusCritical" textAlign="center" variant="body2">
+          <AnimatedFlex key="error" {...availabilityPresenceProps}>
+            <Text color="$statusCritical" textAlign="center" variant="body2">
               {unitagAvailableError || addressError}
             </Text>
-          </Flex>
+          </AnimatedFlex>
         ) : isUnitagAvailable && showTextInputView ? (
-          <Flex key="available" row alignItems="center" gap="$spacing4" {...animationProps}>
+          <AnimatedFlex key="available" row alignItems="center" gap="$spacing4" {...availabilityPresenceProps}>
             <CheckmarkCircle color="$accent1" size="$icon.16" />
             <Text textAlign="center" variant="body2">
               {t('unitags.claim.available')}
             </Text>
-          </Flex>
+          </AnimatedFlex>
         ) : null}
-      </AnimatePresence>
+      </Presence>
     </Flex>
   )
 }

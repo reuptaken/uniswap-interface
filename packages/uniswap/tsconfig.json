@@ -1,7 +1,16 @@
 {
   "extends": "../../config/tsconfig/app.json",
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.json", "src/**/*.mts"],
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.json", "src/**/*.mts", "env.d.ts"],
   "references": [
+    {
+      "path": "../websocket"
+    },
+    {
+      "path": "../sessions"
+    },
+    {
+      "path": "../environment"
+    },
     {
       "path": "../utilities"
     },
@@ -9,16 +18,49 @@
       "path": "../ui"
     },
     {
-      "path": "../api"
+      "path": "../prices"
+    },
+    {
+      "path": "../notifications"
+    },
+    {
+      "path": "../gating"
+    },
+    {
+      "path": "../experiments"
+    },
+    {
+      "path": "../encoding"
     },
     {
       "path": "../config"
     },
     {
-      "path": "../gating"
+      "path": "../compliance"
+    },
+    {
+      "path": "../chains"
+    },
+    {
+      "path": "../api"
+    },
+    {
+      "path": "../../config/vitest-presets"
+    },
+    {
+      "path": "../mycelium"
+    },
+    {
+      "path": "../tailwind"
+    },
+    {
+      "path": "../test"
+    },
+    {
+      "path": "../swap-ui"
     }
   ],
   "compilerOptions": {
-    "types": ["chrome", "jest"]
+    "types": ["chrome", "vitest/globals"]
   }
 }

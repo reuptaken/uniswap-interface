@@ -1,25 +1,28 @@
-import { PortfolioExpandoRow } from 'pages/Portfolio/components/PortfolioExpandoRow'
-import { SearchInput } from 'pages/Portfolio/components/SearchInput'
-import { usePortfolioRoutes } from 'pages/Portfolio/Header/hooks/usePortfolioRoutes'
-import { usePortfolioAddresses } from 'pages/Portfolio/hooks/usePortfolioAddresses'
-import { NFTCard, setOpenNftPopoverId } from 'pages/Portfolio/NFTs/NFTCard'
-import { NFTCardSkeleton } from 'pages/Portfolio/NFTs/NFTCardSkeleton'
+import { UniverseChainId } from '@universe/chains'
+import { isMobileWeb } from '@universe/environment'
+import { Flex } from '@universe/mycelium'
+import { useMedia } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Flex, useMedia } from 'ui/src'
+import { InlineExpandoRow } from 'uniswap/src/components/ExpandoRow/InlineExpandoRow'
 import { NftsList } from 'uniswap/src/components/nfts/NftsList'
 import { NftsListEmptyState } from 'uniswap/src/components/nfts/NftsListEmptyState'
 import { PollingInterval } from 'uniswap/src/constants/misc'
 import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { getChainLabel } from 'uniswap/src/features/chains/utils'
 import { NFTItem } from 'uniswap/src/features/nfts/types'
 import { ElementName, InterfacePageName, SectionName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
-import { assume0xAddress } from 'utils/wagmi'
+import { assume0xAddress } from '~/chains'
+import { SearchInput } from '~/pages/Portfolio/components/SearchInput'
+import { usePortfolioRoutes } from '~/pages/Portfolio/Header/hooks/usePortfolioRoutes'
+import { usePortfolioAddresses } from '~/pages/Portfolio/hooks/usePortfolioAddresses'
+import { NFTCard, setOpenNftPopoverId } from '~/pages/Portfolio/NFTs/NFTCard'
+import { NFTCardSkeleton } from '~/pages/Portfolio/NFTs/NFTCardSkeleton'
 
-const LOADING_SKELETON_COUNT = 10
+const LOADING_SKELETON_COUNT = isMobileWeb ? 4 : 10
 
 // Memoized wrapper component to avoid recreating Flex structure on every render
 const NFTItemWrapper = memo(function NFTItemWrapper({ item, owner }: { item: NFTItem; owner: Address }): JSX.Element {
@@ -36,9 +39,8 @@ export function PortfolioNfts(): JSX.Element {
   const { t } = useTranslation()
   const media = useMedia()
   const navigate = useNavigate()
-  // TODO(PORT-485): Solana NFTs are not supported yet, add empty state for NFTs when connected to a Solana wallet only
   const { evmAddress, svmAddress } = usePortfolioAddresses()
-  const { chainId: selectedChainId } = usePortfolioRoutes()
+  const { chainId: selectedChainId, isExternalWallet } = usePortfolioRoutes()
   const nftsContainerRef = useRef<HTMLDivElement>(null)
   const owner = assume0xAddress(evmAddress) ?? ''
   const isSolanaOnlyWallet = Boolean(svmAddress && !evmAddress)
@@ -73,14 +75,14 @@ export function PortfolioNfts(): JSX.Element {
   // Memoize renderExpandoRow to avoid recreating the function on every render
   const renderExpandoRow = useCallback(
     ({ isExpanded, label, onPress }: { isExpanded: boolean; label: string; onPress: () => void }) => (
-      <PortfolioExpandoRow isExpanded={isExpanded} label={label} onPress={onPress} />
+      <InlineExpandoRow isExpanded={isExpanded} label={label} onPress={onPress} />
     ),
     [],
   )
 
   // Handler to clear chain filter and show all networks
   const handleShowAllNetworks = useCallback(() => {
-    navigate('/portfolio/nfts')
+    Promise.resolve(navigate('/portfolio/nfts')).catch(() => {})
   }, [navigate])
 
   // Custom empty state for chain filtering
@@ -89,7 +91,7 @@ export function PortfolioNfts(): JSX.Element {
       if (isSolanaOnlyWallet) {
         const solanaChainName = getChainLabel(UniverseChainId.Solana)
         const title = t('tokens.nfts.list.notSupported.title', { chainName: solanaChainName })
-        return <NftsListEmptyState description={null} title={title} />
+        return <NftsListEmptyState dataTestId={TestID.PortfolioNftsEmptyState} description={null} title={title} />
       }
       return undefined
     }
@@ -101,16 +103,30 @@ export function PortfolioNfts(): JSX.Element {
       : t('tokens.nfts.list.notSupported.title', { chainName })
     return (
       <NftsListEmptyState
+        buttonDataTestId={TestID.PortfolioNftsSeeAllNetworksButton}
         description={null}
-        buttonLabel={t('portfolio.networkFilter.seeAllNetworks')}
+        dataTestId={TestID.PortfolioNftsEmptyState}
         onPress={handleShowAllNetworks}
         title={title}
+        buttonLabel={t('portfolio.networkFilter.seeAllNetworks')}
       />
     )
   }, [handleShowAllNetworks, selectedChainId, t, isSolanaOnlyWallet])
 
+  const externalWalletEmptyState = useMemo(() => {
+    if (!isExternalWallet) {
+      return undefined
+    }
+    return (
+      <NftsListEmptyState
+        dataTestId={TestID.PortfolioNftsEmptyState}
+        description={t('tokens.nfts.list.none.description.external')}
+      />
+    )
+  }, [isExternalWallet, t])
+
   return (
-    <Trace logImpression page={InterfacePageName.PortfolioNftsPage}>
+    <Trace logImpression page={InterfacePageName.PortfolioNftsPage} properties={{ isExternal: isExternalWallet }}>
       <Flex gap="$spacing24" mt="$spacing12">
         <Trace section={SectionName.PortfolioNftsTab} element={ElementName.NftsList}>
           <Flex ref={nftsContainerRef}>
@@ -123,10 +139,14 @@ export function PortfolioNfts(): JSX.Element {
               chainsFilter={selectedChainId ? [selectedChainId] : undefined}
               skip={!owner}
               renderExpandoRow={renderExpandoRow}
-              customEmptyState={selectedChainId || isSolanaOnlyWallet ? chainFilterEmptyState : undefined}
-              nextFetchPolicy="cache-first"
-              showHeader
+              customEmptyState={
+                selectedChainId || isSolanaOnlyWallet ? chainFilterEmptyState : externalWalletEmptyState
+              }
               SearchInputComponent={SearchInput}
+              searchInputTestId={TestID.PortfolioNftsSearchInput}
+              headerTestId={TestID.PortfolioNftsHeader}
+              noResultsTestId={TestID.PortfolioNftsNoResults}
+              emptyStateTestId={TestID.PortfolioNftsEmptyState}
               pollInterval={PollingInterval.Slow}
             />
           </Flex>

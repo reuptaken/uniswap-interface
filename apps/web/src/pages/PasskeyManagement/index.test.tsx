@@ -1,18 +1,19 @@
-import { handleRouteToPasskeyManagement } from 'pages/PasskeyManagement/index'
+import { handleRouteToPasskeyManagement } from '~/pages/PasskeyManagement/index'
 
-vi.mock('components/AccountDrawer/MiniPortfolio/hooks', () => ({
+vi.mock('~/components/AccountDrawer/MiniPortfolio/hooks', () => ({
   useAccountDrawer: vi.fn(),
 }))
 
-vi.mock('hooks/useAccount', () => ({
-  useAccount: vi.fn(),
+vi.mock('~/features/accounts/store/hooks', () => ({
+  useActiveAddress: vi.fn(),
+  useConnectionStatus: vi.fn(),
 }))
 
-vi.mock('hooks/useDisconnect', () => ({
+vi.mock('~/hooks/useDisconnect', () => ({
   useDisconnect: vi.fn(),
 }))
 
-vi.mock('hooks/useSignInWithPasskey', () => ({
+vi.mock('~/hooks/useSignInWithPasskey', () => ({
   useSignInWithPasskey: vi.fn(),
 }))
 
@@ -21,7 +22,7 @@ vi.mock('react-router', () => ({
   useParams: vi.fn(),
 }))
 
-vi.mock('state/application/hooks', () => ({
+vi.mock('~/state/application/hooks', () => ({
   useCloseModal: vi.fn(),
 }))
 
@@ -30,9 +31,9 @@ vi.mock('react-redux', () => ({
   useSelector: vi.fn(),
 }))
 
-vi.mock('pages/Swap', () => ({
-  __esModule: true,
-  default: () => null,
+vi.mock('~/pages/Swap', () => ({
+  SwapPage: () => null,
+  Swap: () => null,
 }))
 
 describe('handleRouteToPasskeyManagement', () => {

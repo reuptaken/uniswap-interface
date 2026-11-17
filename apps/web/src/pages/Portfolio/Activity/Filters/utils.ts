@@ -1,4 +1,4 @@
-import { SelectOption } from 'components/Dropdowns/DropdownSelector'
+import { TransactionTypeFilter } from '@uniswap/client-data-api/dist/data/v1/types_pb'
 import { Box } from 'ui/src/components/icons/Box'
 import { Coin } from 'ui/src/components/icons/Coin'
 import { CoinConvert } from 'ui/src/components/icons/CoinConvert'
@@ -9,24 +9,14 @@ import { Plus } from 'ui/src/components/icons/Plus'
 import { Pools } from 'ui/src/components/icons/Pools'
 import { ReceiveAlt } from 'ui/src/components/icons/ReceiveAlt'
 import { SendAction } from 'ui/src/components/icons/SendAction'
-import { AppTFunction } from 'ui/src/i18n/types'
-import { ActivityItem } from 'uniswap/src/components/activity/generateActivityItemRenderer'
+import type { ActivityItem } from 'uniswap/src/components/activity/generateActivityItemRenderer'
 import { isLoadingItem, isSectionHeader } from 'uniswap/src/components/activity/utils'
-import { TransactionDetails, TransactionType } from 'uniswap/src/features/transactions/types/transactionDetails'
-
-export enum ActivityFilterType {
-  All = 'all',
-  Sends = 'sends',
-  Receives = 'receives',
-  Swaps = 'swaps',
-  Wraps = 'wraps',
-  Approvals = 'approvals',
-  CreatePool = 'create-pool',
-  AddLiquidity = 'add-liquidity',
-  RemoveLiquidity = 'remove-liquidity',
-  Mints = 'mints',
-  ClaimFees = 'claim-fees',
-}
+import { getEarnPlanTransactionType } from 'uniswap/src/features/earn/planActivityTitles'
+import { NFTTradeType, TransactionType } from 'uniswap/src/features/transactions/types/transactionDetails'
+import type { TransactionDetails } from 'uniswap/src/features/transactions/types/transactionDetails'
+import type { AppTFunction } from 'utilities/src/i18n/types'
+import type { SelectOption } from '~/components/Dropdowns/DropdownSelector'
+import { ActivityFilterType } from '~/pages/Portfolio/Activity/Filters/activityFilterTypes'
 
 /**
  * Type guard to check if an ActivityItem is a TransactionDetails
@@ -51,6 +41,23 @@ export function filterTransactionDetailsFromActivityItems(transactions: Activity
   )
 }
 
+export function getTransactionTypeForActivityFilter({
+  transaction,
+}: {
+  transaction: TransactionDetails
+}): TransactionType {
+  if (transaction.typeInfo.type === TransactionType.Plan && transaction.typeInfo.earnAction) {
+    return getEarnPlanTransactionType(transaction.typeInfo.earnAction)
+  }
+
+  // NFT purchases are grouped under receives, sales under sends
+  if (transaction.typeInfo.type === TransactionType.NFTTrade) {
+    return transaction.typeInfo.tradeType === NFTTradeType.BUY ? TransactionType.Receive : TransactionType.Send
+  }
+
+  return transaction.typeInfo.type
+}
+
 export function getTransactionTypeFilterOptions(t: AppTFunction): Record<string, SelectOption> {
   return {
     [ActivityFilterType.All]: {
@@ -72,6 +79,10 @@ export function getTransactionTypeFilterOptions(t: AppTFunction): Record<string,
     [ActivityFilterType.Wraps]: {
       label: t('portfolio.activity.filters.transactionType.wraps'),
       icon: Box,
+    },
+    [ActivityFilterType.Withdrawals]: {
+      label: t('portfolio.activity.filters.transactionType.withdrawals'),
+      icon: MoneyHand,
     },
     [ActivityFilterType.Approvals]: {
       label: t('portfolio.activity.filters.transactionType.approvals'),
@@ -101,16 +112,16 @@ export function getTransactionTypeFilterOptions(t: AppTFunction): Record<string,
 }
 
 /**
- * Maps filter type to transaction types that should be included
+ * Maps filter type to transaction types that should be included (client-side filtering)
  */
 export function getTransactionTypesForFilter(filterType: string): TransactionType[] | 'all' {
   switch (filterType) {
     case ActivityFilterType.Sends:
-      return [TransactionType.Send]
+      return [TransactionType.Send, TransactionType.Deposit, TransactionType.ToucanBid]
     case ActivityFilterType.Receives:
       return [TransactionType.Receive]
     case ActivityFilterType.Swaps:
-      return [TransactionType.Swap, TransactionType.Bridge]
+      return [TransactionType.Swap, TransactionType.Bridge, TransactionType.Plan]
     case ActivityFilterType.Wraps:
       return [TransactionType.Wrap]
     case ActivityFilterType.Approvals:
@@ -125,13 +136,50 @@ export function getTransactionTypesForFilter(filterType: string): TransactionTyp
       return [TransactionType.NFTMint]
     case ActivityFilterType.ClaimFees:
       return [TransactionType.CollectFees, TransactionType.LPIncentivesClaimRewards, TransactionType.ClaimUni]
+    case ActivityFilterType.Withdrawals:
+      return [TransactionType.Withdraw]
     case ActivityFilterType.All:
     default:
       return 'all'
   }
 }
 
-enum TimePeriod {
+/**
+ * Maps ActivityFilterType to server-side TransactionTypeFilter for API requests.
+ * Returns undefined for 'All' filter (no server-side filtering needed).
+ */
+export const SERVER_FILTER_MAP: Record<ActivityFilterType, TransactionTypeFilter[] | undefined> = {
+  [ActivityFilterType.All]: undefined,
+  // Sends/Receives include SWAP because NFT trades are categorized as SWAP server-side
+  [ActivityFilterType.Sends]: [
+    TransactionTypeFilter.SEND,
+    TransactionTypeFilter.VAULT_DEPOSIT,
+    TransactionTypeFilter.VAULT_TRANSFER,
+    TransactionTypeFilter.SWAP,
+  ],
+  [ActivityFilterType.Receives]: [
+    TransactionTypeFilter.RECEIVE,
+    TransactionTypeFilter.VAULT_TRANSFER,
+    TransactionTypeFilter.SWAP,
+  ],
+  [ActivityFilterType.Swaps]: [TransactionTypeFilter.SWAP],
+  [ActivityFilterType.Wraps]: [TransactionTypeFilter.WRAP],
+  [ActivityFilterType.Approvals]: [TransactionTypeFilter.APPROVE],
+  [ActivityFilterType.CreatePool]: [TransactionTypeFilter.CREATE_POOL],
+  [ActivityFilterType.AddLiquidity]: [TransactionTypeFilter.INCREASE_LIQUIDITY],
+  [ActivityFilterType.RemoveLiquidity]: [TransactionTypeFilter.DECREASE_LIQUIDITY],
+  [ActivityFilterType.Mints]: [TransactionTypeFilter.MINT],
+  [ActivityFilterType.ClaimFees]: [TransactionTypeFilter.CLAIM],
+  [ActivityFilterType.Withdrawals]: [TransactionTypeFilter.WITHDRAW, TransactionTypeFilter.VAULT_WITHDRAW],
+}
+
+export function getServerTransactionTypesForFilter(filterType: string): TransactionTypeFilter[] | undefined {
+  const serverFilterTypes = SERVER_FILTER_MAP[filterType as ActivityFilterType]
+
+  return serverFilterTypes?.length === 1 ? serverFilterTypes : undefined
+}
+
+export enum TimePeriod {
   All = 'all',
   Last24Hours = '24h',
   Last7Days = '7d',
@@ -141,8 +189,12 @@ enum TimePeriod {
 export function getTimePeriodFilterOptions(t: AppTFunction): Record<string, SelectOption> {
   return {
     [TimePeriod.All]: { label: t('portfolio.activity.filters.timePeriod.all') },
-    [TimePeriod.Last24Hours]: { label: t('common.time.past.hours', { hours: 24 }) },
+    [TimePeriod.Last24Hours]: {
+      label: t('common.time.past.hours', { hours: 24 }),
+    },
     [TimePeriod.Last7Days]: { label: t('common.time.past.days', { days: 7 }) },
-    [TimePeriod.Last30Days]: { label: t('common.time.past.days', { days: 30 }) },
+    [TimePeriod.Last30Days]: {
+      label: t('common.time.past.days', { days: 30 }),
+    },
   }
 }

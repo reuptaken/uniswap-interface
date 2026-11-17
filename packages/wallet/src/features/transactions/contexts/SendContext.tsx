@@ -1,17 +1,18 @@
 import { TransactionRequest } from '@ethersproject/providers'
 import { Currency } from '@uniswap/sdk-core'
+import { GasFeeResult } from '@universe/api'
+import { UniverseChainId } from '@universe/chains'
 import { providers } from 'ethers'
 import { createContext, ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ParsedWarnings, WarningAction } from 'uniswap/src/components/modals/WarningModal/types'
 import { getNativeAddress } from 'uniswap/src/constants/addresses'
-import { useUniswapContext } from 'uniswap/src/contexts/UniswapContext'
 import { AssetType } from 'uniswap/src/entities/assets'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import { DEFAULT_GAS_URGENCY } from 'uniswap/src/features/gas/consts'
 import { useTransactionGasFee, useTransactionGasWarning } from 'uniswap/src/features/gas/hooks'
 import { useMaxAmountSpend } from 'uniswap/src/features/gas/hooks/useMaxAmountSpend'
-import { GasFeeResult } from 'uniswap/src/features/gas/types'
+import { useIsPermissionedSendBlocked } from 'uniswap/src/features/permissionedTokens/useIsPermissionedSendBlocked'
 import { useFormattedWarnings } from 'uniswap/src/features/transactions/hooks/useParsedTransactionWarnings'
 import { TransactionType } from 'uniswap/src/features/transactions/types/transactionDetails'
 import { TransactionState } from 'uniswap/src/features/transactions/types/transactionState'
@@ -74,7 +75,6 @@ export function SendContextProvider({
     isExtraTx: true,
   })?.toExact()
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: -setSendForm
   const updateSendForm = useCallback(
     (passedNewState: Parameters<SendContextState['updateSendForm']>[0]): void => {
       const newState = { ...passedNewState }
@@ -97,26 +97,39 @@ export function SendContextProvider({
     [setSendForm, maxInputAmount],
   )
 
-  const warnings = useSendWarnings(t, derivedSendInfo)
+  // Block when either the sender or the recipient isn't allowlisted for the permissioned token.
+  // `permissionedSendBlockReason` tells the warning layer which copy to show. Loading is propagated
+  // separately so the user-facing warning only fires when actually blocked; loading just disables Review.
+  const { isPermissionedSendBlocked, isPermissionedSendBlockedLoading, permissionedSendBlockReason } =
+    useIsPermissionedSendBlocked({
+      sendCurrency: derivedSendInfo.currencyInInfo?.currency,
+      senderAddress: account.address,
+      recipientAddress: derivedSendInfo.recipient,
+    })
+
+  const warnings = useSendWarnings({
+    t,
+    derivedSendInfo,
+    isPermissionedSendBlocked,
+    isPermissionedSendBlockedLoading,
+    permissionedSendBlockReason,
+  })
   const { data: txRequest } = useSendTransactionRequest(derivedSendInfo)
   const gasFee = useTransactionGasFee({
     tx: txRequest ?? undefined,
     skip: warnings.some((warning) => warning.action === WarningAction.DisableReview),
     shouldUsePreviousValueDuringLoading: true,
+    urgency: DEFAULT_GAS_URGENCY,
   })
   const txRequestWithGasSettings = useMemo(
     (): providers.TransactionRequest => ({ ...txRequest, ...gasFee.params }),
     [gasFee.params, txRequest],
   )
-  // Check if current wallet can pay gas fees in any token
-  const { getCanPayGasInAnyToken } = useUniswapContext()
-  const skipGasCheck = getCanPayGasInAnyToken?.()
-
   const gasWarning = useTransactionGasWarning({
     accountAddress: account.address,
     derivedInfo: derivedSendInfo,
     gasFee: gasFee.value,
-    skipGasCheck,
+    sendCurrency: derivedSendInfo.currencyInInfo?.currency,
   })
   const allSendWarnings = useMemo(() => {
     return !gasWarning ? warnings : [...warnings, gasWarning]

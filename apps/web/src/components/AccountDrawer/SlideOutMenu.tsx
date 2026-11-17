@@ -1,56 +1,34 @@
-import { ArrowLeft } from 'react-feather'
-import { Flex, Text, useScrollbarStyles } from 'ui/src'
+import { Flex, type FlexCompatProps as FlexProps, Text, TouchableArea } from '@universe/mycelium'
+import { ArrowLeft } from '@universe/mycelium/icons/ArrowLeft'
 
-export const SlideOutMenu = ({
-  children,
-  onClose,
-  title,
-  rightIcon,
-  versionComponent,
-}: {
+type SlideOutMenuProps = {
+  children: React.ReactNode
   onClose: () => void
   title: React.ReactNode
-  children: React.ReactNode
-  onClear?: () => void
   rightIcon?: React.ReactNode
-  versionComponent?: React.ReactNode
-}) => {
-  const scrollbarStyles = useScrollbarStyles()
+} & FlexProps
 
-  const updatedScrollbarStyles = {
-    ...scrollbarStyles,
-    '::-webkit-scrollbar-track': {
-      marginTop: '40px',
-    },
-  }
-
+export const SlideOutMenu = ({ children, onClose, title, rightIcon, ...flexProps }: SlideOutMenuProps) => {
   return (
     <>
-      <Flex
-        $platform-web={{
-          overflow: 'auto',
-        }}
-        style={updatedScrollbarStyles}
-        mt="$spacing4"
-        py="$padding12"
-        px="$padding16"
-        minHeight="85vh"
-        $md={{
-          minHeight: '0px',
-        }}
-      >
+      <Flex mt="$spacing4" py="$padding12" px="$padding12" {...flexProps}>
         <Flex grow justifyContent="space-between">
           <Flex grow>
-            <Flex row mb="$spacing20" justifyContent="space-between" width="100%" alignItems="center">
-              <ArrowLeft data-testid="wallet-back" onClick={onClose} size={24} cursor="pointer" />
-              <Text color="$neutral1"> {title}</Text>
-              {rightIcon ? <>{rightIcon}</> : <Flex />}
+            <Flex row mb="$spacing24" justifyContent="space-between" width="100%" alignItems="center">
+              <TouchableArea width="15%" testID="wallet-back" onPress={onClose}>
+                <ArrowLeft color="$neutral2" size="$icon.24" />
+              </TouchableArea>
+              <Text color="$neutral1" variant="subheading1">
+                {title}
+              </Text>
+              <Flex width="15%" alignItems="flex-end" justifyContent="center">
+                {rightIcon}
+              </Flex>
             </Flex>
             {children}
           </Flex>
         </Flex>
       </Flex>
-      {versionComponent}
     </>
   )
 }

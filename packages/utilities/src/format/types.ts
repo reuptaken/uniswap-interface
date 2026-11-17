@@ -12,6 +12,10 @@ export enum NumberType {
   // below the input/output amounts
   SwapPrice = 'swap-price',
 
+  // full-precision (non-abbreviated) counterpart to SwapPrice, used only for the
+  // hover tooltip that reveals the exact value behind an abbreviated swap rate
+  SwapPriceFull = 'swap-price-full',
+
   // this formatter is only used for displaying the swap trade output amount
   // in the text input boxes. Output amounts on review screen should use the above TokenTx formatter
   SwapTradeAmount = 'swap-trade-amount',
@@ -37,16 +41,14 @@ export enum NumberType {
   // fiat rewards
   FiatRewards = 'fiat-rewards',
 
+  // fiat rewards at fixed six-decimal precision, for live-accruing displays
+  FiatRewardsPrecise = 'fiat-rewards-precise',
+
   // portfolio balance
   PortfolioBalance = 'portfolio-balance',
 
-  // nft floor price denominated in a token (e.g, ETH)
-  NFTTokenFloorPrice = 'nft-token-floor-price',
-
-  // nft collection stats like number of items, holder, and sales
-  NFTCollectionStats = 'nft-collection-stats',
-
   Percentage = 'percentage',
+  PercentageTwoDecimals = 'percentage-two-decimals',
   PercentageOneDecimal = 'percentage-one-decimal',
   PercentageThreeDecimals = 'percentage-three-decimals',
   PercentageFourDecimals = 'percentage-four-decimals',
@@ -59,6 +61,7 @@ export type FiatNumberType = Extract<
   | NumberType.FiatTokenQuantity
   | NumberType.FiatGasPrice
   | NumberType.FiatRewards
+  | NumberType.FiatRewardsPrecise
   | NumberType.PortfolioBalance
   | NumberType.FiatStandard
 >
@@ -67,6 +70,7 @@ export type PercentNumberDecimals = 1 | 2 | 3 | 4
 export type PercentNumberType = Extract<
   NumberType,
   | NumberType.Percentage
+  | NumberType.PercentageTwoDecimals
   | NumberType.PercentageOneDecimal
   | NumberType.PercentageThreeDecimals
   | NumberType.PercentageFourDecimals

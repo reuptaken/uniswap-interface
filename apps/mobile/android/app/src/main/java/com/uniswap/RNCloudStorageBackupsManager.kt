@@ -12,6 +12,7 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import decrypt
 import encrypt
 import generateSalt
@@ -38,13 +39,14 @@ import java.util.Collections
  * @property encryptionNonce The nonce used for encryption.
  * @property createdAt The time the backup was created, in seconds since the epoch.
  */
+// Pins the stored JSON keys; existing Drive backups depend on these exact names.
 data class CloudStorageMnemonicBackup(
-  val mnemonicId: String,
-  val encryptedMnemonic: String,
-  val encryptionSalt: String,
-  val encryptionNonce: ByteArray,
-  val createdAt: Double,
-  val googleDriveEmail: String? = null
+  @SerializedName("mnemonicId") val mnemonicId: String,
+  @SerializedName("encryptedMnemonic") val encryptedMnemonic: String,
+  @SerializedName("encryptionSalt") val encryptionSalt: String,
+  @SerializedName("encryptionNonce") val encryptionNonce: ByteArray,
+  @SerializedName("createdAt") val createdAt: Double,
+  @SerializedName("googleDriveEmail") val googleDriveEmail: String? = null
 )
 
 /**
@@ -192,10 +194,9 @@ class RNCloudStorageBackupsManager(private val reactContext: ReactApplicationCon
         GoogleDriveApiHelper.getGoogleDrive(reactContext, true).let { (drive) ->
           if (drive == null) return@launch
           val fileId = withContext(Dispatchers.IO) {
-            GoogleDriveApiHelper.getFileIdByFileName(
-              drive,
-              mnemonicId
-            )
+            // Newest first, so a duplicate left over from an earlier backup cannot shadow the copy
+            // whose password the user actually set.
+            GoogleDriveApiHelper.getFileIdsByFileName(drive, mnemonicId).firstOrNull()
           }
           if (fileId == null) {
             promise.reject(
@@ -271,16 +272,22 @@ class RNCloudStorageBackupsManager(private val reactContext: ReactApplicationCon
         GoogleDriveApiHelper.getGoogleDrive(reactContext, true).let { (drive) ->
           if (drive == null) return@launch
           withContext(Dispatchers.IO) {
-            val fileId = GoogleDriveApiHelper.getFileIdByFileName(drive, mnemonicId)
-            if (fileId == null) {
-              GoogleDriveApiHelper.getGoogleDrive(reactContext).let { (drive) ->
-                if (drive == null) return@let
-                val fileId = GoogleDriveApiHelper.getFileIdByFileName(drive, mnemonicId)
-                  ?: throw FileNotFoundException("Failed to locate backup")
-                drive.files().delete(fileId).execute()
+            // Every copy goes, not just the first match. The delete screen tells the user the
+            // backup is gone from the cloud, and a duplicate left behind would keep an encrypted
+            // copy of their recovery phrase there.
+            val fileIds = GoogleDriveApiHelper.getFileIdsByFileName(drive, mnemonicId)
+            if (fileIds.isEmpty()) {
+              GoogleDriveApiHelper.getGoogleDrive(reactContext).let { (fallbackDrive) ->
+                if (fallbackDrive == null) return@let
+                val fallbackFileIds =
+                  GoogleDriveApiHelper.getFileIdsByFileName(fallbackDrive, mnemonicId)
+                if (fallbackFileIds.isEmpty()) {
+                  throw FileNotFoundException("Failed to locate backup")
+                }
+                fallbackFileIds.forEach { fallbackDrive.files().delete(it).execute() }
               }
             } else {
-              drive.files().delete(fileId).execute()
+              fileIds.forEach { drive.files().delete(it).execute() }
             }
           }
         }

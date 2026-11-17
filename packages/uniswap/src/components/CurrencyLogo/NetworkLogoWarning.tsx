@@ -1,17 +1,17 @@
+import { UniverseChainId } from '@universe/chains'
+import { Flex, iconSizes, spacing, zIndexes } from '@universe/mycelium'
+import { RoundExclamation } from '@universe/mycelium/icons/RoundExclamation'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
 import { memo } from 'react'
-import { Flex, useSporeColors } from 'ui/src'
-import { RoundExclamation } from 'ui/src/components/icons/RoundExclamation'
-import { iconSizes, spacing, zIndexes } from 'ui/src/theme'
 import { NetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 
 interface NetworkLogoWarningProps {
   chainId: UniverseChainId
   hasSufficientFunds: boolean
 }
 
-export const NetworkLogoWarning = memo(function _NetworkLogoWarning({
+export const NetworkLogoWarning = memo(function NetworkLogoWarningInner({
   hasSufficientFunds,
   chainId,
 }: NetworkLogoWarningProps): JSX.Element {
@@ -27,7 +27,7 @@ export const NetworkLogoWarning = memo(function _NetworkLogoWarning({
           <Flex bottom={-5} position="absolute" right={-5} zIndex={zIndexes.mask}>
             <Flex
               borderRadius="$roundedFull"
-              borderWidth={1}
+              borderWidth="$spacing1"
               borderColor="$surface1"
               alignItems="center"
               justifyContent="center"

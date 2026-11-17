@@ -1,12 +1,13 @@
+import { isExtensionApp } from '@universe/environment'
+import { Flex, Text } from '@universe/mycelium'
+import { type FlexProps } from '@universe/mycelium'
+import { TestID } from '@universe/test'
 import React from 'react'
-import { Trans } from 'react-i18next'
-import { Button, Flex, GetThemeValueForKey, Text } from 'ui/src'
+import { Button, Trans } from 'ui/src'
 import { ButtonConfig as DialogButtonConfig } from 'uniswap/src/components/dialog/DialogButtons'
 import { Modal } from 'uniswap/src/components/modals/Modal'
 import { LearnMoreLink } from 'uniswap/src/components/text/LearnMoreLink'
 import { ModalNameType } from 'uniswap/src/features/telemetry/constants'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
-import { isExtensionApp } from 'utilities/src/platform'
 
 type ButtonConfig =
   | (Pick<DialogButtonConfig, 'text' | 'variant' | 'emphasis'> & {
@@ -34,12 +35,11 @@ export interface SmartWalletModalProps {
   zIndex?: number
   hideHandlebar?: boolean
   isDismissible?: boolean
-  iconBackgroundColor?: GetThemeValueForKey<'backgroundColor'>
+  iconBackgroundColor?: FlexProps['backgroundColor']
   horizontalAlignment?: 'left' | 'center'
   horizontalButtons?: boolean
 }
 
-// eslint-disable-next-line complexity
 export function SmartWalletModal({
   isOpen,
   onClose,
@@ -139,7 +139,7 @@ export function SmartWalletModal({
                 variant={primaryButton.variant ?? 'branded'}
                 emphasis={primaryButton.emphasis}
                 testID={TestID.SmartWalletUpgradeModalEnable}
-                isDisabled={primaryButton.disabled}
+                disabled={primaryButton.disabled}
                 loading={primaryButton.loading}
                 flexGrow={1}
                 shouldAnimateBetweenLoadingStates={false}

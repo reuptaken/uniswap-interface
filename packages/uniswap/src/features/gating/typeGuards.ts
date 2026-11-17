@@ -1,19 +1,25 @@
 import { GraphQLApi } from '@universe/api'
-import { UwULinkAllowlist } from '@universe/gating'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import { UniverseChainId } from '@universe/chains'
+import { AuctionLpPercentOverridesMap, RWAIssuerLogosMap } from '@universe/gating'
 
-export const isUwULinkAllowlistType = (x: unknown): x is UwULinkAllowlist => {
-  const hasFields =
-    x !== null && typeof x === 'object' && Object.hasOwn(x, 'contracts') && Object.hasOwn(x, 'tokenRecipients')
-
-  if (!hasFields) {
+export const isRWAIssuerLogosMap = (x: unknown): x is RWAIssuerLogosMap => {
+  if (x === null || typeof x !== 'object') {
     return false
   }
-
-  const castedObj = x as { contracts: unknown; tokenRecipients: unknown }
-
-  return Array.isArray(castedObj.contracts) && Array.isArray(castedObj.tokenRecipients)
+  return Object.values(x).every((logo) => {
+    if (logo === null || typeof logo !== 'object') {
+      return false
+    }
+    const { light, dark } = logo as { light?: unknown; dark?: unknown }
+    return (light === undefined || typeof light === 'string') && (dark === undefined || typeof dark === 'string')
+  })
 }
+
+export const isAuctionLpPercentOverridesMap = (x: unknown): x is AuctionLpPercentOverridesMap =>
+  x !== null &&
+  typeof x === 'object' &&
+  !Array.isArray(x) &&
+  Object.values(x).every((percent) => typeof percent === 'number' && Number.isFinite(percent))
 
 export const isUniverseChainIdArrayType = (x: unknown): x is UniverseChainId[] =>
   Array.isArray(x) && x.every((c: unknown) => typeof c === 'number')

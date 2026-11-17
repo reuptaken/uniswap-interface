@@ -1,10 +1,10 @@
-// biome-ignore lint/style/noRestrictedImports: Test utilities need direct access to format functions
-import { UseMediaState } from '@tamagui/core'
-import { mocked } from 'test-utils/mocked'
-import { useMedia } from 'ui/src'
+import { type MediaState, useMedia } from '@universe/mycelium/theme-hooks-compat'
+import { mocked } from '~/test-utils/mocked'
 
-function getMediaState(size: keyof UseMediaState) {
-  const mediaState: UseMediaState = {
+type MediaQueryState = { -readonly [K in keyof MediaState]: boolean }
+
+function getMediaState(size: keyof MediaQueryState) {
+  const mediaState: MediaQueryState = {
     xxs: false,
     xs: false,
     sm: false,
@@ -21,14 +21,21 @@ function getMediaState(size: keyof UseMediaState) {
   mediaStateKeys.forEach((key, i) => {
     const index = mediaStateKeys.indexOf(size)
     if (i >= index && key !== 'short' && key !== 'midHeight' && key !== 'lgHeight') {
-      mediaState[key as keyof UseMediaState] = true
+      mediaState[key as keyof MediaQueryState] = true
     }
   })
   return mediaState
 }
 
-function mockMediaSize(size: keyof UseMediaState) {
+/**
+ * Sets the viewport the mocked mycelium `useMedia` reports. The test file must
+ * `vi.mock('@universe/mycelium/theme-hooks-compat')`; the legacy `ui/src` hook is gone.
+ */
+export function mockMediaSize(size: keyof MediaQueryState) {
+  if (!vi.isMockFunction(useMedia)) {
+    throw new Error(
+      "mockMediaSize: no useMedia mock found: vi.mock('@universe/mycelium/theme-hooks-compat') must be set up in the test file",
+    )
+  }
   mocked(useMedia).mockReturnValue(getMediaState(size))
 }
-
-export default mockMediaSize

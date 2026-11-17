@@ -1,11 +1,11 @@
 import { Currency } from '@uniswap/sdk-core'
-import tryParseCurrencyAmount from 'lib/utils/tryParseCurrencyAmount'
 import { useMemo } from 'react'
 import { useSupportedChainId } from 'uniswap/src/features/chains/hooks/useSupportedChainId'
 import { getPrimaryStablecoin } from 'uniswap/src/features/chains/utils'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
 import { useUSDCPrice } from 'uniswap/src/features/transactions/hooks/useUSDCPrice'
 import { NumberType } from 'utilities/src/format/types'
+import { tryParseCurrencyAmount } from '~/lib/utils/tryParseCurrencyAmount'
 
 const NUM_DECIMALS_USD = 2
 const NUM_DECIMALS_DISPLAY = 2
@@ -22,7 +22,9 @@ export function useUSDTokenUpdater({
   formattedAmount?: string
   loading: boolean
 } {
-  const { price, isLoading } = useUSDCPrice(exactCurrency)
+  const { price, isLoading: isPriceLoading, isStaleRefreshing } = useUSDCPrice(exactCurrency)
+  // A withheld stale price being refetched is pending, not missing.
+  const isLoading = isPriceLoading || isStaleRefreshing
   const { convertFiatAmount, formatCurrencyAmount } = useLocalizationContext()
   const conversionRate = convertFiatAmount(1).amount
   const supportedChainId = useSupportedChainId(exactCurrency?.chainId)

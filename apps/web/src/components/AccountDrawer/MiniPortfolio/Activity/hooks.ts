@@ -1,14 +1,13 @@
 import { TradingApi } from '@universe/api'
+import { UniverseChainId } from '@universe/chains'
 import { useEffect, useMemo } from 'react'
 import { useDispatch } from 'react-redux'
-import { usePendingTransactions, usePendingUniswapXOrders } from 'state/transactions/hooks'
-import { isExistingTransaction } from 'state/transactions/utils'
 import { useMergeLocalAndRemoteTransactions } from 'uniswap/src/features/activity/hooks/useMergeLocalAndRemoteTransactions'
 import { useOpenLimitOrders as useOpenLimitOrdersREST } from 'uniswap/src/features/activity/hooks/useOpenLimitOrders'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { isL2ChainId } from 'uniswap/src/features/chains/utils'
 import { CancellationGasFeeDetails } from 'uniswap/src/features/gas/hooks'
 import { useCancellationGasFeeInfo } from 'uniswap/src/features/gas/hooks/useCancellationGasFeeInfo'
+import { selectTransactions } from 'uniswap/src/features/transactions/selectors'
 import { addTransaction } from 'uniswap/src/features/transactions/slice'
 import { isUniswapX } from 'uniswap/src/features/transactions/swap/utils/routing'
 import {
@@ -17,10 +16,14 @@ import {
   TransactionType,
   UniswapXOrderDetails,
 } from 'uniswap/src/features/transactions/types/transactionDetails'
-import { isLimitOrder } from 'uniswap/src/features/transactions/utils/uniswapX.utils'
+import { isLimitOrder, isUniswapXOrderPending } from 'uniswap/src/features/transactions/utils/uniswapX.utils'
+import { zeroAddress } from '~/chains'
+import { useAppSelector } from '~/state/hooks'
+import { usePendingTransactions, usePendingUniswapXOrders } from '~/state/transactions/hooks'
 
 export function useOpenLimitOrders(account: string): { openLimitOrders: UniswapXOrderDetails[]; loading: boolean } {
   const dispatch = useDispatch()
+  const transactionsByAddress = useAppSelector(selectTransactions)
   const { data: limitOrders, loading } = useOpenLimitOrdersREST({ evmAddress: account })
 
   // Sync remote limit orders to local state if they don't exist in state yet
@@ -30,21 +33,16 @@ export function useOpenLimitOrders(account: string): { openLimitOrders: UniswapX
     }
 
     limitOrders.forEach((order) => {
-      if (
-        order.status === TransactionStatus.Pending &&
-        !isExistingTransaction({ from: order.from, chainId: order.chainId, id: order.id })
-      ) {
+      const exists = Boolean(transactionsByAddress[order.from]?.[order.chainId]?.[order.id])
+      if (isUniswapXOrderPending(order) && !exists) {
         dispatch(addTransaction(order))
       }
     })
-  }, [dispatch, limitOrders])
+  }, [dispatch, limitOrders, transactionsByAddress])
 
   const merged = useMergeLocalAndRemoteTransactions({ evmAddress: account, remoteTransactions: limitOrders })
   const openLimitOrders = useMemo(
-    () =>
-      (merged ?? []).filter(
-        (tx): tx is UniswapXOrderDetails => isLimitOrder(tx) && tx.status === TransactionStatus.Pending,
-      ),
+    () => (merged ?? []).filter((tx): tx is UniswapXOrderDetails => isLimitOrder(tx) && isUniswapXOrderPending(tx)),
     [merged],
   )
   return { openLimitOrders, loading }
@@ -56,12 +54,16 @@ export function usePendingActivity() {
 
   // Filter out UniswapX orders from pendingTransactions to avoid double-counting
   // UniswapX orders are handled separately via pendingOrders
-  const pendingTransactions = allPendingTransactions.filter((tx) => !isUniswapX(tx))
+  // Tracked cancel txs are excluded too: the cancelled order row already counts as the one user action
+  const pendingTransactions = allPendingTransactions.filter(
+    (tx) => !isUniswapX(tx) && tx.typeInfo.type !== TransactionType.UniswapXCancel,
+  )
   // Pending limit orders shown in the limit sidebar
   const pendingOrdersWithoutLimits = pendingOrders.filter((order) => order.routing !== TradingApi.Routing.DUTCH_LIMIT)
 
-  const hasPendingActivity = pendingTransactions.length > 0 || pendingOrdersWithoutLimits.length > 0
   const pendingActivityCount = pendingTransactions.length + pendingOrdersWithoutLimits.length
+  const hasPendingActivity = pendingActivityCount > 0
+
   // Check if any pending transactions are on L1 networks (which need longer delay)
   const hasL1PendingActivity =
     hasPendingActivity && [...pendingTransactions, ...pendingOrdersWithoutLimits].some((tx) => !isL2ChainId(tx.chainId))
@@ -84,7 +86,7 @@ export function useCancelOrdersGasEstimate(orders?: UniswapXOrderDetails[]): Can
     return {
       id: 'placeholder',
       chainId: UniverseChainId.Mainnet,
-      from: '0x0000000000000000000000000000000000000000',
+      from: zeroAddress,
       typeInfo: {
         type: TransactionType.Unknown,
       },

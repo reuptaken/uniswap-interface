@@ -1,66 +1,58 @@
-import { NavDropdown, NavDropdownTabWrapper } from 'components/NavBar/NavDropdown/index'
-import { TabsItem, TabsSection, useTabsContent } from 'components/NavBar/Tabs/TabsContent'
+import { Flex, Text, type TextCompatProps } from '@universe/mycelium'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router'
-import { Flex, Popover, styled, Text } from 'ui/src'
+import { Popover } from 'ui/src'
 import { ElementName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
+import { NavDropdown, NavDropdownTabWrapper } from '~/components/NavBar/NavDropdown/index'
+import { TabsItem, TabsSection, useTabsContent } from '~/components/NavBar/Tabs/TabsContent'
 
-const TabText = styled(Text, {
-  justifyContent: 'center',
-  alignItems: 'center',
-  m: '$padding8',
-  gap: '$gap4',
-  cursor: 'pointer',
-  userSelect: 'none',
-  color: '$neutral2',
-  hoverStyle: { color: '$neutral1' },
-  variants: {
-    isActive: {
-      true: { color: '$neutral1' },
-    },
-  },
-})
+function TabText({ isActive, hoverStyle, ...rest }: TextCompatProps & { isActive?: boolean }): JSX.Element {
+  return (
+    <Text
+      justifyContent="center"
+      alignItems="center"
+      m="$padding8"
+      gap="$gap4"
+      cursor="pointer"
+      userSelect="none"
+      color={isActive ? '$neutral1' : '$neutral2'}
+      hoverStyle={{ color: '$neutral1', ...hoverStyle }}
+      {...rest}
+    />
+  )
+}
 
 interface TItemProps {
   icon?: JSX.Element
   label: string
   path: string
   closeMenu: () => void
-  elementName?: ElementName
+  elementName: ElementName
 }
 function Item({ icon, label, path, closeMenu, elementName }: TItemProps) {
-  const content = (
-    <NavLink to={path} style={{ textDecoration: 'none' }} onClick={closeMenu}>
-      <Flex
-        row
-        alignItems="center"
-        p="$padding12"
-        gap="$gap8"
-        alignSelf="stretch"
-        borderRadius="$rounded12"
-        backgroundColor="$surface2"
-        height="$spacing48"
-        hoverStyle={{ backgroundColor: '$surface2Hovered' }}
-      >
-        {icon}
-        <Text variant="buttonLabel2" width="100%" color="$neutral2">
-          {label}
-        </Text>
-      </Flex>
-    </NavLink>
+  return (
+    <Trace logPress element={elementName}>
+      <NavLink to={path} style={{ textDecoration: 'none' }} onClick={closeMenu}>
+        <Flex
+          row
+          alignItems="center"
+          p="$padding12"
+          gap="$gap8"
+          alignSelf="stretch"
+          borderRadius="$rounded12"
+          backgroundColor="$surface2"
+          height="$spacing48"
+          hoverStyle={{ backgroundColor: '$surface2Hovered' }}
+        >
+          {icon}
+          <Text variant="buttonLabel2" width="100%" color="$neutral2">
+            {label}
+          </Text>
+        </Flex>
+      </NavLink>
+    </Trace>
   )
-
-  if (elementName) {
-    return (
-      <Trace logPress element={elementName}>
-        {content}
-      </Trace>
-    )
-  }
-
-  return content
 }
 
 const Tab = ({
@@ -68,40 +60,36 @@ const Tab = ({
   isActive,
   path,
   items,
+  badge,
+  elementName,
 }: {
   label: string
   isActive?: boolean
   path: string
   items?: TabsItem[]
+  badge?: JSX.Element
+  elementName: ElementName
 }) => {
-  const { t } = useTranslation()
   const [isOpen, setIsOpen] = useState(false)
   const popoverRef = useRef<Popover>(null)
   const location = useLocation()
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +popoverRef
   const closeMenu = useCallback(() => {
     popoverRef.current?.close()
   }, [popoverRef])
-  // biome-ignore lint/correctness/useExhaustiveDependencies: location dependency is sufficient for this effect
   useEffect(() => closeMenu(), [location, closeMenu])
 
-  const isPortfolioTab = label === t('common.portfolio')
-  const labelContent = (
-    <NavLink to={path} style={{ textDecoration: 'none' }}>
-      <TabText variant="subheading1" isActive={isActive || isOpen}>
-        {label}
-      </TabText>
-    </NavLink>
-  )
-
-  // TODO: add tracing for other tabs
-  const Label = isPortfolioTab ? (
-    <Trace logPress element={ElementName.NavbarPortfolioTab}>
-      {labelContent}
+  const Label = (
+    <Trace logPress element={elementName}>
+      <NavLink to={path} style={{ textDecoration: 'none' }}>
+        <Flex row alignItems="center">
+          <TabText variant="subheading1" isActive={isActive || isOpen}>
+            {label}
+          </TabText>
+          {badge}
+        </Flex>
+      </NavLink>
     </Trace>
-  ) : (
-    labelContent
   )
 
   if (!items) {
@@ -144,8 +132,16 @@ export function Tabs() {
   const tabsContent: TabsSection[] = useTabsContent()
   return (
     <>
-      {tabsContent.map(({ title, isActive, href, items }, index) => (
-        <Tab key={`${title}_${index}`} label={title} isActive={isActive} path={href} items={items} />
+      {tabsContent.map(({ title, isActive, href, items, badge, elementName }, index) => (
+        <Tab
+          key={`${title}_${index}`}
+          label={title}
+          isActive={isActive}
+          path={href}
+          items={items}
+          badge={badge}
+          elementName={elementName}
+        />
       ))}
     </>
   )

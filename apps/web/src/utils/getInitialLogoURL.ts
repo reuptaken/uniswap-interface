@@ -1,9 +1,9 @@
-import { CELO_LOGO } from 'ui/src/assets'
+import { UniverseChainId, getValidAddress } from '@universe/chains'
+import { CELO_LOGO } from '@universe/mycelium/assets'
 import { nativeOnChain } from 'uniswap/src/constants/tokens'
+import { UniswapStaticUrls } from 'uniswap/src/constants/urls'
 import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { isUniverseChainId } from 'uniswap/src/features/chains/utils'
-import { getValidAddress } from 'uniswap/src/utils/addresses'
 
 export function getInitialLogoUrl({
   address,
@@ -24,11 +24,12 @@ export function getInitialLogoUrl({
   })
 
   if (chainId === UniverseChainId.Celo && address === nativeOnChain(chainId).wrapped.address) {
+    // oxlint-disable-next-line typescript/no-unsafe-return -- biome-parity: oxlint is stricter here
     return CELO_LOGO
   }
 
   if (checksummedAddress) {
-    return `https://raw.githubusercontent.com/Uniswap/assets/master/blockchains/${networkName}/assets/${checksummedAddress}/logo.png`
+    return `${UniswapStaticUrls.uniswapAssetsBlockchainsBaseUrl}/${networkName}/assets/${checksummedAddress}/logo.png`
   } else {
     return backupImg ?? undefined
   }

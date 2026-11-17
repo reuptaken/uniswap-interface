@@ -1,39 +1,64 @@
 import { JsonRpcProvider } from '@ethersproject/providers'
+import { UniverseChainId, Platform } from '@universe/chains'
 import { Signer } from 'ethers/lib/ethers'
 import { createContext, PropsWithChildren, useContext, useMemo, useState } from 'react'
 import { AccountsStore } from 'uniswap/src/features/accounts/store/types/AccountsState'
 import { DisplayName } from 'uniswap/src/features/accounts/types'
 import { WalletDisplayNameOptions } from 'uniswap/src/features/accounts/useOnchainDisplayName'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import type { EarnPositionInfo, EarnVaultInfo } from 'uniswap/src/features/earn/types'
 import { FiatOnRampCurrency } from 'uniswap/src/features/fiatOnRamp/types'
-import { NFTItem } from 'uniswap/src/features/nfts/types'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
-import { SwapDelegationInfo } from 'uniswap/src/features/smartWallet/delegation/types'
+import { SignDelegationAuthorizationFn, SwapDelegationInfo } from 'uniswap/src/features/smartWallet/delegation/types'
+import type { EarnAnalyticsEntryPoint } from 'uniswap/src/features/telemetry/types'
+import type { CategoryKind } from 'uniswap/src/features/tokenCategories/types'
+import { CurrencyField } from 'uniswap/src/types/currency'
+import type { TdpChainSelection } from 'uniswap/src/utils/linking'
 import { useEvent } from 'utilities/src/react/hooks'
 
 export type NavigateToNftItemArgs = {
   owner?: Address
   contractAddress: Address
   tokenId: string
-  fallbackChainId: UniverseChainId
-  chainId?: UniverseChainId
-  isSpam?: boolean
-  fallbackData?: NFTItem
+  chainId: UniverseChainId
+}
+
+export type NavigateToSwapFlowArgs = {
+  inputCurrencyId?: string
+  outputCurrencyId?: string
+  exactCurrencyField?: CurrencyField
+  exactAmountToken?: string
+}
+
+export type NavigateToEarnVaultArgs = {
+  analyticsEntryPoint?: EarnAnalyticsEntryPoint
+  vault: EarnVaultInfo
+  position?: EarnPositionInfo
+}
+
+export type NavigateToCategoryDetailsArgs = {
+  /** Backend category id (also the web route slug). */
+  categoryId: string
+  /** Picks the token or pool details route. */
+  kind: CategoryKind
 }
 
 /** Stores objects/utils that exist on all platforms, abstracting away app-level specifics for each, in order to allow usage in cross-platform code. */
 interface UniswapContextValue {
   navigateToBuyOrReceiveWithEmptyWallet?: () => void
   navigateToFiatOnRamp: (args: { prefilledCurrency?: FiatOnRampCurrency }) => void
-  navigateToSwapFlow: (args: { inputCurrencyId?: string; outputCurrencyId?: string }) => void
-  navigateToSendFlow: (args: { chainId: UniverseChainId; currencyAddress?: Address }) => void
+  navigateToSwapFlow: (args: NavigateToSwapFlowArgs) => void
+  navigateToSendFlow: (args: { chainId: UniverseChainId; currencyAddress?: Address; recipient?: Address }) => void
   navigateToReceive: () => void
-  navigateToTokenDetails: (currencyId: string) => void
+  navigateToTokenDetails: (currencyId: string, chainSelection?: TdpChainSelection) => void
   navigateToExternalProfile: (args: { address: Address }) => void
   navigateToNftDetails: (args: NavigateToNftItemArgs) => void
-  navigateToNftCollection: (args: { collectionAddress: Address; chainId: UniverseChainId }) => void
   navigateToPoolDetails: (args: { poolId: Address; chainId: UniverseChainId }) => void
+  // Opens the earn vault destination for a vault share token (underlying TDP + earn modal on web, earn vault
+  // modal on mobile/extension). Optional: not all platforms/environments wire earn navigation.
+  navigateToEarnVault?: (args: NavigateToEarnVaultArgs) => void
+  navigateToAuction?: (args: { auctionAddress: string; chainId: UniverseChainId }) => void
+  navigateToCategoryDetails?: (args: NavigateToCategoryDetailsArgs) => void
   handleShareToken: (args: { currencyId: string }) => void
+  navigateToAdvancedSettings: () => void
   onSwapChainsChanged: (args: {
     chainId: UniverseChainId
     prevChainId?: UniverseChainId
@@ -55,10 +80,21 @@ interface UniswapContextValue {
   getIsUniswapXSupported?: (chainId: UniverseChainId | undefined) => boolean
   handleOnPressUniswapXUnsupported?: () => void
   getCanBatchTransactions?: (chainId: UniverseChainId | undefined) => boolean
+  // wallet pays gas via a non-native method, so a native balance isn't required to swap
+  getHasAlternateGasFees?: (chainId: UniverseChainId | undefined) => boolean
   getSwapDelegationInfo?: (chainId: UniverseChainId | undefined) => SwapDelegationInfo
+  // Signs an EIP-7702 delegation authorization to bundle into 4337 swap/approval requests.
+  // Provided by wallet environments only; undefined elsewhere.
+  signDelegationAuthorization?: SignDelegationAuthorizationFn
+  // Whether this platform executes swaps as 4337 userOps directly (mobile/extension). Web executes
+  // embedded-wallet swaps via the EIP-5792 wallet_sendCalls surface instead, so it leaves this
+  // false — sponsored EW swaps must route to /swap_5792, not the /swap_4337 userOp endpoint.
+  supportsUserOpSwaps?: boolean
   useAccountsStoreContextHook: () => AccountsStore
-  // Function to check if current wallet can pay gas fees in any token
-  getCanPayGasInAnyToken?: () => boolean
+  getTokenDetailsUrl?: (currencyId: string, chainSelection?: TdpChainSelection) => string
+  getPoolDetailsUrl?: (args: { poolId: Address; chainId: UniverseChainId }) => string
+  getExternalProfileUrl?: (args: { address: Address }) => string
+  getCategoryDetailsUrl?: (args: NavigateToCategoryDetailsArgs) => string
 }
 
 export const UniswapContext = createContext<UniswapContextValue | null>(null)
@@ -73,9 +109,12 @@ export function UniswapProvider({
   navigateToTokenDetails,
   navigateToExternalProfile,
   navigateToNftDetails,
-  navigateToNftCollection,
   navigateToPoolDetails,
+  navigateToEarnVault,
+  navigateToAuction,
+  navigateToCategoryDetails,
   handleShareToken,
+  navigateToAdvancedSettings,
   onSwapChainsChanged,
   signer,
   useProviderHook,
@@ -85,9 +124,15 @@ export function UniswapProvider({
   getIsUniswapXSupported,
   handleOnPressUniswapXUnsupported,
   getCanBatchTransactions,
+  getHasAlternateGasFees,
   getSwapDelegationInfo,
+  signDelegationAuthorization,
+  supportsUserOpSwaps,
   useAccountsStoreContextHook,
-  getCanPayGasInAnyToken,
+  getTokenDetailsUrl,
+  getPoolDetailsUrl,
+  getExternalProfileUrl,
+  getCategoryDetailsUrl,
 }: PropsWithChildren<
   Omit<UniswapContextValue, 'isSwapTokenSelectorOpen' | 'setIsSwapTokenSelectorOpen' | 'setSwapOutputChainId'>
 >): JSX.Element {
@@ -104,10 +149,13 @@ export function UniswapProvider({
       navigateToReceive,
       navigateToTokenDetails,
       navigateToExternalProfile,
-      navigateToNftCollection,
       navigateToNftDetails,
       navigateToPoolDetails,
+      navigateToEarnVault,
+      navigateToAuction,
+      navigateToCategoryDetails,
       handleShareToken,
+      navigateToAdvancedSettings,
       onSwapChainsChanged: ({
         chainId,
         prevChainId,
@@ -134,9 +182,15 @@ export function UniswapProvider({
       getIsUniswapXSupported,
       handleOnPressUniswapXUnsupported,
       getCanBatchTransactions,
+      getHasAlternateGasFees,
       getSwapDelegationInfo,
+      signDelegationAuthorization,
+      supportsUserOpSwaps,
       useAccountsStoreContextHook,
-      getCanPayGasInAnyToken,
+      getTokenDetailsUrl,
+      getPoolDetailsUrl,
+      getExternalProfileUrl,
+      getCategoryDetailsUrl,
     }),
     [
       navigateToBuyOrReceiveWithEmptyWallet,
@@ -146,10 +200,13 @@ export function UniswapProvider({
       navigateToReceive,
       navigateToTokenDetails,
       navigateToExternalProfile,
-      navigateToNftCollection,
       navigateToNftDetails,
       navigateToPoolDetails,
+      navigateToEarnVault,
+      navigateToAuction,
+      navigateToCategoryDetails,
       handleShareToken,
+      navigateToAdvancedSettings,
       signer,
       useProviderHook,
       useWalletDisplayName,
@@ -161,10 +218,16 @@ export function UniswapProvider({
       getIsUniswapXSupported,
       handleOnPressUniswapXUnsupported,
       getCanBatchTransactions,
+      getHasAlternateGasFees,
       getSwapDelegationInfo,
+      signDelegationAuthorization,
+      supportsUserOpSwaps,
       onSwapChainsChanged,
       useAccountsStoreContextHook,
-      getCanPayGasInAnyToken,
+      getTokenDetailsUrl,
+      getPoolDetailsUrl,
+      getExternalProfileUrl,
+      getCategoryDetailsUrl,
     ],
   )
 
@@ -195,4 +258,9 @@ export function useProvider(chainId: number): JsonRpcProvider | undefined {
 /** Cross-platform util for getting a signer for the active account/wallet, regardless of platform/environment. */
 export function useSigner(): Signer | undefined {
   return useUniswapContext().signer
+}
+
+/** Cross-platform util for signing a 7702 delegation authorization to bundle into 4337 requests. */
+export function useSignDelegationAuthorization(): SignDelegationAuthorizationFn | undefined {
+  return useUniswapContext().signDelegationAuthorization
 }

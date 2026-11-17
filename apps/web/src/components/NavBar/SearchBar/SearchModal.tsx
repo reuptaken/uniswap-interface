@@ -1,72 +1,209 @@
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { useModalState } from 'hooks/useModalState'
-import { memo, useCallback, useState } from 'react'
+import { Flex, spacing, Text, TouchableArea } from '@universe/mycelium'
+import { useMedia, useScrollbarStyles, useSporeColors } from '@universe/mycelium/theme-hooks-compat'
+import { type ComponentRef, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text, TouchableArea, useMedia, useScrollbarStyles, useSporeColors } from 'ui/src'
 import { Modal } from 'uniswap/src/components/modals/Modal'
 import { useUpdateScrollLock } from 'uniswap/src/components/modals/ScrollLock'
-import { NetworkFilter } from 'uniswap/src/components/network/NetworkFilter'
+import { NetworkFilter } from 'uniswap/src/components/network/NetworkFilter/NetworkFilter'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
+import { EXPANDABLE_ASSET_SEARCH_ISSUER_ROW_RIGHT_INSET_PX } from 'uniswap/src/features/expandableAsset/expandableAssetLayout'
 import { useFilterCallbacks } from 'uniswap/src/features/search/SearchModal/hooks/useFilterCallbacks'
-import { useWebSearchTabs } from 'uniswap/src/features/search/SearchModal/hooks/useWebSearchTabs'
 import { SearchModalNoQueryList } from 'uniswap/src/features/search/SearchModal/SearchModalNoQueryList'
 import { SearchModalResultsList } from 'uniswap/src/features/search/SearchModal/SearchModalResultsList'
-import { SearchTab } from 'uniswap/src/features/search/SearchModal/types'
+import { SearchTab, type SearchModalRowWrapper, WEB_SEARCH_TABS } from 'uniswap/src/features/search/SearchModal/types'
 import { SearchTextInput } from 'uniswap/src/features/search/SearchTextInput'
 import { ElementName, InterfaceEventName, ModalName, SectionName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { Trace } from 'uniswap/src/features/telemetry/Trace'
+import { useEvent } from 'utilities/src/react/hooks'
 import { useTrace } from 'utilities/src/telemetry/trace/TraceContext'
 import { useDebounce } from 'utilities/src/time/timing'
+import { AuctionHoverCard } from '~/components/HoverCard/AuctionHoverCard/AuctionHoverCard'
+import { PoolHoverCard } from '~/components/HoverCard/PoolHoverCard/PoolHoverCard'
+import { TokenHoverCard } from '~/components/HoverCard/TokenHoverCard/TokenHoverCard'
+import { WalletHoverCard } from '~/components/HoverCard/WalletHoverCard/WalletHoverCard'
+import { useModalState } from '~/hooks/useModalState'
 
-export const SearchModal = memo(function _SearchModal(): JSX.Element {
-  const poolSearchEnabled = useFeatureFlag(FeatureFlags.PoolSearch)
-  const webSearchTabs = useWebSearchTabs()
-  const colors = useSporeColors()
+const SEARCH_MODAL_WIDTH = {
+  default: 640,
+  small: 540,
+}
+
+// Measured from the results list edge: with always-visible OS scrollbars its scrollbar sits between the row
+// and the modal edge, and a row-relative offset would land the card inside the modal by that width.
+const HOVER_CARD_OFFSET = 8
+
+// Compensates for the RWA issuer sub-row's extra nesting; imported (not hardcoded) to stay in sync with its layout.
+const RWA_ISSUER_ROW_HOVER_CARD_OFFSET = HOVER_CARD_OFFSET + EXPANDABLE_ASSET_SEARCH_ISSUER_ROW_RIGHT_INSET_PX
+
+const SEARCH_HOVER_CARD_PROPS = {
+  childOwnsPressFeedback: true,
+  placement: 'right-start',
+  offsetFromScrollContainerEdge: true,
+} as const
+
+const LIST_CONTENT_CONTAINER_STYLE = { paddingBottom: spacing.spacing24 }
+
+function useHoverCardWrapper({
+  containerWidth,
+  onNavigate,
+}: {
+  containerWidth: number
+  onNavigate: () => void
+}): SearchModalRowWrapper {
+  const { defaultChainId } = useEnabledChains()
+  return useCallback<SearchModalRowWrapper>(
+    (props): JSX.Element => {
+      const { element } = props
+      if (props.variant === 'auction') {
+        return (
+          <AuctionHoverCard
+            auction={props.auction}
+            {...SEARCH_HOVER_CARD_PROPS}
+            offset={HOVER_CARD_OFFSET}
+            widthOffset={HOVER_CARD_OFFSET}
+            containerWidth={containerWidth}
+            onNavigate={onNavigate}
+          >
+            {element}
+          </AuctionHoverCard>
+        )
+      }
+      if (props.variant === 'pool') {
+        return (
+          <PoolHoverCard
+            pool={props.pool}
+            {...SEARCH_HOVER_CARD_PROPS}
+            offset={HOVER_CARD_OFFSET}
+            containerWidth={containerWidth}
+          >
+            {element}
+          </PoolHoverCard>
+        )
+      }
+      if (props.variant === 'wallet') {
+        return (
+          <WalletHoverCard
+            address={props.address}
+            // Search wallets are EVM addresses; the balance query spans chains, so this only picks the explorer.
+            chainId={defaultChainId}
+            {...SEARCH_HOVER_CARD_PROPS}
+            offset={HOVER_CARD_OFFSET}
+          >
+            {element}
+          </WalletHoverCard>
+        )
+      }
+      return (
+        <TokenHoverCard
+          currencyInfo={props.currencyInfo}
+          {...SEARCH_HOVER_CARD_PROPS}
+          offset={props.variant === 'rwaIssuerChild' ? RWA_ISSUER_ROW_HOVER_CARD_OFFSET : HOVER_CARD_OFFSET}
+          widthOffset={HOVER_CARD_OFFSET}
+          containerWidth={containerWidth}
+          onNavigate={onNavigate}
+        >
+          {element}
+        </TokenHoverCard>
+      )
+    },
+    [containerWidth, defaultChainId, onNavigate],
+  )
+}
+
+export const SearchModal = memo(function SearchModalInner({
+  isAuctionSearchEnabled,
+}: {
+  isAuctionSearchEnabled: boolean
+}): JSX.Element {
   const { t } = useTranslation()
+  const colors = useSporeColors()
   const media = useMedia()
   const scrollbarStyles = useScrollbarStyles()
 
   const { isOpen: isModalOpen, toggleModal: toggleSearchModal } = useModalState(ModalName.Search)
 
-  const [activeTab, setActiveTab] = useState<SearchTab>(poolSearchEnabled ? SearchTab.All : SearchTab.Tokens)
+  // Use ref for programmatic focus instead of autoFocus prop
+  // autoFocus doesn't work reliably on first modal open in production
+  const searchInputRef = useRef<ComponentRef<typeof SearchTextInput>>(null)
+
+  useEffect(() => {
+    if (isModalOpen) {
+      // Small delay to ensure modal animation/focus trap is ready
+      const timeoutId = setTimeout(() => {
+        searchInputRef.current?.focus()
+      }, 50)
+      return () => clearTimeout(timeoutId)
+    }
+    return undefined
+  }, [isModalOpen])
+
+  const [activeTab, setActiveTab] = useState<SearchTab>(SearchTab.All)
+  const searchTabs = useMemo(
+    () => (isAuctionSearchEnabled ? WEB_SEARCH_TABS : WEB_SEARCH_TABS.filter((tab) => tab !== SearchTab.Auctions)),
+    [isAuctionSearchEnabled],
+  )
+
+  useEffect(() => {
+    if (!searchTabs.includes(activeTab)) {
+      setActiveTab(SearchTab.All)
+    }
+  }, [activeTab, searchTabs])
 
   const { onChangeChainFilter, onChangeText, searchFilter, chainFilter, parsedChainFilter, parsedSearchFilter } =
     useFilterCallbacks(null, ModalName.Search)
   const debouncedSearchFilter = useDebounce(searchFilter)
   const debouncedParsedSearchFilter = useDebounce(parsedSearchFilter)
 
+  // A ref, not state: the count only matters at exit, and re-rendering the modal per list update would be wasted.
+  const resultsShownRef = useRef(0)
+  const onResultsShownChange = useEvent((count: number): void => {
+    resultsShownRef.current = count
+  })
+
   const trace = useTrace({ section: SectionName.NavbarSearch })
-  const onClose = useCallback(() => {
-    toggleSearchModal()
-    sendAnalyticsEvent(InterfaceEventName.NavbarSearchExited, {
-      navbar_search_input_text: debouncedSearchFilter ?? '',
-      hasInput: Boolean(debouncedSearchFilter),
-      ...trace,
-    })
-  }, [toggleSearchModal, debouncedSearchFilter, trace])
+  const closeSearch = useCallback(
+    (resultSelected: boolean) => {
+      toggleSearchModal()
+      sendAnalyticsEvent(InterfaceEventName.NavbarSearchExited, {
+        navbar_search_input_text: debouncedSearchFilter ?? '',
+        hasInput: Boolean(debouncedSearchFilter),
+        result_selected: resultSelected,
+        results_shown: resultsShownRef.current,
+        ...trace,
+      })
+    },
+    [toggleSearchModal, debouncedSearchFilter, trace],
+  )
+  const onClose = useCallback(() => closeSearch(false), [closeSearch])
 
   const onSelect = useCallback(() => {
     // web handles select differently than wallet as we want to clear search input on selection
     onChangeText('')
-    onClose()
-  }, [onChangeText, onClose])
+    closeSearch(true)
+  }, [onChangeText, closeSearch])
 
   const { chains: enabledChains } = useEnabledChains()
 
-  // Tamagui Dialog/Sheets should remove background scroll by default but does not work to disable ArrowUp/Down key scrolling
+  const searchModalWidth = media.xxl ? SEARCH_MODAL_WIDTH.small : SEARCH_MODAL_WIDTH.default
+
+  const wrapWithHoverCard = useHoverCardWrapper({ containerWidth: searchModalWidth, onNavigate: onSelect })
+  const rowWrapper = !media.xl ? wrapWithHoverCard : undefined
+
+  // Tamagui's lock doesn't block ArrowUp/Down key scrolling, so we lock scroll ourselves and disable
+  // Tamagui's own lock below (disableRemoveScroll) to avoid a stray scrollbar-gutter reservation.
   useUpdateScrollLock({ isModalOpen })
 
   return (
     <Modal
-      extendOnKeyboardVisible
       fullScreen
       hideKeyboardOnDismiss
       hideKeyboardOnSwipeDown
       renderBehindBottomInset
+      disableRemoveScroll
       backgroundColor={colors.surface1.val}
       isModalOpen={isModalOpen}
-      maxWidth={640}
+      maxWidth={searchModalWidth}
       maxHeight={520}
       name={ModalName.Search}
       padding="$none"
@@ -75,6 +212,10 @@ export const SearchModal = memo(function _SearchModal(): JSX.Element {
       analyticsProperties={{
         search_tab: activeTab,
       }}
+      // Use percent mode to avoid Tamagui bug where 'fit' snapped
+      // modals may incorrectly resize on their own when keyboard is visible
+      snapPointsMode="percent"
+      snapPoints={[85]}
     >
       <Flex grow style={scrollbarStyles}>
         <Flex
@@ -85,10 +226,11 @@ export const SearchModal = memo(function _SearchModal(): JSX.Element {
           borderBottomWidth={1}
         >
           <SearchTextInput
-            autoFocus
+            ref={searchInputRef}
             minHeight={media.sm ? undefined : 24}
-            backgroundColor={media.sm ? '$surface2' : '$none'}
-            borderColor={!media.sm ? '$none' : undefined}
+            backgroundColor={media.sm ? '$surface2' : '$transparent'}
+            borderColor={!media.sm ? '$transparent' : undefined}
+            borderWidth={!media.sm ? '$none' : undefined}
             py="$none"
             endAdornment={
               <Flex row alignItems="center">
@@ -100,7 +242,8 @@ export const SearchModal = memo(function _SearchModal(): JSX.Element {
                 />
               </Flex>
             }
-            placeholder={poolSearchEnabled ? t('search.input.placeholder') : t('tokens.selector.search.placeholder')}
+            // The long placeholder hard-clips in the narrow $sm input, so fall back to the short header copy there
+            placeholder={media.sm ? t('search.input.placeholder.header') : t('search.input.placeholder.modal')}
             px="$spacing16"
             value={searchFilter ?? ''}
             onChangeText={onChangeText}
@@ -114,19 +257,17 @@ export const SearchModal = memo(function _SearchModal(): JSX.Element {
             }}
           />
         </Flex>
-        {poolSearchEnabled && (
-          <Flex row px="$spacing20" pt="$spacing16" pb="$spacing8" gap="$spacing16">
-            {webSearchTabs.map((tab) => (
-              <Trace element={ElementName.SearchTab} logPress key={tab} properties={{ search_tab: tab }}>
-                <TouchableArea onPress={() => setActiveTab(tab)}>
-                  <Text color={activeTab === tab ? '$neutral1' : '$neutral2'} variant="buttonLabel2">
-                    {tab}
-                  </Text>
-                </TouchableArea>
-              </Trace>
-            ))}
-          </Flex>
-        )}
+        <Flex row px="$spacing20" pt="$spacing16" pb="$spacing8" gap="$spacing16">
+          {searchTabs.map((tab) => (
+            <Trace element={ElementName.SearchTab} logPress key={tab} properties={{ search_tab: tab }}>
+              <TouchableArea onPress={() => setActiveTab(tab)}>
+                <Text color={activeTab === tab ? '$neutral1' : '$neutral2'} variant="buttonLabel2">
+                  {tab}
+                </Text>
+              </TouchableArea>
+            </Trace>
+          ))}
+        </Flex>
         <Flex grow>
           {searchFilter && searchFilter.length > 0 ? (
             <SearchModalResultsList
@@ -136,15 +277,25 @@ export const SearchModal = memo(function _SearchModal(): JSX.Element {
               debouncedSearchFilter={debouncedSearchFilter}
               searchFilter={searchFilter}
               activeTab={activeTab}
+              auctionSearchEnabled={isAuctionSearchEnabled}
               onSelect={onSelect}
+              onViewAll={setActiveTab}
               renderedInModal={false}
+              contentContainerStyle={LIST_CONTENT_CONTAINER_STYLE}
+              rowWrapper={rowWrapper}
+              onResultsShownChange={onResultsShownChange}
             />
           ) : (
             <SearchModalNoQueryList
               chainFilter={chainFilter}
               activeTab={activeTab}
+              auctionSearchEnabled={isAuctionSearchEnabled}
               onSelect={onSelect}
+              onViewAll={setActiveTab}
               renderedInModal
+              contentContainerStyle={LIST_CONTENT_CONTAINER_STYLE}
+              rowWrapper={rowWrapper}
+              onResultsShownChange={onResultsShownChange}
             />
           )}
         </Flex>

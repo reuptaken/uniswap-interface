@@ -1,12 +1,12 @@
+import { ColorTokens, Flex, Input, Text } from '@universe/mycelium'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { LayoutChangeEvent } from 'react-native'
-import { ColorTokens, Flex, Input, Text } from 'ui/src'
 import type { SlippageControlProps } from 'uniswap/src/features/transactions/components/settings/settingsConfigurations/slippage/SlippageControl/types'
 import { useSlippageSettings } from 'uniswap/src/features/transactions/components/settings/settingsConfigurations/slippage/useSlippageSettings'
 import { getSlippageWarningColor } from 'uniswap/src/features/transactions/swap/utils/styleHelpers'
 
-const INPUT_MIN_WIDTH = 44
+const INPUT_MIN_WIDTH = 14
 
 export function SlippageControl(props: SlippageControlProps): JSX.Element {
   const { t } = useTranslation()
@@ -31,7 +31,6 @@ export function SlippageControl(props: SlippageControlProps): JSX.Element {
     isZeroSlippage: props.isZeroSlippage,
   })
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +isLayoutReady
   useEffect(() => {
     inputRef.current?.blur()
   }, [isLayoutReady])
@@ -42,7 +41,7 @@ export function SlippageControl(props: SlippageControlProps): JSX.Element {
   }
 
   const backgroundColor = isEditingSlippage ? '$surface2' : '$surface1'
-  const inputValue = autoSlippageEnabled ? autoSlippageTolerance.toFixed(2).toString() : inputSlippageTolerance
+  const inputValue = autoSlippageEnabled ? autoSlippageTolerance.toString() : inputSlippageTolerance
   const parsedInputValue = parseFloat(inputValue)
 
   const inputValueTextColor = useMemo(
@@ -126,7 +125,7 @@ export function SlippageControl(props: SlippageControlProps): JSX.Element {
               ref={inputRef}
               keyboardType="decimal-pad"
               backgroundColor={backgroundColor}
-              $group-hover={{ backgroundColor: '$surface1Hovered' }}
+              groupHoverStyle={{ backgroundColor: '$surface1Hovered' }}
               color={inputValueTextColor}
               editable={true}
               fontFamily="$subHeading"

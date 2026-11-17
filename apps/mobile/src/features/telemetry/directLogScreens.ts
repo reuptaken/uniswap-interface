@@ -1,10 +1,10 @@
 import { MobileScreens } from 'uniswap/src/types/screens/mobile'
 
 export const DIRECT_LOG_ONLY_SCREENS: string[] = [
+  MobileScreens.CategoryDetails,
   MobileScreens.TokenDetails,
   MobileScreens.ExternalProfile,
-  MobileScreens.NFTItem,
-  MobileScreens.NFTCollection,
+  MobileScreens.PositionDetails,
 ]
 
 export function shouldLogScreen(directFromPage: boolean | undefined, screen: string | undefined): boolean {

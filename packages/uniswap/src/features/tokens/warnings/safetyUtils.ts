@@ -1,19 +1,28 @@
-/* eslint-disable consistent-return */
+/* oxlint-disable typescript/consistent-return */
 import { Currency, NativeCurrency } from '@uniswap/sdk-core'
-import { GraphQLApi } from '@universe/api'
+import { isWebApp } from '@universe/environment'
+import { ColorTokens } from '@universe/mycelium'
 import { useTranslation } from 'react-i18next'
-import { ColorTokens } from 'ui/src'
 import { getAlertColor } from 'uniswap/src/components/modals/WarningModal/getAlertColor'
 import { WarningSeverity } from 'uniswap/src/components/modals/WarningModal/types'
-import { AttackType, CurrencyInfo, TokenList } from 'uniswap/src/features/dataApi/types'
+import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
+import {
+  deriveTokenProtectionWarning,
+  getFeeWarning,
+  getSeverityFromTokenProtectionWarning,
+} from 'uniswap/src/features/tokens/warnings/tokenProtection'
 import { TokenProtectionWarning } from 'uniswap/src/features/tokens/warnings/types'
 import { logger } from 'utilities/src/logger/logger'
-import { isWebApp } from 'utilities/src/platform'
 
-export const TOKEN_PROTECTION_FOT_HONEYPOT_BREAKPOINT = 100
-export const TOKEN_PROTECTION_FOT_HIGH_FEE_BREAKPOINT = 80
-export const TOKEN_PROTECTION_FOT_FEE_BREAKPOINT = 15
+export {
+  getFeeWarning,
+  getIsFeeRelatedWarning,
+  getSeverityFromTokenProtectionWarning,
+  TOKEN_PROTECTION_FOT_FEE_BREAKPOINT,
+  TOKEN_PROTECTION_FOT_HIGH_FEE_BREAKPOINT,
+  TOKEN_PROTECTION_FOT_HONEYPOT_BREAKPOINT,
+} from 'uniswap/src/features/tokens/warnings/tokenProtection'
 
 // Gets the FoT percentages from Currency, populated by our internal fees DB
 export function getCurrencyFeeOnTransfer(currency?: Currency): {
@@ -68,78 +77,21 @@ export function getTokenProtectionFeeOnTransfer(currencyInfo: Maybe<CurrencyInfo
   }
 }
 
-// eslint-disable-next-line complexity
 export function getTokenProtectionWarning(currencyInfo?: Maybe<CurrencyInfo>): TokenProtectionWarning {
   if (!currencyInfo?.currency || !currencyInfo.safetyInfo) {
     return TokenProtectionWarning.NonDefault
   }
   const { currency, safetyInfo } = currencyInfo
-
-  const { protectionResult, attackType } = safetyInfo
   if (currency instanceof NativeCurrency) {
     return TokenProtectionWarning.None
   }
 
-  const { maxFeePercent: feeOnTransfer } = getTokenProtectionFeeOnTransfer(currencyInfo)
-
-  // prioritize high > medium > low warning levels
-  if (safetyInfo.tokenList === TokenList.Blocked) {
-    return TokenProtectionWarning.Blocked
-  } else if (feeOnTransfer === TOKEN_PROTECTION_FOT_HONEYPOT_BREAKPOINT) {
-    return TokenProtectionWarning.MaliciousHoneypot
-  } else if (
-    (feeOnTransfer && feeOnTransfer >= TOKEN_PROTECTION_FOT_HIGH_FEE_BREAKPOINT) ||
-    ((protectionResult === GraphQLApi.ProtectionResult.Malicious ||
-      protectionResult === GraphQLApi.ProtectionResult.Spam) &&
-      attackType === AttackType.HighFees)
-  ) {
-    return TokenProtectionWarning.FotVeryHigh
-  } else if (
-    (protectionResult === GraphQLApi.ProtectionResult.Malicious ||
-      protectionResult === GraphQLApi.ProtectionResult.Spam) &&
-    attackType === AttackType.Impersonator
-  ) {
-    return TokenProtectionWarning.MaliciousImpersonator
-  } else if (feeOnTransfer && feeOnTransfer >= TOKEN_PROTECTION_FOT_FEE_BREAKPOINT) {
-    return TokenProtectionWarning.FotHigh
-  } else if (protectionResult === GraphQLApi.ProtectionResult.Malicious) {
-    return TokenProtectionWarning.MaliciousGeneral
-  } else if (attackType === AttackType.Honeypot) {
-    return TokenProtectionWarning.PotentialHoneypot
-  } else if (protectionResult === GraphQLApi.ProtectionResult.Spam && attackType === AttackType.Airdrop) {
-    return TokenProtectionWarning.SpamAirdrop
-  } else if (feeOnTransfer && feeOnTransfer > 0 && feeOnTransfer < TOKEN_PROTECTION_FOT_FEE_BREAKPOINT) {
-    return TokenProtectionWarning.FotLow
-  } else if (safetyInfo.tokenList === TokenList.NonDefault) {
-    return TokenProtectionWarning.NonDefault
-  }
-
-  return TokenProtectionWarning.None
-}
-
-export function getIsFeeRelatedWarning(tokenProtectionWarning?: TokenProtectionWarning): boolean {
-  return (
-    tokenProtectionWarning === TokenProtectionWarning.MaliciousHoneypot ||
-    tokenProtectionWarning === TokenProtectionWarning.FotVeryHigh ||
-    tokenProtectionWarning === TokenProtectionWarning.FotHigh ||
-    tokenProtectionWarning === TokenProtectionWarning.FotLow
-  )
-}
-
-export function getFeeWarning(feePercent: number): TokenProtectionWarning {
-  // WarningSeverity for styling. Same logic as getTokenWarningSeverity but without non-fee-related cases.
-  // If fee >= 5% then HIGH, else 0% < fee < 5% then MEDIUM, else NONE
-  let tokenProtectionWarning = TokenProtectionWarning.None
-  if (feePercent >= TOKEN_PROTECTION_FOT_HONEYPOT_BREAKPOINT) {
-    tokenProtectionWarning = TokenProtectionWarning.MaliciousHoneypot
-  } else if (feePercent >= TOKEN_PROTECTION_FOT_HIGH_FEE_BREAKPOINT) {
-    tokenProtectionWarning = TokenProtectionWarning.FotVeryHigh
-  } else if (feePercent >= TOKEN_PROTECTION_FOT_FEE_BREAKPOINT) {
-    tokenProtectionWarning = TokenProtectionWarning.FotHigh
-  } else if (feePercent > 0) {
-    tokenProtectionWarning = TokenProtectionWarning.FotLow
-  }
-  return tokenProtectionWarning
+  return deriveTokenProtectionWarning({
+    tokenList: safetyInfo.tokenList,
+    protectionResult: safetyInfo.protectionResult,
+    attackType: safetyInfo.attackType,
+    maxFeePercent: getTokenProtectionFeeOnTransfer(currencyInfo).maxFeePercent,
+  })
 }
 
 export function getTokenWarningSeverity(currencyInfo: Maybe<CurrencyInfo>): WarningSeverity {
@@ -148,27 +100,6 @@ export function getTokenWarningSeverity(currencyInfo: Maybe<CurrencyInfo>): Warn
   }
   const tokenProtectionWarning = getTokenProtectionWarning(currencyInfo)
   return getSeverityFromTokenProtectionWarning(tokenProtectionWarning)
-}
-
-export function getSeverityFromTokenProtectionWarning(tokenProtectionWarning: TokenProtectionWarning): WarningSeverity {
-  switch (tokenProtectionWarning) {
-    case TokenProtectionWarning.Blocked:
-      return WarningSeverity.Blocked
-    case TokenProtectionWarning.MaliciousHoneypot:
-    case TokenProtectionWarning.MaliciousImpersonator:
-    case TokenProtectionWarning.MaliciousGeneral:
-    case TokenProtectionWarning.FotVeryHigh:
-    case TokenProtectionWarning.FotHigh:
-      return WarningSeverity.High
-    case TokenProtectionWarning.PotentialHoneypot:
-    case TokenProtectionWarning.SpamAirdrop:
-    case TokenProtectionWarning.FotLow:
-      return WarningSeverity.Medium
-    case TokenProtectionWarning.NonDefault:
-      return WarningSeverity.Low
-    case TokenProtectionWarning.None:
-      return WarningSeverity.None
-  }
 }
 
 // Only combine into one plural-languaged modal if there are two tokens prefilled at the same time, and BOTH are low or BOTH are blocked
@@ -228,6 +159,8 @@ export function useModalHeaderText({
       return t('token.safety.warning.malicious.title')
     case TokenProtectionWarning.PotentialHoneypot:
       return t('token.safety.warning.potentialHoneypot.title')
+    case TokenProtectionWarning.ExitScamRisk:
+      return t('token.safety.warning.exitScamRisk.title')
     case TokenProtectionWarning.SpamAirdrop:
       return t('token.safety.warning.spam.title')
     case TokenProtectionWarning.FotLow:
@@ -239,7 +172,6 @@ export function useModalHeaderText({
   }
 }
 
-// eslint-disable-next-line complexity
 export function useModalSubtitleText({
   tokenProtectionWarning,
   tokenSymbol,
@@ -283,6 +215,8 @@ export function useModalSubtitleText({
       return t('token.safety.warning.malicious.impersonator.message', { tokenSymbol: tokenSymbolWithFallback })
     case TokenProtectionWarning.PotentialHoneypot:
       return t('token.safety.warning.potentialHoneypot.modal.message', { tokenSymbol: tokenSymbolWithFallback })
+    case TokenProtectionWarning.ExitScamRisk:
+      return t('token.safety.warning.exitScamRisk.modal.message', { tokenSymbol: tokenSymbolWithFallback })
     case TokenProtectionWarning.SpamAirdrop:
       return (
         t('token.safety.warning.spam.message', { tokenSymbol: tokenSymbolWithFallback }) +
@@ -374,6 +308,8 @@ export function useCardHeaderText({
       return t('token.safety.warning.malicious.title')
     case TokenProtectionWarning.PotentialHoneypot:
       return t('token.safety.warning.potentialHoneypot.title')
+    case TokenProtectionWarning.ExitScamRisk:
+      return t('token.safety.warning.exitScamRisk.title')
     case TokenProtectionWarning.SpamAirdrop:
       return t('token.safety.warning.spam.title')
     case TokenProtectionWarning.FotLow:
@@ -385,7 +321,6 @@ export function useCardHeaderText({
   }
 }
 
-// eslint-disable-next-line complexity
 export function useCardSubtitleText({
   tokenProtectionWarning,
   tokenSymbol,
@@ -416,6 +351,8 @@ export function useCardSubtitleText({
       return t('token.safety.warning.malicious.impersonator.message.short', { tokenSymbol: tokenSymbolWithFallback })
     case TokenProtectionWarning.PotentialHoneypot:
       return t('token.safety.warning.potentialHoneypot.card.message', { tokenSymbol: tokenSymbolWithFallback })
+    case TokenProtectionWarning.ExitScamRisk:
+      return t('token.safety.warning.exitScamRisk.card.message', { tokenSymbol: tokenSymbolWithFallback })
     case TokenProtectionWarning.SpamAirdrop:
       return t('token.safety.warning.spam.message', { tokenSymbol: tokenSymbolWithFallback })
     case TokenProtectionWarning.FotVeryHigh:

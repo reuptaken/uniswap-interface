@@ -1,27 +1,17 @@
 import { ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
-import { CurrencyAmount } from '@uniswap/sdk-core'
-import { getLPBaseAnalyticsProperties } from 'components/Liquidity/analytics'
-import { useGetPoolTokenPercentage } from 'components/Liquidity/hooks/useGetPoolTokenPercentage'
-import { TokenInfo } from 'components/Liquidity/TokenInfo'
-import { DetailLineItem } from 'components/swap/DetailLineItem'
-import { useCurrencyInfo } from 'hooks/Tokens'
-import { useAccount } from 'hooks/useAccount'
-import useSelectChain from 'hooks/useSelectChain'
-import { useRemoveLiquidityModalContext } from 'pages/RemoveLiquidity/RemoveLiquidityModalContext'
-import { useRemoveLiquidityTxContext } from 'pages/RemoveLiquidity/RemoveLiquidityTxContext'
+import { useGetPasskeyAuthStatus } from '@universe/embedded-wallet'
+import { Flex, Text } from '@universe/mycelium'
 import { useMemo, useState } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { useDispatch } from 'react-redux'
-import { liquiditySaga } from 'state/sagas/liquidity/liquiditySaga'
-import { Button, Flex, Separator, Text } from 'ui/src'
+import { Button, Separator } from 'ui/src'
 import { Passkey } from 'ui/src/components/icons/Passkey'
-import { iconSizes } from 'ui/src/theme'
+import { iconSizes } from 'ui/src/theme/iconSizes'
 import { ProgressIndicator } from 'uniswap/src/components/ConfirmSwapModal/ProgressIndicator'
 import { CurrencyLogo } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
 import { NetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
 import { PollingInterval } from 'uniswap/src/constants/misc'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
-import { useGetPasskeyAuthStatus } from 'uniswap/src/features/passkey/hooks/useGetPasskeyAuthStatus'
 import { useUSDCValue } from 'uniswap/src/features/transactions/hooks/useUSDCPrice'
 import { isValidLiquidityTxContext } from 'uniswap/src/features/transactions/liquidity/types'
 import { TransactionStep } from 'uniswap/src/features/transactions/steps/types'
@@ -30,16 +20,33 @@ import { isSignerMnemonicAccountDetails } from 'uniswap/src/features/wallet/type
 import { getSymbolDisplayText } from 'uniswap/src/utils/currency'
 import { NumberType } from 'utilities/src/format/types'
 import { useTrace } from 'utilities/src/telemetry/trace/TraceContext'
+import { DetailLineItem } from '~/components/DetailLineItem'
+import { getLPBaseAnalyticsProperties } from '~/features/Liquidity/analytics'
+import { useGetPoolTokenPercentage } from '~/features/Liquidity/hooks/useGetPoolTokenPercentage'
+import { useIsLiquiditySagaRunning } from '~/features/Liquidity/hooks/useIsLiquiditySagaRunning'
+import { LiquiditySagaPendingMessage } from '~/features/Liquidity/LiquiditySagaPendingMessage'
+import { TokenInfo } from '~/features/Liquidity/TokenInfo'
+import { useCurrencyInfo } from '~/hooks/Tokens'
+import { useAccount } from '~/hooks/useAccount'
+import { useSelectChain } from '~/hooks/useSelectChain'
+import { useRemoveLiquidityModalContext } from '~/pages/RemoveLiquidity/RemoveLiquidityModalContext'
+import { useRemoveLiquidityTxContext } from '~/pages/RemoveLiquidity/RemoveLiquidityTxContext'
+import { liquiditySaga } from '~/state/sagas/liquidity/liquiditySaga'
 
 export function RemoveLiquidityReview({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
-  const { percent, positionInfo, currencies, currentTransactionStep, setCurrentTransactionStep } =
-    useRemoveLiquidityModalContext()
+  const {
+    percent,
+    positionInfo,
+    currencies,
+    currentTransactionStep,
+    setCurrentTransactionStep,
+    commitDecrease,
+    resetCommittedDecrease,
+  } = useRemoveLiquidityModalContext()
   const [steps, setSteps] = useState<TransactionStep[]>([])
   const removeLiquidityTxContext = useRemoveLiquidityTxContext()
   const { formatCurrencyAmount, formatPercent, convertFiatAmountFormatted } = useLocalizationContext()
-  const currency0FiatAmount = useUSDCValue(positionInfo?.currency0Amount)
-  const currency1FiatAmount = useUSDCValue(positionInfo?.currency1Amount)
   const selectChain = useSelectChain()
   const connectedAccount = useAccount()
   const startChainId = connectedAccount.chainId
@@ -47,8 +54,14 @@ export function RemoveLiquidityReview({ onClose }: { onClose: () => void }) {
   const dispatch = useDispatch()
   const trace = useTrace()
   const { needsPasskeySignin } = useGetPasskeyAuthStatus(connectedAccount.connector?.id)
+  const isLiquiditySagaRunning = useIsLiquiditySagaRunning()
 
-  const { txContext, gasFeeEstimateUSD } = removeLiquidityTxContext
+  const {
+    txContext,
+    gasFeeEstimateUSD,
+    currency0AmountToRemove: unwrappedCurrency0AmountToRemove,
+    currency1AmountToRemove: unwrappedCurrency1AmountToRemove,
+  } = removeLiquidityTxContext
 
   const onSuccess = () => {
     setSteps([])
@@ -58,9 +71,11 @@ export function RemoveLiquidityReview({ onClose }: { onClose: () => void }) {
 
   const onFailure = () => {
     setCurrentTransactionStep(undefined)
+    resetCommittedDecrease()
   }
 
-  if (!positionInfo) {
+  // The amounts to remove are derived by the tx context from this same position, so they are only unset without one.
+  if (!positionInfo || !unwrappedCurrency0AmountToRemove || !unwrappedCurrency1AmountToRemove) {
     throw new Error('RemoveLiquidityModal must have an initial state when opening')
   }
 
@@ -86,29 +101,14 @@ export function RemoveLiquidityReview({ onClose }: { onClose: () => void }) {
   const currency0 = currencies?.TOKEN0 ?? positionInfo.currency0Amount.currency
   const currency1 = currencies?.TOKEN1 ?? positionInfo.currency1Amount.currency
 
-  const {
-    unwrappedCurrency0AmountToRemove,
-    unwrappedCurrency1AmountToRemove,
-    currency0AmountToRemove,
-    currency1AmountToRemove,
-  } = useMemo(() => {
-    const unwrappedCurrency0AmountToRemove = CurrencyAmount.fromRawAmount(currency0, currency0Amount.quotient)
-      .multiply(percent)
-      .divide(100)
-    const unwrappedCurrency1AmountToRemove = CurrencyAmount.fromRawAmount(currency1, currency1Amount.quotient)
-      .multiply(percent)
-      .divide(100)
-
-    const currency0AmountToRemove = currency0Amount.multiply(percent).divide(100)
-    const currency1AmountToRemove = currency1Amount.multiply(percent).divide(100)
-
-    return {
-      unwrappedCurrency0AmountToRemove,
-      unwrappedCurrency1AmountToRemove,
-      currency0AmountToRemove,
-      currency1AmountToRemove,
-    }
-  }, [currency0Amount, currency0, currency1Amount, currency1, percent])
+  // What remains is the position's share, in its own (wrapped) currencies.
+  const { currency0AmountToRemove, currency1AmountToRemove } = useMemo(
+    () => ({
+      currency0AmountToRemove: currency0Amount.multiply(percent).divide(100),
+      currency1AmountToRemove: currency1Amount.multiply(percent).divide(100),
+    }),
+    [currency0Amount, currency1Amount, percent],
+  )
 
   const currency0AmountToRemoveUSD = useUSDCValue(unwrappedCurrency0AmountToRemove)
   const currency1AmountToRemoveUSD = useUSDCValue(unwrappedCurrency1AmountToRemove)
@@ -129,6 +129,7 @@ export function RemoveLiquidityReview({ onClose }: { onClose: () => void }) {
     if (!account || !isSignerMnemonicAccountDetails(account) || !isValidTx) {
       return
     }
+    commitDecrease(txContext)
     dispatch(
       liquiditySaga.actions.trigger({
         selectChain,
@@ -157,6 +158,10 @@ export function RemoveLiquidityReview({ onClose }: { onClose: () => void }) {
           expectedAmountBaseRaw: unwrappedCurrency0AmountToRemove.quotient.toString(),
           expectedAmountQuoteRaw: unwrappedCurrency1AmountToRemove.quotient.toString(),
           closePosition: percent === '100',
+          feeToken0AmountRaw: fee0Amount?.quotient.toString(),
+          feeToken1AmountRaw: fee1Amount?.quotient.toString(),
+          feeToken0AmountUSD: fiatFeeValue0 ? parseFloat(fiatFeeValue0.toExact()) : undefined,
+          feeToken1AmountUSD: fiatFeeValue1 ? parseFloat(fiatFeeValue1.toExact()) : undefined,
         },
       }),
     )
@@ -165,17 +170,11 @@ export function RemoveLiquidityReview({ onClose }: { onClose: () => void }) {
   return (
     <Flex gap="$gap16">
       <Flex gap="$gap16" px="$padding16">
-        <TokenInfo
-          currencyAmount={unwrappedCurrency0AmountToRemove}
-          currencyUSDAmount={currency0FiatAmount?.multiply(percent).divide(100)}
-        />
+        <TokenInfo currencyAmount={unwrappedCurrency0AmountToRemove} currencyUSDAmount={currency0AmountToRemoveUSD} />
         <Text variant="body3" color="$neutral2">
           {t('common.and')}
         </Text>
-        <TokenInfo
-          currencyAmount={unwrappedCurrency1AmountToRemove}
-          currencyUSDAmount={currency1FiatAmount?.multiply(percent).divide(100)}
-        />
+        <TokenInfo currencyAmount={unwrappedCurrency1AmountToRemove} currencyUSDAmount={currency1AmountToRemoveUSD} />
         {positionInfo.version !== ProtocolVersion.V2 && (
           <Flex p="$spacing12" gap="$gap12" background="$surface2" borderRadius="$rounded12">
             <Text variant="body4" color="$neutral2">
@@ -232,7 +231,7 @@ export function RemoveLiquidityReview({ onClose }: { onClose: () => void }) {
               LineItem={{
                 Label: () => (
                   <Text variant="body3" color="$neutral2">
-                    <Trans i18nKey="pool.newSpecificPosition" values={{ symbol: currency0Amount.currency.symbol }} />
+                    {t('pool.newSpecificPosition', { symbol: currency0Amount.currency.symbol ?? t('common.token') })}
                   </Text>
                 ),
                 Value: () => (
@@ -252,7 +251,7 @@ export function RemoveLiquidityReview({ onClose }: { onClose: () => void }) {
               LineItem={{
                 Label: () => (
                   <Text variant="body3" color="$neutral2">
-                    <Trans i18nKey="pool.newSpecificPosition" values={{ symbol: currency1Amount.currency.symbol }} />
+                    {t('pool.newSpecificPosition', { symbol: currency1Amount.currency.symbol ?? t('common.token') })}
                   </Text>
                 ),
                 Value: () => (
@@ -298,11 +297,13 @@ export function RemoveLiquidityReview({ onClose }: { onClose: () => void }) {
               }}
             />
           </Flex>
+          <LiquiditySagaPendingMessage />
           <Flex row>
             <Button
               size="large"
               onPress={onDecreaseLiquidity}
-              icon={needsPasskeySignin ? <Passkey size="$icon.24" /> : undefined}
+              disabled={isLiquiditySagaRunning}
+              icon={needsPasskeySignin ? <Passkey size="$icon.24" color="$white" /> : undefined}
             >
               {needsPasskeySignin ? t('pool.removeLiquidity') : t('common.confirm')}
             </Button>

@@ -1,12 +1,14 @@
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
-import { chainIdToPlatform } from 'uniswap/src/features/platforms/utils/chains'
+import { TradingApi } from '@universe/api'
+import { Platform, chainIdToPlatform } from '@universe/chains'
 import { UniswapEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import type { SwapRedirectFn } from 'uniswap/src/features/transactions/components/TransactionModal/TransactionModalContext'
 import { TransactionScreen } from 'uniswap/src/features/transactions/components/TransactionModal/TransactionModalContext'
+import { prefetchPlan } from 'uniswap/src/features/transactions/swap/plan/prefetchedPlanStore'
 import type { WarningService } from 'uniswap/src/features/transactions/swap/services/warningService'
 import type { SwapFormState } from 'uniswap/src/features/transactions/swap/stores/swapFormStore/types'
 import type { DerivedSwapInfo } from 'uniswap/src/features/transactions/swap/types/derivedSwapInfo'
+import type { Trade } from 'uniswap/src/features/transactions/swap/types/trade'
 import { CurrencyField } from 'uniswap/src/types/currency'
 import { createTransactionId } from 'uniswap/src/utils/createTransactionId'
 import type { logger } from 'utilities/src/logger/logger'
@@ -42,11 +44,14 @@ export function createPrepareSwap(
   return prepareSwap
 }
 
-interface GetActionContext {
+export interface ReviewGateContext {
   swapRedirectCallback?: SwapRedirectFn
   isConnected: boolean
   onConnectWallet?: (platform?: Platform) => void
   isViewOnlyWallet: boolean
+}
+
+interface GetActionContext extends ReviewGateContext {
   currencies: DerivedSwapInfo['currencies']
   exactAmountToken?: string
   exactCurrencyField: CurrencyField
@@ -93,12 +98,35 @@ type CallbackArgs = Record<
   boolean
 >
 
+export type ReviewGateActionType =
+  | typeof ReviewActionType.REDIRECT
+  | typeof ReviewActionType.CONNECT_WALLET
+  | typeof ReviewActionType.SHOW_VIEW_ONLY
+
+/**
+ * The actions that take precedence over the pre-review warning modals and the review screen,
+ * in priority order. Returns undefined when none applies.
+ */
+export function getReviewGateActionType({
+  swapRedirectCallback,
+  isConnected,
+  onConnectWallet,
+  isViewOnlyWallet,
+}: ReviewGateContext): ReviewGateActionType | undefined {
+  if (swapRedirectCallback) {
+    return ReviewActionType.REDIRECT
+  }
+  if (!isConnected && onConnectWallet) {
+    return ReviewActionType.CONNECT_WALLET
+  }
+  if (isViewOnlyWallet) {
+    return ReviewActionType.SHOW_VIEW_ONLY
+  }
+  return undefined
+}
+
 function createGetAction(ctx: GetActionContext): (args: CallbackArgs) => ReviewAction {
   const {
-    swapRedirectCallback,
-    isConnected,
-    onConnectWallet,
-    isViewOnlyWallet,
     currencies,
     exactAmountToken,
     exactCurrencyField,
@@ -109,7 +137,8 @@ function createGetAction(ctx: GetActionContext): (args: CallbackArgs) => ReviewA
     needsBridgedAssetWarning,
   } = ctx
   function getAction(args: CallbackArgs): ReviewAction {
-    if (swapRedirectCallback) {
+    const gateActionType = getReviewGateActionType(ctx)
+    if (gateActionType === ReviewActionType.REDIRECT) {
       const redirectPayload: RedirectActionPayload = {
         inputCurrency: currencies[CurrencyField.INPUT]?.currency,
         outputCurrency: currencies[CurrencyField.OUTPUT]?.currency,
@@ -121,9 +150,9 @@ function createGetAction(ctx: GetActionContext): (args: CallbackArgs) => ReviewA
         type: ReviewActionType.REDIRECT,
         payload: redirectPayload,
       }
-    } else if (!isConnected && onConnectWallet) {
+    } else if (gateActionType === ReviewActionType.CONNECT_WALLET) {
       return { type: ReviewActionType.CONNECT_WALLET, payload: { platform: chainIdToPlatform(chainId) } }
-    } else if (isViewOnlyWallet) {
+    } else if (gateActionType === ReviewActionType.SHOW_VIEW_ONLY) {
       return { type: ReviewActionType.SHOW_VIEW_ONLY }
     } else if (needsTokenProtectionWarning && !args.skipTokenProtectionWarning) {
       return { type: ReviewActionType.SHOW_TOKEN_WARNING }
@@ -154,6 +183,8 @@ interface HandleEventActionContext {
   onConnectWallet?: (platform?: Platform) => void
   updateSwapForm: (newState: Partial<SwapFormState>) => void
   setScreen: (screen: TransactionScreen) => void
+  trade?: Trade
+  walletExecutionContext?: TradingApi.WalletExecutionContext
 }
 
 function createHandleEventAction(ctx: HandleEventActionContext): (action: ReviewAction) => void {
@@ -167,6 +198,8 @@ function createHandleEventAction(ctx: HandleEventActionContext): (action: Review
     onConnectWallet,
     updateSwapForm,
     setScreen,
+    trade,
+    walletExecutionContext,
   } = ctx
   function handleEventAction(action: ReviewAction): void {
     switch (action.type) {
@@ -195,6 +228,9 @@ function createHandleEventAction(ctx: HandleEventActionContext): (action: Review
       case ReviewActionType.PROCEED_TO_REVIEW:
         updateSwapForm({ txId: createTransactionId() })
         setScreen(TransactionScreen.Review)
+        if (trade) {
+          prefetchPlan(trade, walletExecutionContext)
+        }
         break
     }
   }

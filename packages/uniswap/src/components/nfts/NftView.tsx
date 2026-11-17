@@ -1,8 +1,9 @@
-import { Flex, FlexProps, TouchableArea } from 'ui/src'
-import { NFTViewer } from 'uniswap/src/components/nfts/images/NFTViewer'
+import { Flex, type FlexProps } from '@universe/mycelium'
+import { TestID } from '@universe/test'
+import { NFTViewer } from 'uniswap/src/components/nfts/NFTViewer'
+import { NftViewLongPressArea } from 'uniswap/src/components/nfts/NftViewLongPressArea'
 import { ESTIMATED_NFT_LIST_ITEM_SIZE } from 'uniswap/src/features/nfts/constants'
-import { NFTItem } from 'uniswap/src/features/nfts/types'
-import { isAndroid, isWebPlatform } from 'utilities/src/platform'
+import { type NFTItem } from 'uniswap/src/features/nfts/types'
 
 export type NftViewProps = {
   item: NFTItem
@@ -17,11 +18,12 @@ export function NftView({ item, onPress, index, openContextMenu, hoverAnimation 
   const nftView = (
     <NFTViewer
       svgRenderingDisabled
-      autoplay={!isWebPlatform}
+      // Disable autoplay in the grid — animated GIF/WebP NFTs hold per-cell frame
+      // buffers and tank scroll perf on memory-constrained devices.
+      autoplay={false}
       imageDimensions={item.imageDimensions}
       limitGIFSize={ESTIMATED_NFT_LIST_ITEM_SIZE}
       placeholderContent={item.name || item.collectionName}
-      squareGridView={true}
       uri={item.imageUrl ?? ''}
       thumbnailUrl={item.thumbnailUrl ?? ''}
     />
@@ -30,7 +32,9 @@ export function NftView({ item, onPress, index, openContextMenu, hoverAnimation 
   const baseFlexProps: FlexProps = {
     alignItems: 'center',
     aspectRatio: 1,
-    backgroundColor: '$surface3',
+    // Opaque fill so iOS can merge shadow paths
+    // Visual tint still reads as a card; $surface3 is translucent rgba and triggers the warning.
+    backgroundColor: '$surface3Solid',
     borderRadius: '$rounded12',
     overflow: 'hidden',
     width: '100%',
@@ -40,25 +44,15 @@ export function NftView({ item, onPress, index, openContextMenu, hoverAnimation 
     hoverStyle: hoverAnimation ? { transform: 'scale(1.02)' } : undefined,
   }
 
-  if (isAndroid) {
-    return (
-      <Flex>
-        <TouchableArea
-          activeOpacity={1}
-          testID={`nfts-list-item-${index ?? 0}`}
-          // Needed to fix long press issue with context menu on Android
-          onLongPress={openContextMenu}
-          onPress={onPress}
-        >
-          <Flex {...baseFlexProps}>{nftView}</Flex>
-        </TouchableArea>
-      </Flex>
-    )
-  }
-
   return (
-    <Flex {...baseFlexProps} cursor="pointer" onPress={onPress} onLongPress={openContextMenu}>
-      {nftView}
-    </Flex>
+    <NftViewLongPressArea
+      testID={`${TestID.NftsListItemPrefix}${index ?? 0}`}
+      onLongPress={openContextMenu}
+      onPress={onPress}
+    >
+      <Flex {...baseFlexProps} cursor="pointer">
+        {nftView}
+      </Flex>
+    </NftViewLongPressArea>
   )
 }

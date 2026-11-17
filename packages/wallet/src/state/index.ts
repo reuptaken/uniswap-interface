@@ -1,6 +1,7 @@
 import type { Middleware, PreloadedState, Reducer, StoreEnhancer } from '@reduxjs/toolkit'
 import { configureStore } from '@reduxjs/toolkit'
 import createSagaMiddleware, { Saga, SagaIterator, SagaMiddleware } from 'redux-saga'
+import { persistedSinkTripwireMiddleware } from 'utilities/src/security/persistedSinkTripwireMiddleware'
 import { walletContextValue } from 'wallet/src/features/wallet/context'
 import { createSagaEffectRunner } from 'wallet/src/state/createSagaEffectRunner'
 import { rootWalletSaga } from 'wallet/src/state/saga'
@@ -44,9 +45,9 @@ export const runSagaEffect = <T>(effect: SagaIterator<T>): Promise<T> => {
   return createSagaEffectRunner(getSagaMiddleware())(effect)
 }
 
-// Disable eslint rule to infer return type from the returned value
+// Disable lint rule to infer return type from the returned value
 // (it is complex and not worth the effort to type it manually)
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+// oxlint-disable-next-line typescript/explicit-function-return-type
 export function createStore({
   additionalSagas = [],
   middlewareAfter = [],
@@ -84,7 +85,7 @@ export function createStore({
         // slows down dev build considerably
         immutableCheck: false,
       })
-        .prepend(middlewareBefore)
+        .prepend([persistedSinkTripwireMiddleware, ...middlewareBefore])
         .concat(sagaMiddleware)
         .concat(middlewareAfter),
     devTools: __DEV__,

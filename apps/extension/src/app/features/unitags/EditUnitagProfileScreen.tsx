@@ -1,3 +1,8 @@
+import { Flex } from '@universe/mycelium'
+import { Edit } from '@universe/mycelium/icons/Edit'
+import { Ellipsis } from '@universe/mycelium/icons/Ellipsis'
+import { Trash } from '@universe/mycelium/icons/Trash'
+import { Presence } from '@universe/mycelium/presence'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { OnboardingScreen } from 'src/app/features/onboarding/OnboardingScreen'
@@ -6,13 +11,12 @@ import { UnitagClaimRoutes } from 'src/app/navigation/constants'
 import { navigate } from 'src/app/navigation/state'
 import { backgroundToSidePanelMessageChannel } from 'src/background/messagePassing/messageChannels'
 import { BackgroundToSidePanelRequestType } from 'src/background/messagePassing/types/requests'
-import { AnimatePresence, Flex } from 'ui/src'
-import { Edit, Ellipsis, Trash } from 'ui/src/components/icons'
+import { ContextMenu, MenuOptionItem } from 'uniswap/src/components/menus/ContextMenu'
+import { ContextMenuTriggerMode } from 'uniswap/src/components/menus/types'
 import { useUnitagsAddressQuery } from 'uniswap/src/data/apiClients/unitagsApi/useUnitagsAddressQuery'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 import { UnitagScreens } from 'uniswap/src/types/screens/mobile'
-import { ContextMenu } from 'wallet/src/components/menu/ContextMenu'
-import { MenuContentItem } from 'wallet/src/components/menu/types'
+import { useBooleanState } from 'utilities/src/react/useBooleanState'
 import { ChangeUnitagModal } from 'wallet/src/features/unitags/ChangeUnitagModal'
 import { DeleteUnitagModal } from 'wallet/src/features/unitags/DeleteUnitagModal'
 import { EditUnitagProfileContent } from 'wallet/src/features/unitags/EditUnitagProfileContent'
@@ -40,8 +44,9 @@ export function EditUnitagProfileScreen({ enableBack = false }: { enableBack?: b
 
   const [showDeleteUnitagModal, setShowDeleteUnitagModal] = useState(false)
   const [showChangeUnitagModal, setShowChangeUnitagModal] = useState(false)
+  const { value: isMenuOpen, setTrue: openMenu, setFalse: closeMenu } = useBooleanState(false)
 
-  const menuOptions = useMemo((): MenuContentItem[] => {
+  const menuOptions = useMemo((): MenuOptionItem[] => {
     return [
       {
         label: t('unitags.profile.action.edit'),
@@ -69,7 +74,13 @@ export function EditUnitagProfileScreen({ enableBack = false }: { enableBack?: b
         noTopPadding
         title={t('settings.setting.wallet.action.editProfile')}
         endAdornment={
-          <ContextMenu closeOnClick itemId={address} menuOptions={menuOptions} onLeftClick>
+          <ContextMenu
+            menuItems={menuOptions}
+            triggerMode={ContextMenuTriggerMode.Primary}
+            isOpen={isMenuOpen}
+            openMenu={openMenu}
+            closeMenu={closeMenu}
+          >
             <Flex>
               <Ellipsis color="$neutral2" size="$icon.24" />
             </Flex>
@@ -80,8 +91,13 @@ export function EditUnitagProfileScreen({ enableBack = false }: { enableBack?: b
         <Flex gap="$spacing12" width="100%" pt="$spacing8">
           {unitag && (
             <>
-              <EditUnitagProfileContent address={address} unitag={unitag} entryPoint={UnitagScreens.EditProfile} />
-              <AnimatePresence>
+              <EditUnitagProfileContent
+                address={address}
+                unitag={unitag}
+                entryPoint={UnitagScreens.EditProfile}
+                onSave={refreshUnitags}
+              />
+              <Presence>
                 {showDeleteUnitagModal && (
                   <DeleteUnitagModal
                     address={address}
@@ -98,7 +114,7 @@ export function EditUnitagProfileScreen({ enableBack = false }: { enableBack?: b
                     onClose={(): void => setShowChangeUnitagModal(false)}
                   />
                 )}
-              </AnimatePresence>
+              </Presence>
             </>
           )}
         </Flex>

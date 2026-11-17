@@ -1,5 +1,5 @@
+import type { Platform } from '@universe/chains'
 import type { Session } from 'uniswap/src/features/accounts/store/types/Session'
-import type { Platform } from 'uniswap/src/features/platforms/types/Platform'
 
 /**
  * Represents the connection state of a wallet connector.
@@ -67,8 +67,9 @@ export interface ConnectingConnector<
   session?: TSessionType
 }
 
-export interface DisconnectedConnector<TAccessPattern extends AccessPattern = AccessPattern>
-  extends BaseConnector<TAccessPattern> {
+export interface DisconnectedConnector<
+  TAccessPattern extends AccessPattern = AccessPattern,
+> extends BaseConnector<TAccessPattern> {
   status: ConnectorStatus.Disconnected
   session?: undefined
   error?: ConnectorErrorType

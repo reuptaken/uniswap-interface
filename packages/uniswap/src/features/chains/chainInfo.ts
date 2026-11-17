@@ -1,21 +1,28 @@
+import { UniverseChainId, Platform } from '@universe/chains'
 import { ARBITRUM_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/arbitrum'
+import { ARC_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/arc'
 import { AVALANCHE_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/avalanche'
 import { BASE_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/base'
 import { BLAST_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/blast'
 import { BNB_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/bnb'
 import { CELO_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/celo'
+import { INK_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/ink'
+import { LINEA_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/linea'
 import { MAINNET_CHAIN_INFO, SEPOLIA_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/mainnet'
+import { MEGAETH_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/megaeth'
 import { MONAD_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/monad'
 import { OPTIMISM_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/optimism'
 import { POLYGON_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/polygon'
+import { ROBINHOOD_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/robinhood'
 import { SONEIUM_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/soneium'
+import { TEMPO_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/tempo'
 import { UNICHAIN_CHAIN_INFO, UNICHAIN_SEPOLIA_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/unichain'
 import { WORLD_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/worldchain'
+import { XLAYER_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/xlayer'
 import { ZKSYNC_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/zksync'
 import { ZORA_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/zora'
 import { SOLANA_CHAIN_INFO } from 'uniswap/src/features/chains/svm/info/solana'
-import { UniverseChainId, UniverseChainInfo } from 'uniswap/src/features/chains/types'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
+import { UniverseChainInfo } from 'uniswap/src/features/chains/types'
 import { getNonEmptyArrayOrThrow } from 'utilities/src/primitives/array'
 
 export function getChainInfo(chainId: UniverseChainId): UniverseChainInfo {
@@ -36,7 +43,14 @@ export const ORDERED_CHAINS = [
   AVALANCHE_CHAIN_INFO,
   CELO_CHAIN_INFO,
   WORLD_CHAIN_INFO,
+  LINEA_CHAIN_INFO,
+  MEGAETH_CHAIN_INFO,
+  ROBINHOOD_CHAIN_INFO,
+  ARC_CHAIN_INFO,
+  INK_CHAIN_INFO,
   SONEIUM_CHAIN_INFO,
+  TEMPO_CHAIN_INFO,
+  XLAYER_CHAIN_INFO,
   ZORA_CHAIN_INFO,
   ZKSYNC_CHAIN_INFO,
   SEPOLIA_CHAIN_INFO,
@@ -80,10 +94,17 @@ export const UNIVERSE_CHAIN_INFO = {
   [UniverseChainId.Avalanche]: AVALANCHE_CHAIN_INFO,
   [UniverseChainId.Celo]: CELO_CHAIN_INFO,
   [UniverseChainId.WorldChain]: WORLD_CHAIN_INFO,
+  [UniverseChainId.Linea]: LINEA_CHAIN_INFO,
+  [UniverseChainId.MegaETH]: MEGAETH_CHAIN_INFO,
   [UniverseChainId.Soneium]: SONEIUM_CHAIN_INFO,
+  [UniverseChainId.Tempo]: TEMPO_CHAIN_INFO,
+  [UniverseChainId.XLayer]: XLAYER_CHAIN_INFO,
   [UniverseChainId.Zora]: ZORA_CHAIN_INFO,
   [UniverseChainId.Zksync]: ZKSYNC_CHAIN_INFO,
   [UniverseChainId.Monad]: MONAD_CHAIN_INFO,
+  [UniverseChainId.Robinhood]: ROBINHOOD_CHAIN_INFO,
+  [UniverseChainId.Arc]: ARC_CHAIN_INFO,
+  [UniverseChainId.Ink]: INK_CHAIN_INFO,
 
   // TESTNET
   [UniverseChainId.Sepolia]: SEPOLIA_CHAIN_INFO,

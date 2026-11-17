@@ -1,11 +1,11 @@
+import { Flex } from '@universe/mycelium'
 import { SkeletonBox } from 'src/app/components/loading/SkeletonBox'
-import { Flex } from 'ui/src'
 import { WALLET_PREVIEW_CARD_MIN_HEIGHT } from 'wallet/src/components/WalletPreviewCard/WalletPreviewCard'
 
 export function SelectWalletsSkeleton({ repeat = 3 }: { repeat?: number }): JSX.Element {
   return (
     <Flex fill gap="$spacing12">
-      {/* eslint-disable-next-line max-params */}
+      {/* oxlint-disable-next-line max-params */}
       {new Array(repeat).fill(null).map((_, i, { length }) => (
         <WalletSkeleton key={i} opacity={(length - i) / length} />
       ))}

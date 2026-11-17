@@ -5,7 +5,7 @@ import { BackHandler } from 'react-native'
 import { navigate as rootNavigate } from 'src/app/navigation/rootNavigation'
 import { useExploreStackNavigation } from 'src/app/navigation/types'
 import { HomeScreenTabIndex } from 'src/screens/HomeScreen/HomeScreenTabIndex'
-import { getListTransactionsQuery } from 'uniswap/src/data/rest/listTransactions'
+import { getListTransactionsQuery } from 'uniswap/src/data/apiClients/dataApiService/activity/listTransactions'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
 import { MobileScreens } from 'uniswap/src/types/screens/mobile'
 import { useEvent } from 'utilities/src/react/hooks'
@@ -62,6 +62,7 @@ export function useEagerExternalProfileRootNavigation(): EagerExternalProfileRoo
   )
 
   const navigate = useEvent(async (address: string, callback?: () => void) => {
+    // oxlint-disable-next-line typescript/await-thenable -- biome-parity: oxlint is stricter here
     await rootNavigate(MobileScreens.ExternalProfile, { address })
     callback?.()
   })
@@ -100,7 +101,7 @@ export function useHomeScreenCustomAndroidBackButton(
         return false
       }
       const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress)
-      return subscription.remove
+      return () => subscription.remove()
     }, [routeTabIndex, setRouteTabIndex]),
   )
 }

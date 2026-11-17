@@ -1,32 +1,42 @@
-import { DropdownSelector } from 'components/Dropdowns/DropdownSelector'
-import { getTimePeriodFilterOptions, getTransactionTypeFilterOptions } from 'pages/Portfolio/Activity/Filters/utils'
+import { Flex } from '@universe/mycelium'
+import { useMedia } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
 import { memo, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex } from 'ui/src'
 import { Calendar } from 'ui/src/components/icons/Calendar'
 import { Filter } from 'ui/src/components/icons/Filter'
 import { ElementName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
+import { DropdownSelector } from '~/components/Dropdowns/DropdownSelector'
+import { getTimePeriodFilterOptions, getTransactionTypeFilterOptions } from '~/pages/Portfolio/Activity/Filters/utils'
+import { SearchInput } from '~/pages/Portfolio/components/SearchInput'
 
 const DROPDOWN_MIN_WIDTH = {
   transactionType: 220,
   timePeriod: 200,
 }
 
+const HALF_WIDTH_ON_MOBILE = { flex: 1, minWidth: 0 }
+
 interface ActivityFiltersProps {
   selectedTransactionType: string
   onTransactionTypeChange: (value: string) => void
   selectedTimePeriod: string
   onTimePeriodChange: (value: string) => void
+  searchText: string
+  onSearchTextChange: (value: string) => void
 }
 
-function _ActivityFilters({
+function ActivityFiltersInner({
   selectedTransactionType,
   onTransactionTypeChange,
   selectedTimePeriod,
   onTimePeriodChange,
+  searchText,
+  onSearchTextChange,
 }: ActivityFiltersProps): JSX.Element {
   const { t } = useTranslation()
+  const media = useMedia()
   const transactionTypeOptions = useMemo(() => getTransactionTypeFilterOptions(t), [t])
   const timePeriodOptions = useMemo(() => getTimePeriodFilterOptions(t), [t])
 
@@ -45,7 +55,7 @@ function _ActivityFilters({
         gap: '$spacing16',
       }}
     >
-      <Flex row gap="$spacing12" $md={{ flexDirection: 'column' }}>
+      <Flex row gap="$spacing12">
         {/* Transaction Type Filter */}
         <Trace logPress element={ElementName.ActivityFilterTransactionType}>
           <DropdownSelector
@@ -55,7 +65,12 @@ function _ActivityFilters({
             isOpen={filterTypeExpanded}
             toggleOpen={setFilterTypeExpanded}
             ButtonIcon={Filter}
-            buttonStyle={{ minWidth: 'auto', $md: { width: '100%' } }}
+            dataTestId={TestID.PortfolioActivityTransactionTypeFilter}
+            optionTestIdPrefix={TestID.PortfolioActivityFilterOptionPrefix}
+            // buttonStyle crosses into DropdownSelector, which is still Tamagui, so this $md is Tamagui's, not mycelium's.
+            // Both resolve to 640px — they must stay equal or the container stacks at a different width than the buttons.
+            buttonStyle={{ minWidth: 140, $md: { width: '100%', minWidth: 0 } }}
+            containerStyle={media.md ? HALF_WIDTH_ON_MOBILE : undefined}
             dropdownStyle={{ minWidth: DROPDOWN_MIN_WIDTH.transactionType }}
           />
         </Trace>
@@ -68,15 +83,25 @@ function _ActivityFilters({
             isOpen={timePeriodExpanded}
             toggleOpen={setTimePeriodExpanded}
             ButtonIcon={Calendar}
-            buttonStyle={{ width: 140, $md: { width: '100%' } }}
+            buttonStyle={{ minWidth: 140, $md: { width: '100%', minWidth: 0 } }}
+            containerStyle={media.md ? HALF_WIDTH_ON_MOBILE : undefined}
+            // The panel is wider than the half-width trigger and AdaptiveDropdown only flips vertically,
+            // so the trailing filter anchors right or it runs past the viewport edge.
+            alignRight={media.md}
             dropdownStyle={{ minWidth: DROPDOWN_MIN_WIDTH.timePeriod }}
           />
         </Trace>
       </Flex>
 
-      {/* TODO(PORT-596): Add server-side search functionality */}
+      <SearchInput
+        value={searchText}
+        onChangeText={onSearchTextChange}
+        dataTestId={TestID.PortfolioActivitySearchInput}
+        placeholder={t('tokens.table.search.placeholder.activity')}
+        width={media.md ? '100%' : undefined}
+      />
     </Flex>
   )
 }
 
-export const ActivityFilters = memo(_ActivityFilters)
+export const ActivityFilters = memo(ActivityFiltersInner)

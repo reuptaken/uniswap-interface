@@ -108,41 +108,6 @@ describe('createApiNotificationTracker', () => {
       })
     })
 
-    it('updates storage and logs error when API call fails', async () => {
-      const mockApiClient = createMockApiClient()
-      const mockStorage = createMockStorage()
-      const apiError = new Error('API request failed')
-      mockApiClient.ackNotification = vi.fn().mockRejectedValue(apiError)
-
-      const tracker = createApiNotificationTracker({
-        notificationsApiClient: mockApiClient,
-        queryClient: createMockQueryClient(),
-        storage: mockStorage,
-      })
-
-      // Should not throw - errors are caught and logged
-      await expect(tracker.track('notif-1', mockMetadata)).resolves.not.toThrow()
-
-      // Verify storage was still updated despite API failure
-      expect(mockStorage.add).toHaveBeenCalledWith('notif-1', {
-        timestamp: mockMetadata.timestamp,
-      })
-    })
-
-    it('logs error when API fails and no storage provided', async () => {
-      const mockApiClient = createMockApiClient()
-      const apiError = new Error('Network error')
-      mockApiClient.ackNotification = vi.fn().mockRejectedValue(apiError)
-
-      const tracker = createApiNotificationTracker({
-        notificationsApiClient: mockApiClient,
-        storage: createMockStorage(),
-      })
-
-      // Should not throw - errors are caught and logged
-      await expect(tracker.track('notif-1', mockMetadata)).resolves.not.toThrow()
-    })
-
     it('calls API and updates storage even when API fails', async () => {
       const mockApiClient = createMockApiClient()
       const mockStorage = createMockStorage()
@@ -201,14 +166,14 @@ describe('createApiNotificationTracker', () => {
 
       const notificationIds = ['notif-1', 'notif-2', 'notif-3', 'notif-4']
 
-      for (let i = 0; i < notificationIds.length; i++) {
+      for (const [i, notificationId] of notificationIds.entries()) {
         const metadata: TrackingMetadata = {
           timestamp: Date.now() + i,
         }
 
-        await tracker.track(notificationIds[i], metadata)
+        await tracker.track(notificationId, metadata)
 
-        expect(mockStorage.add).toHaveBeenCalledWith(notificationIds[i], {
+        expect(mockStorage.add).toHaveBeenCalledWith(notificationId, {
           timestamp: metadata.timestamp,
         })
       }
@@ -276,6 +241,72 @@ describe('createApiNotificationTracker', () => {
       expect(mockStorage.deleteOlderThan).toHaveBeenNthCalledWith(1, timestamp1)
       expect(mockStorage.deleteOlderThan).toHaveBeenNthCalledWith(2, timestamp2)
       expect(mockStorage.deleteOlderThan).toHaveBeenNthCalledWith(3, timestamp3)
+    })
+  })
+
+  describe('local notifications', () => {
+    it('skips API call for local: prefixed notifications but persists to storage', async () => {
+      const mockApiClient = createMockApiClient()
+      const mockStorage = createMockStorage()
+
+      const tracker = createApiNotificationTracker({
+        notificationsApiClient: mockApiClient,
+        queryClient: createMockQueryClient(),
+        storage: mockStorage,
+      })
+
+      await tracker.track('local:backup_reminder', mockMetadata)
+
+      // API should NOT be called for local notifications
+      expect(mockApiClient.ackNotification).not.toHaveBeenCalled()
+
+      // Storage should still be updated (persists across sessions)
+      expect(mockStorage.add).toHaveBeenCalledWith('local:backup_reminder', {
+        timestamp: mockMetadata.timestamp,
+      })
+    })
+
+    it('skips both API and storage for local:session: prefixed notifications (memory-only)', async () => {
+      const mockApiClient = createMockApiClient()
+      const mockStorage = createMockStorage()
+
+      const tracker = createApiNotificationTracker({
+        notificationsApiClient: mockApiClient,
+        queryClient: createMockQueryClient(),
+        storage: mockStorage,
+      })
+
+      await tracker.track('local:session:offline', mockMetadata)
+
+      // API should NOT be called
+      expect(mockApiClient.ackNotification).not.toHaveBeenCalled()
+
+      // Storage should NOT be updated (session-scoped = memory only)
+      expect(mockStorage.add).not.toHaveBeenCalled()
+    })
+
+    it('marks session-scoped notification as processed via pendingAcks', async () => {
+      const mockApiClient = createMockApiClient()
+      const mockStorage = createMockStorage()
+      mockStorage.has.mockResolvedValue(false) // Not in storage
+
+      const tracker = createApiNotificationTracker({
+        notificationsApiClient: mockApiClient,
+        queryClient: createMockQueryClient(),
+        storage: mockStorage,
+      })
+
+      // Initially not processed
+      expect(await tracker.isProcessed('local:session:offline')).toBe(false)
+
+      // Track it (memory-only)
+      await tracker.track('local:session:offline', mockMetadata)
+
+      // Now processed (via pendingAcks in-memory set)
+      expect(await tracker.isProcessed('local:session:offline')).toBe(true)
+
+      // But storage was NOT written to
+      expect(mockStorage.add).not.toHaveBeenCalled()
     })
   })
 

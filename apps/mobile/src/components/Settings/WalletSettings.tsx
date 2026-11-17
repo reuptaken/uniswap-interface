@@ -1,9 +1,8 @@
+import { Flex, iconSizes, TouchableArea } from '@universe/mycelium'
 import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { navigate } from 'src/app/navigation/rootNavigation'
-import { Flex, TouchableArea } from 'ui/src'
 import { RotatableChevron } from 'ui/src/components/icons'
-import { iconSizes } from 'ui/src/theme'
 import { AddressDisplay } from 'uniswap/src/components/accounts/AddressDisplay'
 import { ExpandoRow } from 'uniswap/src/components/ExpandoRow/ExpandoRow'
 import { AccountType } from 'uniswap/src/features/accounts/types'
@@ -53,8 +52,9 @@ export function WalletSettings(): JSX.Element {
             showViewOnlyBadge={isViewOnlyWallet}
             size={iconSizes.icon40}
             variant="body1"
+            alignItems="center"
           />
-          <RotatableChevron color="$neutral3" direction="end" height={iconSizes.icon24} width={iconSizes.icon24} />
+          <RotatableChevron color="$neutral3" direction="end" size="$icon.24" />
         </Flex>
       </TouchableArea>
     )

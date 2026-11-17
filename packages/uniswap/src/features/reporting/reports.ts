@@ -1,12 +1,13 @@
 import { ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
 import { Currency } from '@uniswap/sdk-core'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import { UniverseChainId } from '@universe/chains'
 import { UniswapEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { TransactionDetails } from 'uniswap/src/features/transactions/types/transactionDetails'
 import { NATIVE_ANALYTICS_ADDRESS_VALUE } from 'uniswap/src/utils/currencyId'
 
 export enum TokenReportOption {
+  CantSellOrTransfer = 'cant_sell_or_transfer',
   Spam = 'spam',
   Imposter = 'imposter',
   HiddenFees = 'hidden_fees',
@@ -18,6 +19,7 @@ export enum TokenDataReportOption {
   Volume = 'volume',
   PriceChart = 'price_chart',
   TokenDetails = 'token_details',
+  Performance = 'performance',
   Other = 'other',
 }
 
@@ -29,22 +31,31 @@ export enum PoolDataReportOption {
   Other = 'other',
 }
 
+export enum PortfolioDataReportOption {
+  Tokens = 'tokens',
+  Pools = 'pools',
+  Performance = 'performance',
+  Other = 'other',
+}
+
 export function submitTokenIssueReport({
   source,
   chainId,
   tokenAddress,
   tokenName,
   isMarkedSpam,
+  isMultichainAsset = false,
   reportOptions,
-  reportText,
+  reportTexts,
 }: {
   source: 'portfolio' | 'token-details'
   chainId: UniverseChainId
   tokenAddress?: string
   tokenName?: string
   isMarkedSpam?: Maybe<boolean>
+  isMultichainAsset?: boolean
   reportOptions: TokenReportOption[]
-  reportText: string
+  reportTexts: Map<TokenReportOption, string>
 }): void {
   sendAnalyticsEvent(UniswapEventName.SpamReportSubmitted, {
     type: 'token',
@@ -53,11 +64,13 @@ export function submitTokenIssueReport({
     token_contract_address: tokenAddress ?? NATIVE_ANALYTICS_ADDRESS_VALUE,
     chain_id: chainId,
     is_marked_spam: isMarkedSpam,
+    is_multichain_asset: isMultichainAsset,
+    cant_sell_or_transfer: reportOptions.includes(TokenReportOption.CantSellOrTransfer),
     spam_token: reportOptions.includes(TokenReportOption.Spam),
     imposter_token: reportOptions.includes(TokenReportOption.Imposter),
     hidden_fees: reportOptions.includes(TokenReportOption.HiddenFees),
     something_else: reportOptions.includes(TokenReportOption.Other),
-    text: reportOptions.includes(TokenReportOption.Other) ? reportText : undefined,
+    text: reportTexts.get(TokenReportOption.Other),
   })
 }
 
@@ -66,15 +79,19 @@ export function submitTokenDataReport({
   tokenAddress,
   tokenName,
   isMarkedSpam,
+  walletAddress,
   reportOptions,
-  reportText,
+  reportTexts,
+  reportMultichainAsset = false,
 }: {
   chainId: UniverseChainId
   tokenAddress?: string
   tokenName?: string
   isMarkedSpam?: Maybe<boolean>
+  walletAddress?: string
   reportOptions: TokenDataReportOption[]
-  reportText: string
+  reportTexts: Map<TokenDataReportOption, string>
+  reportMultichainAsset?: boolean
 }): void {
   sendAnalyticsEvent(UniswapEventName.DataReportSubmitted, {
     type: 'data',
@@ -82,12 +99,16 @@ export function submitTokenDataReport({
     token_contract_address: tokenAddress ?? NATIVE_ANALYTICS_ADDRESS_VALUE,
     chain_id: chainId,
     is_marked_spam: isMarkedSpam,
+    wallet_address: walletAddress,
     price: reportOptions.includes(TokenDataReportOption.Price),
     volume: reportOptions.includes(TokenDataReportOption.Volume),
     price_chart: reportOptions.includes(TokenDataReportOption.PriceChart),
     token_details: reportOptions.includes(TokenDataReportOption.TokenDetails),
+    performance: reportOptions.includes(TokenDataReportOption.Performance),
+    performance_text: reportTexts.get(TokenDataReportOption.Performance),
     something_else: reportOptions.includes(TokenDataReportOption.Other),
-    text: reportOptions.includes(TokenDataReportOption.Other) ? reportText : undefined,
+    text: reportTexts.get(TokenDataReportOption.Other),
+    report_multichain_asset: reportMultichainAsset,
   })
 }
 
@@ -97,12 +118,14 @@ export function submitTokenWarningDataReport({
   tokenName,
   isMarkedSpam,
   reportText,
+  reportMultichainAsset = false,
 }: {
   chainId: UniverseChainId
   tokenAddress?: string
   tokenName?: string
   isMarkedSpam?: Maybe<boolean>
   reportText: string
+  reportMultichainAsset?: boolean
 }): void {
   sendAnalyticsEvent(UniswapEventName.DataReportSubmitted, {
     type: 'token_warning',
@@ -111,6 +134,7 @@ export function submitTokenWarningDataReport({
     chain_id: chainId,
     text: reportText,
     is_marked_spam: isMarkedSpam,
+    report_multichain_asset: reportMultichainAsset,
   })
 }
 
@@ -169,7 +193,7 @@ export function submitPoolDataReport({
   token0,
   token1,
   reportOptions,
-  reportText,
+  reportTexts,
 }: {
   poolId: string
   chainId: UniverseChainId
@@ -177,7 +201,7 @@ export function submitPoolDataReport({
   token0: Currency
   token1: Currency
   reportOptions: PoolDataReportOption[]
-  reportText: string
+  reportTexts: Map<PoolDataReportOption, string>
 }): void {
   sendAnalyticsEvent(UniswapEventName.DataReportSubmitted, {
     type: 'pool',
@@ -191,6 +215,29 @@ export function submitPoolDataReport({
     volume: reportOptions.includes(PoolDataReportOption.Volume),
     liquidity: reportOptions.includes(PoolDataReportOption.Liquidity),
     something_else: reportOptions.includes(PoolDataReportOption.Other),
-    text: reportOptions.includes(PoolDataReportOption.Other) ? reportText : undefined,
+    text: reportTexts.get(PoolDataReportOption.Other),
+  })
+}
+
+export function submitPortfolioDataReport({
+  walletAddress,
+  reportOptions,
+  reportTexts,
+}: {
+  walletAddress?: string
+  reportOptions: PortfolioDataReportOption[]
+  reportTexts: Map<PortfolioDataReportOption, string>
+}): void {
+  sendAnalyticsEvent(UniswapEventName.DataReportSubmitted, {
+    type: 'portfolio',
+    wallet_address: walletAddress,
+    tokens: reportOptions.includes(PortfolioDataReportOption.Tokens),
+    tokens_text: reportTexts.get(PortfolioDataReportOption.Tokens),
+    pools: reportOptions.includes(PortfolioDataReportOption.Pools),
+    pools_text: reportTexts.get(PortfolioDataReportOption.Pools),
+    performance: reportOptions.includes(PortfolioDataReportOption.Performance),
+    performance_text: reportTexts.get(PortfolioDataReportOption.Performance),
+    something_else: reportOptions.includes(PortfolioDataReportOption.Other),
+    text: reportTexts.get(PortfolioDataReportOption.Other),
   })
 }

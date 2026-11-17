@@ -1,15 +1,9 @@
+import 'utilities/src/logger/mocks'
 import { FORCountry } from 'uniswap/src/features/fiatOnRamp/types'
 
 // Mock the navigatorLocale function
-vi.mock('uniswap/src/features/language/hooks', () => ({
+vi.mock('uniswap/src/features/language/navigatorLocale', () => ({
   navigatorLocale: vi.fn(),
-}))
-
-// Mock the logger
-vi.mock('utilities/src/logger/logger', () => ({
-  logger: {
-    debug: vi.fn(),
-  },
 }))
 
 // Mock UI components to avoid React Native imports
@@ -17,18 +11,28 @@ vi.mock('ui/src', () => ({
   Flex: 'div',
   ModalCloseIcon: 'div',
   styled: () => 'div',
+}))
+
+// shared.tsx takes Flex from mycelium and styled from its subpath; a package-root
+// mock does not intercept the subpath, so both specifiers are mocked separately.
+vi.mock('@universe/mycelium', () => ({
+  Flex: 'div',
   useSporeColors: () => ({}),
 }))
 
+vi.mock('@universe/mycelium/styled', () => ({
+  styled: () => 'div',
+}))
+
 // Mock SVG
-vi.mock('ui/src/assets/backgrounds/for-connecting-v2.svg', () => ({
+vi.mock('@universe/mycelium/assets/backgrounds/for-connecting-v2.svg', () => ({
   ReactComponent: 'svg',
 }))
 
-// Import after mocks
-import { getCountryFromLocale } from 'pages/Swap/Buy/shared'
 import { Locale } from 'uniswap/src/features/language/constants'
-import { navigatorLocale } from 'uniswap/src/features/language/hooks'
+import { navigatorLocale } from 'uniswap/src/features/language/navigatorLocale'
+// Import after mocks
+import { getCountryFromLocale } from '~/pages/Swap/Buy/shared'
 
 describe('getCountryFromLocale', () => {
   const mockNavigatorLocale = vi.mocked(navigatorLocale)

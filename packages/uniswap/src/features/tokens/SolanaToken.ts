@@ -1,6 +1,6 @@
 import { Currency, Token } from '@uniswap/sdk-core'
+import type { UniverseChainId } from '@universe/chains'
 import invariant from 'tiny-invariant'
-import type { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { isSVMAddress } from 'utilities/src/addresses/svm/svm'
 
 export class SolanaToken implements Token {
@@ -19,7 +19,7 @@ export class SolanaToken implements Token {
   readonly buyFeeBps = undefined
   readonly sellFeeBps = undefined
 
-  // eslint-disable-next-line max-params
+  // oxlint-disable-next-line max-params
   constructor(chainId: number, address: string, decimals: number, symbol?: string, name?: string) {
     if (!isSVMAddress(address)) {
       throw new Error(`Invalid SPL token address: ${address}`)

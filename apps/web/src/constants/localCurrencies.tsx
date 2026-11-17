@@ -1,3 +1,6 @@
+import { Loader } from '@universe/mycelium'
+import { ReactNode, Suspense } from 'react'
+import { FiatCurrency } from 'uniswap/src/features/fiatCurrency/constants'
 import {
   ARS_ICON,
   AUD_ICON,
@@ -14,17 +17,16 @@ import {
   KRW_ICON,
   MXN_ICON,
   NGN_ICON,
+  NZD_ICON,
   PKR_ICON,
   RUB_ICON,
   SGD_ICON,
+  SEK_ICON,
   TRY_ICON,
   UAH_ICON,
   USD_ICON,
   VND_ICON,
-} from 'constants/localCurrencyIcons'
-import { ReactNode, Suspense } from 'react'
-import { Loader } from 'ui/src/loading/Loader'
-import { FiatCurrency } from 'uniswap/src/features/fiatCurrency/constants'
+} from '~/constants/localCurrencyIcons'
 
 export function getLocalCurrencyIcon(localCurrency: FiatCurrency, size = 20): ReactNode {
   switch (localCurrency) {
@@ -118,6 +120,12 @@ export function getLocalCurrencyIcon(localCurrency: FiatCurrency, size = 20): Re
           <NGN_ICON width={size} height={size} />
         </Suspense>
       )
+    case FiatCurrency.NewZealandDollar:
+      return (
+        <Suspense fallback={<Loader.Box borderRadius="$roundedFull" width={size} height={size} />}>
+          <NZD_ICON width={size} height={size} />
+        </Suspense>
+      )
     case FiatCurrency.AustralianDollar:
       return (
         <Suspense fallback={<Loader.Box borderRadius="$roundedFull" width={size} height={size} />}>
@@ -158,6 +166,12 @@ export function getLocalCurrencyIcon(localCurrency: FiatCurrency, size = 20): Re
       return (
         <Suspense fallback={<Loader.Box borderRadius="$roundedFull" width={size} height={size} />}>
           <MXN_ICON width={size} height={size} />
+        </Suspense>
+      )
+    case FiatCurrency.SwedishKrona:
+      return (
+        <Suspense fallback={<Loader.Box borderRadius="$roundedFull" width={size} height={size} />}>
+          <SEK_ICON width={size} height={size} />
         </Suspense>
       )
     default:

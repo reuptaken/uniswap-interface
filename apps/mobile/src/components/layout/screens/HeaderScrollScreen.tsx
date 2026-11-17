@@ -1,4 +1,5 @@
 import { useScrollToTop } from '@react-navigation/native'
+import { ColorTokens, Flex, flexStyles, useSporeColors } from '@universe/mycelium'
 import React, { PropsWithChildren, useRef } from 'react'
 import { FlatList } from 'react-native-gesture-handler'
 import { useAnimatedScrollHandler, useSharedValue, withTiming } from 'react-native-reanimated'
@@ -7,7 +8,6 @@ import { Screen } from 'src/components/layout/Screen'
 import { HorizontalEdgeGestureTarget } from 'src/components/layout/screens/EdgeGestureTarget'
 import { ScrollHeader } from 'src/components/layout/screens/ScrollHeader'
 import { VirtualizedList } from 'src/components/layout/VirtualizedList'
-import { ColorTokens, Flex, flexStyles, useSporeColors } from 'ui/src'
 import { iconSizes } from 'ui/src/theme'
 import { HandleBar } from 'uniswap/src/components/modals/HandleBar'
 
@@ -37,7 +37,7 @@ export function HeaderScrollScreen({
   const colors = useSporeColors()
 
   // difficult to properly type
-  // biome-ignore lint/suspicious/noExplicitAny: FlatList generic type is complex and varies by data
+  // oxlint-disable-next-line typescript/no-explicit-any -- FlatList generic type is complex and varies by data
   const listRef = useRef<FlatList<any>>(null)
 
   // scrolls to top when tapping on the active tab

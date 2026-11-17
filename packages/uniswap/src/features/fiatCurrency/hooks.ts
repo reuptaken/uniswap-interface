@@ -1,15 +1,14 @@
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSelector } from 'react-redux'
-import { AppTFunction } from 'ui/src/i18n/types'
 import { useUrlContext } from 'uniswap/src/contexts/UrlContext'
 import { FiatCurrency, ORDERED_CURRENCIES } from 'uniswap/src/features/fiatCurrency/constants'
 import { FiatCurrencyInfo } from 'uniswap/src/features/fiatOnRamp/types'
 import { useCurrentLocale } from 'uniswap/src/features/language/hooks'
-import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
-import { UniswapState } from 'uniswap/src/state/uniswapReducer'
-// biome-ignore lint/style/noRestrictedImports: legacy import will be migrated
+import type { UniswapState } from 'uniswap/src/state/uniswapReducer'
+// oxlint-disable-next-line no-restricted-imports -- legacy import will be migrated
 import { FiatCurrencyComponents, getFiatCurrencyComponents } from 'utilities/src/format/localeBased'
+import { AppTFunction } from 'utilities/src/i18n/types'
 
 /**
  * Helper function for getting the ISO currency code from our internal enum
@@ -56,10 +55,12 @@ export function getFiatCurrencyName(t: AppTFunction, currency: FiatCurrency): { 
     [FiatCurrency.JapaneseYen]: t('currency.jpy'),
     [FiatCurrency.SouthKoreanWon]: t('currency.krw'),
     [FiatCurrency.MexicanPeso]: t('currency.mxn'),
+    [FiatCurrency.NewZealandDollar]: t('currency.nzd'),
     [FiatCurrency.NigerianNaira]: t('currency.ngn'),
     [FiatCurrency.PakistaniRupee]: t('currency.pkr'),
     [FiatCurrency.RussianRuble]: t('currency.rub'),
     [FiatCurrency.SingaporeDollar]: t('currency.sgd'),
+    [FiatCurrency.SwedishKrona]: t('currency.sek'),
     [FiatCurrency.TurkishLira]: t('currency.try'),
     [FiatCurrency.UkrainianHryvnia]: t('currency.uah'),
     [FiatCurrency.UnitedStatesDollar]: t('currency.usd'),
@@ -80,10 +81,12 @@ export function getFiatCurrencyName(t: AppTFunction, currency: FiatCurrency): { 
     [FiatCurrency.JapaneseYen]: '¥',
     [FiatCurrency.SouthKoreanWon]: '₩',
     [FiatCurrency.MexicanPeso]: '$',
+    [FiatCurrency.NewZealandDollar]: '$',
     [FiatCurrency.NigerianNaira]: '₦',
     [FiatCurrency.PakistaniRupee]: 'Rs',
     [FiatCurrency.RussianRuble]: '₽',
     [FiatCurrency.SingaporeDollar]: '$',
+    [FiatCurrency.SwedishKrona]: 'kr',
     [FiatCurrency.TurkishLira]: '₺',
     [FiatCurrency.UkrainianHryvnia]: '₴',
     [FiatCurrency.UnitedStatesDollar]: '$',
@@ -117,13 +120,15 @@ export function useFiatCurrencyInfo(currency: FiatCurrency): FiatCurrencyInfo {
 function useUrlLocalCurrency(): FiatCurrency | undefined {
   const { useParsedQueryString } = useUrlContext()
   const parsed = useParsedQueryString()
-  const parsedLocalCurrency = parsed.cur
+  const parsedLocalCurrency = parsed['cur']
 
   if (typeof parsedLocalCurrency !== 'string') {
     return undefined
   }
 
+  // oxlint-disable-next-line universe-custom/no-tolowercase-address-currencyid -- fiat currency code, not an address
   const lowerCaseSupportedLocalCurrency = parsedLocalCurrency.toLowerCase()
+  // oxlint-disable-next-line universe-custom/no-tolowercase-address-currencyid -- fiat currency code, not an address
   return ORDERED_CURRENCIES.find((localCurrency) => localCurrency.toLowerCase() === lowerCaseSupportedLocalCurrency)
 }
 
@@ -147,19 +152,4 @@ export function useAppFiatCurrencyInfo(): FiatCurrencyInfo {
   const currency = useAppFiatCurrency()
 
   return useFiatCurrencyInfo(currency)
-}
-
-/**
- * Hook to convert local fiat currency amount to USD amount
- * @returns USD amount
- */
-export const useLocalFiatToUSDConverter = (): ((fiatAmount: number) => number | undefined) => {
-  const { convertFiatAmount } = useLocalizationContext()
-  return useCallback(
-    (fiatAmount: number): number | undefined => {
-      const { amount: USDInLocalCurrency } = convertFiatAmount(1)
-      return USDInLocalCurrency ? fiatAmount / USDInLocalCurrency : undefined
-    },
-    [convertFiatAmount],
-  )
 }

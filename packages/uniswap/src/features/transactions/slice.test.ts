@@ -1,7 +1,12 @@
-import { createStore, Store } from '@reduxjs/toolkit'
+import { configureStore, Store } from '@reduxjs/toolkit'
 import { TradingApi } from '@universe/api'
-
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import { UniverseChainId } from '@universe/chains'
+import { FORTransactionDetails } from 'uniswap/src/features/fiatOnRamp/types'
+import { ValueType } from 'uniswap/src/features/tokens/getCurrencyAmount'
+import {
+  CANCEL_TX_TIMEOUT_MS,
+  ORPHAN_CANCEL_TIMEOUT_MS,
+} from 'uniswap/src/features/transactions/cancel/cancelTimeoutStateMachine'
 import {
   addTransaction,
   cancelTransaction,
@@ -13,10 +18,17 @@ import {
   interfaceClearAllTransactions,
   interfaceConfirmBridgeDeposit,
   interfaceUpdateTransactionInfo,
+  orderCancelBroadcasted,
+  orderCancelFailed,
+  orderCancelTxMined,
   replaceTransaction,
+  revertCancelSwap,
+  stampCancelAlertShown,
+  stampOrphanCancelTimeout,
   TransactionsState,
   transactionReducer,
   updateTransaction,
+  upsertFORTransaction,
 } from 'uniswap/src/features/transactions/slice'
 import {
   ApproveTransactionInfo,
@@ -32,8 +44,10 @@ import {
   TransactionStatus,
   TransactionType,
   TransactionTypeInfo,
+  UniswapXOrderDetails,
 } from 'uniswap/src/features/transactions/types/transactionDetails'
-import { finalizedTransactionAction } from 'uniswap/src/test/fixtures'
+import { isInterfaceTransaction } from 'uniswap/src/features/transactions/types/utils'
+import { finalizedTransactionAction, uniswapXOrderDetails } from 'uniswap/src/test/fixtures'
 
 const finalizedTxAction = finalizedTransactionAction()
 
@@ -115,7 +129,7 @@ describe('transaction reducer', () => {
   let store: Store<TransactionsState>
 
   beforeEach(() => {
-    store = createStore(transactionReducer, initialTransactionsState)
+    store = configureStore({ reducer: transactionReducer, preloadedState: initialTransactionsState })
   })
 
   describe('addTransaction', () => {
@@ -164,6 +178,32 @@ describe('transaction reducer', () => {
       } catch (error) {
         expect(error).toEqual(Error(`addTransaction: Attempted to overwrite tx with id ${id}`))
       }
+    })
+  })
+
+  describe('upsertFORTransaction', () => {
+    const localOffRampTx: FORTransactionDetails = {
+      ...baseApproveTx,
+      id: 'for-session-id',
+      hash: '',
+      options: { request: {} },
+      typeInfo: { type: TransactionType.LocalOffRamp },
+      addedTime: 1_000,
+    }
+
+    it('stores a new FOR transaction with its own addedTime', () => {
+      store.dispatch(upsertFORTransaction(localOffRampTx))
+
+      expect(store.getState()[address]?.[UniverseChainId.Mainnet]?.['for-session-id']?.addedTime).toEqual(1_000)
+    })
+
+    it('preserves the original addedTime when the backend reports a different createdAt', () => {
+      store.dispatch(upsertFORTransaction(localOffRampTx))
+      store.dispatch(upsertFORTransaction({ ...localOffRampTx, status: TransactionStatus.Success, addedTime: 9_999 }))
+
+      const tx = store.getState()[address]?.[UniverseChainId.Mainnet]?.['for-session-id']
+      expect(tx?.status).toEqual(TransactionStatus.Success)
+      expect(tx?.addedTime).toEqual(1_000)
     })
   })
 
@@ -249,6 +289,7 @@ describe('transaction reducer', () => {
           tokenSymbol: 'ETH',
           tokenAddress: '0x0000000000000000000000000000000000000000',
           chainId: UniverseChainId.Mainnet,
+          valueType: ValueType.Exact,
         }
 
         store.dispatch(addTransaction(baseInterfaceApproveTx))
@@ -266,7 +307,7 @@ describe('transaction reducer', () => {
         } as unknown as FinalizedTransactionDetails
         store.dispatch(finalizeTransaction(finalized))
 
-        const tx = store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1 as InterfaceTransactionDetails
+        const tx = store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1'] as InterfaceTransactionDetails
         expect(tx.status).toEqual(TransactionStatus.Success)
         expect(tx.networkFee).toEqual(networkFee)
         expect(tx.receipt?.confirmedTime).toBeDefined()
@@ -287,7 +328,7 @@ describe('transaction reducer', () => {
         } as unknown as FinalizedTransactionDetails
         store.dispatch(finalizeTransaction(finalizedNoFee))
 
-        const tx = store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1 as InterfaceTransactionDetails
+        const tx = store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1'] as InterfaceTransactionDetails
         expect(tx.status).toEqual(TransactionStatus.Success)
         expect(tx.networkFee).toBeUndefined()
         expect(tx.receipt?.confirmedTime).toBeDefined()
@@ -329,6 +370,231 @@ describe('transaction reducer', () => {
       store.dispatch(cancelTransaction({ chainId, id, address, cancelRequest: {} }))
       const tx = store.getState()[address]?.[chainId]?.[id]
       expect(tx?.status).toEqual(TransactionStatus.Cancelling)
+    })
+  })
+
+  describe('cancel CAS reducers', () => {
+    const orderId = 'order-1'
+    const chainId = UniverseChainId.Mainnet
+    const baseOrder: UniswapXOrderDetails = {
+      ...uniswapXOrderDetails(),
+      id: orderId,
+      chainId,
+      from: address,
+      status: TransactionStatus.Cancelling,
+    }
+    const cancelTxHash = '0xcanceltx'
+    const broadcastTimeMs = 1_700_000_000_000
+
+    const getOrder = (): UniswapXOrderDetails | undefined =>
+      store.getState()[address]?.[chainId]?.[orderId] as UniswapXOrderDetails | undefined
+
+    describe('orderCancelBroadcasted', () => {
+      it('records the cancel tx and starts the persisted T1 deadline', () => {
+        store.dispatch(addTransaction(baseOrder))
+        store.dispatch(orderCancelBroadcasted({ address, chainId, id: orderId, cancelTxHash, broadcastTimeMs }))
+        const tx = getOrder()
+        expect(tx?.cancelTxHash).toEqual(cancelTxHash)
+        expect(tx?.cancelBroadcastTimeMs).toEqual(broadcastTimeMs)
+        expect(tx?.cancelTimeoutAtMs).toEqual(broadcastTimeMs + CANCEL_TX_TIMEOUT_MS)
+      })
+
+      it('no-ops unless the order is still Cancelling (stale-clobber guard)', () => {
+        store.dispatch(addTransaction({ ...baseOrder, status: TransactionStatus.Success }))
+        store.dispatch(orderCancelBroadcasted({ address, chainId, id: orderId, cancelTxHash, broadcastTimeMs }))
+        const tx = getOrder()
+        expect(tx?.status).toEqual(TransactionStatus.Success)
+        expect(tx?.cancelTxHash).toBeUndefined()
+      })
+    })
+
+    describe('orderCancelFailed', () => {
+      it('restores the captured pre-cancel status and clears the cancel fields', () => {
+        store.dispatch(
+          addTransaction({
+            ...baseOrder,
+            cancelTxHash,
+            cancelBroadcastTimeMs: broadcastTimeMs,
+            cancelTimeoutAtMs: broadcastTimeMs + CANCEL_TX_TIMEOUT_MS,
+            cancelInitiatedTimeMs: broadcastTimeMs - 1000,
+          }),
+        )
+        store.dispatch(
+          orderCancelFailed({
+            address,
+            chainId,
+            id: orderId,
+            reason: 'rejected',
+            revertToStatus: TransactionStatus.InsufficientFunds,
+          }),
+        )
+        const tx = getOrder()
+        expect(tx?.status).toEqual(TransactionStatus.InsufficientFunds)
+        expect(tx?.cancelTxHash).toBeUndefined()
+        expect(tx?.cancelBroadcastTimeMs).toBeUndefined()
+        expect(tx?.cancelTimeoutAtMs).toBeUndefined()
+        expect(tx?.cancelInitiatedTimeMs).toBeUndefined()
+      })
+
+      it('no-ops when the order already left Cancelling', () => {
+        store.dispatch(addTransaction({ ...baseOrder, status: TransactionStatus.Canceled }))
+        store.dispatch(
+          orderCancelFailed({
+            address,
+            chainId,
+            id: orderId,
+            reason: 'broadcast-failed',
+            revertToStatus: TransactionStatus.Pending,
+          }),
+        )
+        expect(getOrder()?.status).toEqual(TransactionStatus.Canceled)
+      })
+    })
+
+    describe('orderCancelTxMined', () => {
+      it('marks the cancel tx mined while Cancelling', () => {
+        store.dispatch(addTransaction({ ...baseOrder, cancelTxHash }))
+        store.dispatch(orderCancelTxMined({ address, chainId, id: orderId }))
+        const tx = getOrder()
+        expect(tx?.status).toEqual(TransactionStatus.Cancelling)
+        expect(tx?.cancelTxMined).toBe(true)
+      })
+
+      it('re-enters a reverted Pending order into the cancel flow (fake-Pending killer)', () => {
+        store.dispatch(addTransaction({ ...baseOrder, status: TransactionStatus.Pending }))
+        store.dispatch(orderCancelTxMined({ address, chainId, id: orderId }))
+        const tx = getOrder()
+        expect(tx?.status).toEqual(TransactionStatus.Cancelling)
+        expect(tx?.cancelTxMined).toBe(true)
+      })
+
+      it('never flips an already-final order (filled wins)', () => {
+        store.dispatch(addTransaction({ ...baseOrder, status: TransactionStatus.Success }))
+        store.dispatch(orderCancelTxMined({ address, chainId, id: orderId }))
+        const tx = getOrder()
+        expect(tx?.status).toEqual(TransactionStatus.Success)
+        expect(tx?.cancelTxMined).toBeUndefined()
+      })
+    })
+
+    describe('stampOrphanCancelTimeout', () => {
+      it('lazily persists the orphan deadline once', () => {
+        store.dispatch(addTransaction(baseOrder))
+        store.dispatch(stampOrphanCancelTimeout({ address, chainId, id: orderId, nowMs: broadcastTimeMs }))
+        const tx = getOrder()
+        expect(tx?.cancelInitiatedTimeMs).toEqual(broadcastTimeMs)
+        expect(tx?.cancelTimeoutAtMs).toEqual(broadcastTimeMs + ORPHAN_CANCEL_TIMEOUT_MS)
+
+        // Second stamp never restarts the clock
+        store.dispatch(stampOrphanCancelTimeout({ address, chainId, id: orderId, nowMs: broadcastTimeMs + 60_000 }))
+        expect(getOrder()?.cancelTimeoutAtMs).toEqual(broadcastTimeMs + ORPHAN_CANCEL_TIMEOUT_MS)
+      })
+
+      it('no-ops for orders with a broadcast cancel tx', () => {
+        store.dispatch(addTransaction({ ...baseOrder, cancelTxHash }))
+        store.dispatch(stampOrphanCancelTimeout({ address, chainId, id: orderId, nowMs: broadcastTimeMs }))
+        expect(getOrder()?.cancelTimeoutAtMs).toBeUndefined()
+      })
+
+      it('anchors T2 at cancelInitiatedTimeMs for new-flow records (mid-approval reload keeps its clock)', () => {
+        // Click stamped cancelInitiatedTimeMs 10 minutes ago, then the app reloaded mid-approval:
+        // the cure clock must NOT restart at detection — the record is already past T2
+        const initiatedAt = broadcastTimeMs - 10 * 60 * 1000
+        store.dispatch(addTransaction({ ...baseOrder, cancelInitiatedTimeMs: initiatedAt }))
+        store.dispatch(stampOrphanCancelTimeout({ address, chainId, id: orderId, nowMs: broadcastTimeMs }))
+        const tx = getOrder()
+        expect(tx?.cancelInitiatedTimeMs).toEqual(initiatedAt)
+        expect(tx?.cancelTimeoutAtMs).toEqual(initiatedAt + ORPHAN_CANCEL_TIMEOUT_MS)
+      })
+    })
+
+    describe('stampCancelAlertShown', () => {
+      const timedOutFields = {
+        cancelTxHash,
+        cancelBroadcastTimeMs: broadcastTimeMs - CANCEL_TX_TIMEOUT_MS - 1000,
+        cancelTimeoutAtMs: broadcastTimeMs - 1000,
+      }
+
+      it('stamps once past the deadline and produces a fresh order reference (memoization buster)', () => {
+        store.dispatch(addTransaction({ ...baseOrder, ...timedOutFields }))
+        const before = getOrder()
+        store.dispatch(stampCancelAlertShown({ address, chainId, id: orderId, nowMs: broadcastTimeMs }))
+        const after = getOrder()
+        expect(after?.cancelAlertShownAtMs).toEqual(broadcastTimeMs)
+        // The write is the whole point: memoized rows re-render only on a new reference
+        expect(after).not.toBe(before)
+
+        // Second stamp no-ops (one-shot per deadline)
+        store.dispatch(stampCancelAlertShown({ address, chainId, id: orderId, nowMs: broadcastTimeMs + 30_000 }))
+        expect(getOrder()?.cancelAlertShownAtMs).toEqual(broadcastTimeMs)
+        expect(getOrder()).toBe(after)
+      })
+
+      it('refuses before the deadline, once the cancel tx mined, and off-Cancelling', () => {
+        store.dispatch(addTransaction({ ...baseOrder, ...timedOutFields, cancelTimeoutAtMs: broadcastTimeMs + 1 }))
+        store.dispatch(stampCancelAlertShown({ address, chainId, id: orderId, nowMs: broadcastTimeMs }))
+        expect(getOrder()?.cancelAlertShownAtMs).toBeUndefined()
+
+        store.dispatch(updateTransaction({ ...baseOrder, ...timedOutFields, cancelTxMined: true }))
+        store.dispatch(stampCancelAlertShown({ address, chainId, id: orderId, nowMs: broadcastTimeMs }))
+        expect(getOrder()?.cancelAlertShownAtMs).toBeUndefined()
+
+        store.dispatch(updateTransaction({ ...baseOrder, ...timedOutFields, status: TransactionStatus.Success }))
+        store.dispatch(stampCancelAlertShown({ address, chainId, id: orderId, nowMs: broadcastTimeMs }))
+        expect(getOrder()?.cancelAlertShownAtMs).toBeUndefined()
+      })
+
+      it('is cleared by orderCancelFailed and by the Revert record-swap (fresh deadline → fresh alert cycle)', () => {
+        store.dispatch(addTransaction({ ...baseOrder, ...timedOutFields, cancelAlertShownAtMs: broadcastTimeMs - 500 }))
+        store.dispatch(revertCancelSwap({ address, chainId, id: orderId, newCancelTxHash: '0xnew', broadcastTimeMs }))
+        expect(getOrder()?.cancelAlertShownAtMs).toBeUndefined()
+
+        store.dispatch(
+          updateTransaction({ ...baseOrder, ...timedOutFields, cancelAlertShownAtMs: broadcastTimeMs - 500 }),
+        )
+        store.dispatch(
+          orderCancelFailed({
+            address,
+            chainId,
+            id: orderId,
+            reason: 'broadcast-failed',
+            revertToStatus: TransactionStatus.Pending,
+          }),
+        )
+        expect(getOrder()?.cancelAlertShownAtMs).toBeUndefined()
+      })
+    })
+
+    describe('revertCancelSwap', () => {
+      const timedOutFields = {
+        cancelTxHash,
+        cancelBroadcastTimeMs: broadcastTimeMs - CANCEL_TX_TIMEOUT_MS - 1000,
+        cancelTimeoutAtMs: broadcastTimeMs - 1000,
+      }
+
+      it('swaps in the replacement cancel tx and supersedes the old hash', () => {
+        store.dispatch(addTransaction({ ...baseOrder, ...timedOutFields }))
+        store.dispatch(revertCancelSwap({ address, chainId, id: orderId, newCancelTxHash: '0xnew', broadcastTimeMs }))
+        const tx = getOrder()
+        expect(tx?.status).toEqual(TransactionStatus.Cancelling)
+        expect(tx?.cancelTxHash).toEqual('0xnew')
+        expect(tx?.supersededCancelTxHashes).toEqual([cancelTxHash])
+        expect(tx?.cancelTimeoutAtMs).toEqual(broadcastTimeMs + CANCEL_TX_TIMEOUT_MS)
+      })
+
+      it('refuses the swap when the order is no longer timed-out Cancelling', () => {
+        store.dispatch(addTransaction({ ...baseOrder, ...timedOutFields, status: TransactionStatus.Success }))
+        store.dispatch(revertCancelSwap({ address, chainId, id: orderId, newCancelTxHash: '0xnew', broadcastTimeMs }))
+        const tx = getOrder()
+        expect(tx?.cancelTxHash).toEqual(cancelTxHash)
+        expect(tx?.supersededCancelTxHashes).toBeUndefined()
+      })
+
+      it('refuses the swap when the cancel tx already mined', () => {
+        store.dispatch(addTransaction({ ...baseOrder, ...timedOutFields, cancelTxMined: true }))
+        store.dispatch(revertCancelSwap({ address, chainId, id: orderId, newCancelTxHash: '0xnew', broadcastTimeMs }))
+        expect(getOrder()?.cancelTxHash).toEqual(cancelTxHash)
+      })
     })
   })
 
@@ -393,7 +659,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       store.dispatch(interfaceClearAllTransactions({ chainId: UniverseChainId.Mainnet, address }))
 
       expect(store.getState()[address]?.[UniverseChainId.Mainnet]).toEqual({})
@@ -411,7 +677,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       try {
         store.dispatch(interfaceClearAllTransactions({ chainId: UniverseChainId.Optimism, address }))
       } catch (error) {
@@ -432,7 +698,7 @@ describe('transaction reducer', () => {
           },
         },
       }
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       try {
         store.dispatch(interfaceClearAllTransactions({ chainId: UniverseChainId.Mainnet, address: nonExistentAddress }))
       } catch (error) {
@@ -457,7 +723,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       store.dispatch(
         checkedTransaction({
           chainId: UniverseChainId.Mainnet,
@@ -468,7 +734,7 @@ describe('transaction reducer', () => {
       )
 
       expect(
-        (store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1 as TransactionDetails).lastCheckedBlockNumber,
+        (store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1'] as TransactionDetails).lastCheckedBlockNumber,
       ).toBe(150)
     })
 
@@ -481,7 +747,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       store.dispatch(
         checkedTransaction({
           chainId: UniverseChainId.Mainnet,
@@ -492,7 +758,7 @@ describe('transaction reducer', () => {
       )
 
       expect(
-        (store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1 as TransactionDetails).lastCheckedBlockNumber,
+        (store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1'] as TransactionDetails).lastCheckedBlockNumber,
       ).toBe(100)
     })
 
@@ -505,7 +771,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       store.dispatch(
         checkedTransaction({
           chainId: UniverseChainId.Mainnet,
@@ -524,7 +790,7 @@ describe('transaction reducer', () => {
       )
 
       expect(
-        (store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1 as TransactionDetails).lastCheckedBlockNumber,
+        (store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1'] as TransactionDetails).lastCheckedBlockNumber,
       ).toBe(150)
     })
 
@@ -541,7 +807,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       expect(() => {
         store.dispatch(
           checkedTransaction({
@@ -554,7 +820,7 @@ describe('transaction reducer', () => {
       }).toThrow('checkedTransaction: Attempted to check a non-pending transaction with id tx1')
 
       expect(
-        (store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1 as TransactionDetails).lastCheckedBlockNumber,
+        (store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1'] as TransactionDetails).lastCheckedBlockNumber,
       ).toBe(100) // Should remain unchanged
     })
 
@@ -567,7 +833,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       try {
         store.dispatch(
           checkedTransaction({
@@ -597,7 +863,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       store.dispatch(
         interfaceConfirmBridgeDeposit({
           chainId: UniverseChainId.Mainnet,
@@ -607,8 +873,74 @@ describe('transaction reducer', () => {
       )
 
       expect(
-        (store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1?.typeInfo as BridgeTransactionInfo).depositConfirmed,
+        (store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1']?.typeInfo as BridgeTransactionInfo)
+          .depositConfirmed,
       ).toBe(true)
+    })
+
+    it('should persist the deposit network fee when provided', () => {
+      const initialState: TransactionsState = {
+        [address]: {
+          [UniverseChainId.Mainnet]: {
+            tx1: baseBridgeTx,
+          },
+        },
+      }
+      const networkFee = {
+        quantity: '0.000042',
+        tokenSymbol: 'ETH',
+        tokenAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        chainId: UniverseChainId.Mainnet,
+        valueType: ValueType.Exact,
+      }
+
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
+      store.dispatch(
+        interfaceConfirmBridgeDeposit({
+          chainId: UniverseChainId.Mainnet,
+          id: 'tx1',
+          address,
+          networkFee,
+        }),
+      )
+
+      const updatedTx = store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1']
+      expect((updatedTx?.typeInfo as BridgeTransactionInfo).depositConfirmed).toBe(true)
+      expect(updatedTx?.networkFee).toEqual(networkFee)
+    })
+
+    it('should keep the transaction classified as an interface transaction after persisting the fee', () => {
+      // The web pollers read the store through isInterfaceTransaction; if persisting the
+      // deposit fee flipped the classification, the deposit-confirmed bridge tx would vanish
+      // from the bridge status poller and stay pending forever.
+      const initialState: TransactionsState = {
+        [address]: {
+          [UniverseChainId.Mainnet]: {
+            tx1: baseBridgeTx,
+          },
+        },
+      }
+      const networkFee: TransactionNetworkFee = {
+        quantity: '0.000042',
+        tokenSymbol: 'ETH',
+        tokenAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        chainId: UniverseChainId.Mainnet,
+        valueType: ValueType.Exact,
+      }
+
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
+      store.dispatch(
+        interfaceConfirmBridgeDeposit({
+          chainId: UniverseChainId.Mainnet,
+          id: 'tx1',
+          address,
+          networkFee,
+        }),
+      )
+
+      const updatedTx = store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1']
+      expect(updatedTx).toBeDefined()
+      expect(isInterfaceTransaction(updatedTx!)).toBe(true)
     })
 
     it('should not update non-bridge transaction', () => {
@@ -620,7 +952,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       try {
         store.dispatch(
           interfaceConfirmBridgeDeposit({
@@ -636,7 +968,8 @@ describe('transaction reducer', () => {
       }
 
       expect(
-        (store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1?.typeInfo as BridgeTransactionInfo).depositConfirmed,
+        (store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1']?.typeInfo as BridgeTransactionInfo)
+          .depositConfirmed,
       ).toBeUndefined()
     })
 
@@ -649,7 +982,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       try {
         store.dispatch(
           interfaceConfirmBridgeDeposit({
@@ -689,7 +1022,7 @@ describe('transaction reducer', () => {
         inputCurrencyId: 'new',
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       store.dispatch(
         interfaceUpdateTransactionInfo({
           chainId: UniverseChainId.Mainnet,
@@ -699,7 +1032,7 @@ describe('transaction reducer', () => {
         }),
       )
 
-      expect(store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1?.typeInfo).toEqual(newTypeInfo)
+      expect(store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1']?.typeInfo).toEqual(newTypeInfo)
     })
 
     it('should not update if transaction type does not match', () => {
@@ -717,7 +1050,7 @@ describe('transaction reducer', () => {
         spender: '0x456',
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       try {
         store.dispatch(
           interfaceUpdateTransactionInfo({
@@ -733,8 +1066,8 @@ describe('transaction reducer', () => {
         )
       }
 
-      expect(store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1?.typeInfo).toEqual(
-        initialState[address]?.[UniverseChainId.Mainnet]?.tx1?.typeInfo,
+      expect(store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1']?.typeInfo).toEqual(
+        initialState[address]?.[UniverseChainId.Mainnet]?.['tx1']?.typeInfo,
       ) // Should remain unchanged
     })
 
@@ -752,7 +1085,7 @@ describe('transaction reducer', () => {
         inputCurrencyId: 'new',
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       try {
         store.dispatch(
           interfaceUpdateTransactionInfo({
@@ -785,7 +1118,7 @@ describe('transaction reducer', () => {
         inputCurrencyId: 'new',
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       try {
         store.dispatch(
           interfaceUpdateTransactionInfo({
@@ -818,7 +1151,7 @@ describe('transaction reducer', () => {
         inputCurrencyId: 'new',
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       try {
         store.dispatch(
           interfaceUpdateTransactionInfo({
@@ -852,7 +1185,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       store.dispatch(
         interfaceApplyTransactionHashToBatch({
           batchId: 'batch1',
@@ -864,7 +1197,7 @@ describe('transaction reducer', () => {
 
       expect(store.getState()[address]?.[UniverseChainId.Mainnet]?.['0xhash']).toBeDefined()
       expect(store.getState()[address]?.[UniverseChainId.Mainnet]?.['0xhash']?.hash).toBe('0xhash')
-      expect(store.getState()[address]?.[UniverseChainId.Mainnet]?.batch1).toBeUndefined()
+      expect(store.getState()[address]?.[UniverseChainId.Mainnet]?.['batch1']).toBeUndefined()
     })
 
     it('should do nothing if batch transaction does not exist', () => {
@@ -876,7 +1209,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       store.dispatch(
         interfaceApplyTransactionHashToBatch({
           batchId: 'nonexistent',
@@ -903,7 +1236,7 @@ describe('transaction reducer', () => {
         },
       }
 
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
       store.dispatch(
         interfaceCancelTransaction({
           chainId: UniverseChainId.Mainnet,
@@ -915,7 +1248,7 @@ describe('transaction reducer', () => {
 
       // The transaction should still exist under the same ID
       const cancelledTx: InterfaceTransactionDetails | undefined =
-        store.getState()[address]?.[UniverseChainId.Mainnet]?.tx1
+        store.getState()[address]?.[UniverseChainId.Mainnet]?.['tx1']
       expect(cancelledTx).toBeDefined()
       expect(cancelledTx?.id).toBe('tx1')
       expect(cancelledTx?.hash).toBe('0xnew')
@@ -933,7 +1266,7 @@ describe('transaction reducer', () => {
           },
         },
       }
-      store = createStore(transactionReducer, initialState)
+      store = configureStore({ reducer: transactionReducer, preloadedState: initialState })
 
       try {
         store.dispatch(

@@ -1,4 +1,7 @@
-import { Button, Flex, useIsShortMobileDevice } from 'ui/src'
+import { Flex, useIsShortMobileDevice } from '@universe/mycelium'
+import { TestID } from '@universe/test'
+import { memo } from 'react'
+import { Button } from 'ui/src'
 import { useCexTransferProviders } from 'uniswap/src/features/fiatOnRamp/useCexTransferProviders'
 import {
   useIsShowingWebFORNudge,
@@ -6,25 +9,39 @@ import {
   useSetIsShowingWebFORNudge,
 } from 'uniswap/src/features/providers/webForNudgeProvider'
 import { useTransactionModalContext } from 'uniswap/src/features/transactions/components/TransactionModal/TransactionModalContext'
+import { useGeoRestrictionModalStore } from 'uniswap/src/features/transactions/swap/components/GeoRestrictionCard/useGeoRestrictionModalStore'
+import { getSwapFormButtonAction } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/getSwapFormButtonAction'
+import { useIsBlockedByPermissionedPool } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/hooks/useIsBlockedByPermissionedPool'
+import { useIsMissingPlatformWallet } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/hooks/useIsMissingPlatformWallet'
 import { useIsSwapButtonDisabled } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/hooks/useIsSwapButtonDisabled'
 import { useIsTradeIndicative } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/hooks/useIsTradeIndicative'
 import { useOnReviewPress } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/hooks/useOnReviewPress'
 import { useSwapFormButtonColors } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/hooks/useSwapFormButtonColors'
 import { useSwapFormButtonText } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/hooks/useSwapFormButtonText'
 import { SwapFormButtonTrace } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/SwapFormButtonTrace'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
+import { useSwapFormWarningStoreActions } from 'uniswap/src/features/transactions/swap/form/stores/swapFormWarningStore/useSwapFormWarningStore'
+import { useNeedsGeoAcknowledgment } from 'uniswap/src/features/transactions/swap/hooks/useGeoRestrictionAcknowledgment'
+import { useReviewGateContext } from 'uniswap/src/features/transactions/swap/services/hooks/usePrepareSwap'
+import { getReviewGateActionType } from 'uniswap/src/features/transactions/swap/services/prepareSwapService'
+import { useSwapFormStoreDerivedSwapInfo } from 'uniswap/src/features/transactions/swap/stores/swapFormStore/useSwapFormStore'
+import { SwapFormButtonAction } from 'uniswap/src/features/transactions/swap/types/swapFormButtonAction'
 import { useEvent } from 'utilities/src/react/hooks'
 
 export const SWAP_BUTTON_TEXT_VARIANT = 'buttonLabel1'
 
 // TODO(SWAP-573): Co-locate button action/color/text logic instead of separating the very-coupled UI state
-export function SwapFormButton({ tokenColor }: { tokenColor?: string }): JSX.Element {
+export const SwapFormButton = memo(function SwapFormButton({ tokenColor }: { tokenColor?: string }): JSX.Element {
   const isShortMobileDevice = useIsShortMobileDevice()
   const indicative = useIsTradeIndicative()
   const { handleOnReviewPress } = useOnReviewPress()
   const disabled = useIsSwapButtonDisabled()
+  // Route the press to the in-app verify-identity sheet whenever the swap is blocked by a
+  // permissioned-pool warning. Per Figma, all platforms (web Dialog, extension, mobile
+  // BottomSheet) share this path so the user lands on the same registration flow.
+  const shouldOpenVerifyIdentityModal = useIsBlockedByPermissionedPool()
   const buttonText = useSwapFormButtonText()
   const { swapRedirectCallback } = useTransactionModalContext()
+  const { handleShowVerifyIdentityModal } = useSwapFormWarningStoreActions()
   const {
     backgroundColor: buttonBackgroundColor,
     variant: buttonVariant,
@@ -45,21 +62,51 @@ export function SwapFormButton({ tokenColor }: { tokenColor?: string }): JSX.Ele
     setIsShowingWebFORNudge(true)
   })
 
+  const needsGeoAcknowledgment = useNeedsGeoAcknowledgment()
+  const openGeoRestrictionModal = useGeoRestrictionModalStore((s) => s.open)
+
+  const reviewGateContext = useReviewGateContext()
+  const chainId = useSwapFormStoreDerivedSwapInfo((s) => s.chainId)
+  const isMissingPlatformWallet = useIsMissingPlatformWallet(chainId)
+  const action = getSwapFormButtonAction({
+    shouldOpenVerifyIdentityModal,
+    needsGeoAcknowledgment,
+    promptWebFORNudge,
+    reviewGateActionType: getReviewGateActionType(reviewGateContext),
+    isMissingPlatformWallet,
+  })
+
+  const onPress = useEvent(() => {
+    switch (action) {
+      case SwapFormButtonAction.VerifyIdentity:
+        handleShowVerifyIdentityModal()
+        return
+      case SwapFormButtonAction.GeoAcknowledgment:
+        openGeoRestrictionModal()
+        return
+      case SwapFormButtonAction.AddFunds:
+        setIsShowingWebFORNudgeHandler()
+        return
+      default:
+        handleOnReviewPress()
+    }
+  })
+
   return (
     <Flex alignItems="center" gap={isShortMobileDevice ? '$spacing8' : '$spacing16'}>
-      <SwapFormButtonTrace>
+      <SwapFormButtonTrace action={action}>
         <Flex row alignSelf="stretch">
           <Button
             variant={buttonVariant}
             emphasis={buttonEmphasis}
             // TODO(WALL-7186): make loading state more representative of the trade state
             loading={shouldShowLoading}
-            isDisabled={disabled}
+            disabled={disabled}
             backgroundColor={buttonBackgroundColor}
-            size={isShortMobileDevice ? 'small' : 'large'}
+            size={isShortMobileDevice ? 'medium' : 'large'}
             testID={TestID.ReviewSwap}
             animation="simple"
-            onPress={promptWebFORNudge ? setIsShowingWebFORNudgeHandler : handleOnReviewPress}
+            onPress={onPress}
           >
             {buttonTextColor ? <Button.Text color={buttonTextColor}>{buttonText}</Button.Text> : buttonText}
           </Button>
@@ -67,4 +114,4 @@ export function SwapFormButton({ tokenColor }: { tokenColor?: string }): JSX.Ele
       </SwapFormButtonTrace>
     </Flex>
   )
-}
+})

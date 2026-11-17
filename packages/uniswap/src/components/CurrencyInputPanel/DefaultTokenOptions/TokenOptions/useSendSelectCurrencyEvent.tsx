@@ -1,8 +1,11 @@
 import { useCallback } from 'react'
+import { getRowTagCategoryId } from 'uniswap/src/data/apiClients/dataApiService/categories/getRowTagCategoryId'
+import { useAllTokenCategories } from 'uniswap/src/data/apiClients/dataApiService/categories/useAllTokenCategories'
 import { DEFAULT_NATIVE_ADDRESS_LEGACY } from 'uniswap/src/features/chains/evm/rpc'
 import { type CurrencyInfo } from 'uniswap/src/features/dataApi/types'
 import { UniswapEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
+import { getCurrencyInfoSafetyAnalytics } from 'uniswap/src/features/telemetry/tokenSafetyAnalytics'
 import { type CurrencyField } from 'uniswap/src/types/currency'
 import { useTrace } from 'utilities/src/telemetry/trace/TraceContext'
 
@@ -18,6 +21,7 @@ export function useSendSelectCurrencyEvent({
   currencyField: CurrencyField
 }): (_: SelectCurrencyEventProperties) => void {
   const { page } = useTrace()
+  const { categories } = useAllTokenCategories()
 
   return useCallback(
     ({ position, suggestion_count, currencyInfo }: SelectCurrencyEventProperties): void => {
@@ -30,8 +34,14 @@ export function useSendSelectCurrencyEvent({
         position,
         suggestion_count,
         preselect_asset: true,
+        token_category: getRowTagCategoryId({
+          currencyId: currencyInfo.currencyId,
+          categoryIds: currencyInfo.categoryIds,
+          categories,
+        }),
+        ...getCurrencyInfoSafetyAnalytics(currencyInfo),
       })
     },
-    [page, currencyField],
+    [page, currencyField, categories],
   )
 }

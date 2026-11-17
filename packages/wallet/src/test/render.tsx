@@ -1,5 +1,3 @@
-/* biome-ignore-all lint/suspicious/noExplicitAny: Test utilities need flexible typing for generic render functions */
-import { InMemoryCache } from '@apollo/client'
 import type { EnhancedStore, PreloadedState } from '@reduxjs/toolkit'
 import { configureStore } from '@reduxjs/toolkit'
 import {
@@ -10,10 +8,9 @@ import {
   render as RNRender,
   renderHook as RNRenderHook,
 } from '@testing-library/react-native'
-import { GraphQLApi } from '@universe/api'
 import React, { PropsWithChildren } from 'react'
 import { UniswapProvider } from 'uniswap/src/contexts/UniswapContext'
-import { AutoMockedApolloProvider } from 'uniswap/src/test/mocks'
+import { createMockFn } from 'uniswap/src/test/mockFn'
 import { mockUniswapContext } from 'uniswap/src/test/render'
 import { WalletNavigationContextState, WalletNavigationProvider } from 'wallet/src/contexts/WalletNavigationContext'
 import { NativeWalletProvider } from 'wallet/src/features/wallet/providers/NativeWalletProvider'
@@ -23,26 +20,25 @@ import { WalletStateReducersOnly, walletRootReducer } from 'wallet/src/state/wal
 // This type extends the default options for render from RTL, as well
 // as allows the user to specify other things such as initialState, store.
 type ExtendedRenderOptions = RenderOptions & {
-  cache?: InMemoryCache
-  resolvers?: GraphQLApi.Resolvers
   preloadedState?: PreloadedState<WalletStateReducersOnly>
   store?: EnhancedStore<WalletStateReducersOnly>
 }
 
 const mockNavigationFunctions: WalletNavigationContextState = {
-  navigateToAccountActivityList: jest.fn(),
-  navigateToAccountTokenList: jest.fn(),
-  navigateToBuyOrReceiveWithEmptyWallet: jest.fn(),
-  navigateToExternalProfile: jest.fn(),
-  navigateToFiatOnRamp: jest.fn(),
-  navigateToNftDetails: jest.fn(),
-  navigateToNftCollection: jest.fn(),
-  navigateToSwapFlow: jest.fn(),
-  navigateToTokenDetails: jest.fn(),
-  navigateToReceive: jest.fn(),
-  navigateToSend: jest.fn(),
-  handleShareToken: jest.fn(),
-  navigateToPoolDetails: jest.fn(),
+  navigateToAccountActivityList: createMockFn(),
+  navigateToAccountTokenList: createMockFn(),
+  navigateToBuyOrReceiveWithEmptyWallet: createMockFn(),
+  navigateToExternalProfile: createMockFn(),
+  navigateToFiatOnRamp: createMockFn(),
+  navigateToNftDetails: createMockFn(),
+  navigateToSwapFlow: createMockFn(),
+  navigateToTokenDetails: createMockFn(),
+  navigateToReceive: createMockFn(),
+  navigateToSend: createMockFn(),
+  handleShareToken: createMockFn(),
+  navigateToPoolDetails: createMockFn(),
+  navigateToAdvancedSettings: createMockFn(),
+  navigateToEarnVault: createMockFn(),
 }
 
 /**
@@ -55,8 +51,6 @@ const mockNavigationFunctions: WalletNavigationContextState = {
 export function renderWithProviders(
   ui: React.ReactElement,
   {
-    cache,
-    resolvers,
     preloadedState = {},
     // Automatically create a store instance if no store was passed in
     store = configureStore({
@@ -71,15 +65,13 @@ export function renderWithProviders(
 } {
   function Wrapper({ children }: PropsWithChildren<unknown>): JSX.Element {
     return (
-      <AutoMockedApolloProvider cache={cache} resolvers={resolvers}>
-        <SharedWalletProvider reduxStore={store}>
-          <NativeWalletProvider>
-            <UniswapProvider {...mockUniswapContext}>
-              <WalletNavigationProvider {...mockNavigationFunctions}>{children}</WalletNavigationProvider>
-            </UniswapProvider>
-          </NativeWalletProvider>
-        </SharedWalletProvider>
-      </AutoMockedApolloProvider>
+      <SharedWalletProvider reduxStore={store}>
+        <NativeWalletProvider>
+          <UniswapProvider {...mockUniswapContext}>
+            <WalletNavigationProvider {...mockNavigationFunctions}>{children}</WalletNavigationProvider>
+          </UniswapProvider>
+        </NativeWalletProvider>
+      </SharedWalletProvider>
     )
   }
 
@@ -90,8 +82,6 @@ export function renderWithProviders(
 // This type extends the default options for render from RTL, as well
 // as allows the user to specify other things such as initialState, store.
 type ExtendedRenderHookOptions<P> = RenderHookOptions<P> & {
-  cache?: InMemoryCache
-  resolvers?: GraphQLApi.Resolvers
   preloadedState?: PreloadedState<WalletStateReducersOnly>
   store?: EnhancedStore<WalletStateReducersOnly>
 }
@@ -128,8 +118,6 @@ export function renderHookWithProviders<P extends any[], R>(
   hookOptions?: ExtendedRenderHookOptions<P>,
 ): RenderHookWithProvidersResult<R, P> {
   const {
-    cache,
-    resolvers,
     preloadedState = {},
     // Automatically create a store instance if no store was passed in
     store = configureStore({
@@ -142,11 +130,9 @@ export function renderHookWithProviders<P extends any[], R>(
 
   function Wrapper({ children }: PropsWithChildren<unknown>): JSX.Element {
     return (
-      <AutoMockedApolloProvider cache={cache} resolvers={resolvers}>
-        <SharedWalletProvider reduxStore={store}>
-          <NativeWalletProvider>{children}</NativeWalletProvider>
-        </SharedWalletProvider>
-      </AutoMockedApolloProvider>
+      <SharedWalletProvider reduxStore={store}>
+        <NativeWalletProvider>{children}</NativeWalletProvider>
+      </SharedWalletProvider>
     )
   }
 
@@ -155,7 +141,7 @@ export function renderHookWithProviders<P extends any[], R>(
     ...(renderOptions as RenderHookOptions<P>),
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // oxlint-disable-next-line typescript/no-unnecessary-condition
   const { rerender, ...rest } = RNRenderHook<R, P>((args: P) => hook(...(args ?? [])), options)
 
   // Return an object with the store and all of RTL's query functions

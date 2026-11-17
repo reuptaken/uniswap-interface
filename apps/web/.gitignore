@@ -1,7 +1,5 @@
 # See https://help.github.com/ignore-files/ for more about ignoring files.
 
-.tamagui
-
 # generated contract types
 /src/i18n/locales/translations
 /src/i18n/locales/source/en-US_old.json
@@ -21,6 +19,7 @@
 /.swc
 /test-results
 /src/playwright-report
+anvil-test-*.log
 bundlemeta.json
 
 # builds
@@ -33,12 +32,12 @@ bundlemeta.json
 
 tsconfig.tsbuildinfo
 
-!.env
-
 .env.local
 .env.development.local
 .env.test.local
+.env.production
 .env.production.local
+.env.staging
 
 instrumented
 .nyc_output
@@ -56,8 +55,6 @@ notes.txt
 package-lock.json
 
 .vercel
-
-.wrangler
 
 # Storybook
 *storybook.log

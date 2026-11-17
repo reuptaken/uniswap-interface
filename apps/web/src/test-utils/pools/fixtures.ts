@@ -1,12 +1,9 @@
-import { PoolData } from 'appGraphql/data/pools/usePoolData'
-import { BigNumber } from '@ethersproject/bignumber'
-import { Currency, WETH9 } from '@uniswap/sdk-core'
-import { FeeAmount, Pool, Position } from '@uniswap/v3-sdk'
-import { GraphQLApi } from '@universe/api'
-import { PoolStat } from 'state/explore/types'
+import { Currency } from '@uniswap/sdk-core'
+import { UniverseChainId } from '@universe/chains'
 import { DEFAULT_TICK_SPACING } from 'uniswap/src/constants/pools'
-import { USDC_MAINNET } from 'uniswap/src/constants/tokens'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import type { ParsedToken } from 'uniswap/src/features/dataApi/utils/parsedToken'
+import type { PoolData } from '~/data/pools/poolData'
+import type { PoolStat } from '~/types/explore'
 
 export const validParams = { poolAddress: '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640', chainName: 'ethereum' }
 
@@ -29,7 +26,7 @@ const validPoolToken0 = {
   },
 }
 
-export const validBEPoolToken0 = validPoolToken0 as GraphQLApi.Token
+export const validBEPoolToken0 = validPoolToken0
 export const validRestPoolToken0 = validPoolToken0 as unknown as PoolStat['token0']
 
 export const validUSDCCurrency = {
@@ -66,54 +63,26 @@ const validPoolToken1 = {
   },
 }
 
-export const validBEPoolToken1 = validPoolToken1 as GraphQLApi.Token
+export const validBEPoolToken1 = validPoolToken1
 export const validRestPoolToken1 = validPoolToken1 as unknown as PoolStat['token0']
 
-export const owner = '0xf5b6bb25f5beaea03dd014c6ef9fa9f3926bf36c'
-
-const pool = new Pool(
-  USDC_MAINNET,
-  WETH9[UniverseChainId.Mainnet],
-  FeeAmount.MEDIUM,
-  '1851127709498178402383049949138810',
-  '7076437181775065414',
-  201189,
-)
-
-const position = new Position({
-  pool,
-  liquidity: 1341008833950736,
-  tickLower: 200040,
-  tickUpper: 202560,
-})
-const details = {
-  nonce: BigNumber.from('0'),
-  tokenId: BigNumber.from('0'),
-  operator: '0x0',
-  token0: USDC_MAINNET.address,
-  token1: WETH9[UniverseChainId.Mainnet].address,
-  fee: FeeAmount.MEDIUM,
-  tickLower: -100,
-  tickUpper: 100,
-  liquidity: BigNumber.from('9000'),
-  feeGrowthInside0LastX128: BigNumber.from('0'),
-  feeGrowthInside1LastX128: BigNumber.from('0'),
-  tokensOwed0: BigNumber.from('0'),
-  tokensOwed1: BigNumber.from('0'),
+// Parsed v2-native ParsedToken fixtures — what PoolData carries post-GraphQL.
+export const validParsedPoolToken0: ParsedToken = {
+  chainId: UniverseChainId.Mainnet,
+  address: validPoolToken0.address,
+  symbol: validPoolToken0.symbol,
+  name: validPoolToken0.name,
+  decimals: validPoolToken0.decimals,
+  logoUrl: validPoolToken0.project.logo.url,
 }
-export const useMultiChainPositionsReturnValue = {
-  positions: [
-    {
-      owner,
-      chainId: UniverseChainId.Mainnet,
-      position,
-      pool,
-      details,
-      inRange: true,
-      closed: false,
-    },
-  ],
-  loading: false,
+
+export const validParsedPoolToken1: ParsedToken = {
+  chainId: UniverseChainId.Mainnet,
+  address: validPoolToken1.address,
+  symbol: validPoolToken1.symbol,
+  name: validPoolToken1.name,
+  decimals: validPoolToken1.decimals,
+  logoUrl: validPoolToken1.project.logo.url,
 }
 
 export const usdcWethPoolAddress = '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640'
@@ -125,8 +94,8 @@ export const validPoolDataResponse = {
       tickSpacing: DEFAULT_TICK_SPACING,
       isDynamic: false,
     },
-    token0: validBEPoolToken0,
-    token1: validBEPoolToken1,
+    token0: validParsedPoolToken0,
+    token1: validParsedPoolToken1,
     token0Price: 1605.481,
     token1Price: 0.000622,
     txCount: 5456494,

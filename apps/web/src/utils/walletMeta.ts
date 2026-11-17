@@ -1,5 +1,5 @@
-import type { ExternalProvider, FallbackProvider, JsonRpcProvider, Web3Provider } from '@ethersproject/providers'
 import type WalletConnectProvider from '@walletconnect/ethereum-provider'
+import type { ExternalProvider, FallbackProvider, JsonRpcProvider, Web3Provider } from '~/chains'
 
 function isWeb3Provider(provider: JsonRpcProvider | FallbackProvider): provider is Web3Provider {
   return 'provider' in provider
@@ -90,4 +90,19 @@ export function getWalletMeta(provider: JsonRpcProvider | FallbackProvider): Wal
   } else {
     return getInjectedMeta(provider.provider)
   }
+}
+
+/**
+ * Read wallet metadata directly from an EIP-1193 external provider.
+ *
+ * Use this in analytics paths (e.g. WalletConnect connection tracking) instead
+ * of wrapping with `new Web3Provider(...)` purely to satisfy `getWalletMeta`'s
+ * Web3Provider signature — that wrap looks like a chain-RPC provider but never
+ * makes an RPC call, and trips RPC bypass lints for no actual reason.
+ */
+export function getWalletMetaFromExternal(provider: ExternalProvider): WalletMeta | undefined {
+  if (isWalletConnectProvider(provider)) {
+    return getWalletConnectMeta(provider)
+  }
+  return getInjectedMeta(provider as ExternalProvider & Record<string, unknown>)
 }

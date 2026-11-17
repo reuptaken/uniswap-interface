@@ -1,11 +1,10 @@
+import { Platform, areAddressesEqual } from '@universe/chains'
+import { Flex, type FlexCompatProps, Text } from '@universe/mycelium'
+import { AlertTriangleFilled } from '@universe/mycelium/icons/AlertTriangleFilled'
+import { TooltipCompat as Tooltip } from '@universe/mycelium/tooltip-compat'
 import { useTranslation } from 'react-i18next'
-import { Flex, SpaceTokens, Text, Tooltip } from 'ui/src'
-import { AlertTriangleFilled } from 'ui/src/components/icons'
 import { AddressDisplay } from 'uniswap/src/components/accounts/AddressDisplay'
 import { ContentRow } from 'uniswap/src/components/transactions/requests/ContentRow'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
-import { areAddressesEqual } from 'uniswap/src/utils/addresses'
-import { isExtensionApp, isMobileApp } from 'utilities/src/platform'
 
 export function AddressFooter({
   connectedAccountAddress,
@@ -14,11 +13,11 @@ export function AddressFooter({
 }: {
   connectedAccountAddress?: string
   activeAccountAddress: string
-  px?: SpaceTokens
+  px?: FlexCompatProps['px']
 }): JSX.Element {
   const { t } = useTranslation()
 
-  const variant = isMobileApp || isExtensionApp ? 'body3' : 'body4'
+  const variant = 'body3'
 
   const currentAccountAddress = connectedAccountAddress || activeAccountAddress
 
@@ -43,13 +42,11 @@ export function AddressFooter({
         }
       >
         <AddressDisplay
-          disableForcedWidth
           hideAddressInSubtitle
           address={currentAccountAddress}
           horizontalGap="$spacing4"
           size={16}
           variant={variant}
-          flexGrow={false}
         />
       </ContentRow>
     </Flex>

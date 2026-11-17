@@ -1,13 +1,15 @@
-// biome-ignore-all lint/correctness/noRestrictedElements: ignoring for the whole file
+/* oxlint-disable react/forbid-elements -- ignoring for the whole file */
 
 import { ImageResponse } from '@vercel/og'
-import { WATERMARK_URL } from 'functions/constants'
+import { IMAGE_DATA_FETCH_TIMEOUT_MS, WATERMARK_URL } from 'functions/constants'
 import getFont from 'functions/utils/getFont'
 import getNetworkLogoUrl from 'functions/utils/getNetworkLogoURL'
 import { getRequest } from 'functions/utils/getRequest'
 import { getRGBColor } from 'functions/utils/getRGBColor'
 import getToken from 'functions/utils/getToken'
 import { Context } from 'hono'
+import { URL_PARAM_TO_CHAIN_ID } from 'uniswap/src/features/chains/chainUrlParam'
+import { withTimeout } from 'uniswap/src/utils/polling'
 
 export async function tokenImageHandler(c: Context) {
   try {
@@ -15,20 +17,30 @@ export async function tokenImageHandler(c: Context) {
     const origin = new URL(c.req.url).origin
 
     const cacheUrl = origin + '/tokens/' + networkName + '/' + tokenAddress
-    const data = await getRequest({
-      url: cacheUrl,
-      getData: () => getToken({ networkName, tokenAddress, url: cacheUrl }),
-      validateData: (data): data is NonNullable<Awaited<ReturnType<typeof getToken>>> =>
-        Boolean(data.tokenData?.symbol && data.name),
-    })
+    // Cap the upstream Apollo query (see metaTagInjector for full context):
+    // a hung observable on a stateless worker isolate deadlocks the request
+    // and CF kills it as Error 1101 → 500 to the user. Falling through to
+    // 404 means the page (or upstream caller's fallback path) renders.
+    const data = await withTimeout(
+      getRequest({
+        url: cacheUrl,
+        getData: () => getToken({ networkName, tokenAddress, url: cacheUrl }),
+        validateData: (data): data is NonNullable<Awaited<ReturnType<typeof getToken>>> =>
+          Boolean(data.tokenData?.symbol && data.name),
+      }),
+      { timeoutMs: IMAGE_DATA_FETCH_TIMEOUT_MS, errorMsg: 'tokenImageHandler getToken timeout' },
+    ).catch(() => null)
 
     if (!data) {
       return new Response('Token not found.', { status: 404 })
     }
 
-    const [fontData, palette] = await Promise.all([getFont(origin, c.env), getRGBColor(data.ogImage, true)])
+    const [fontData, palette] = await Promise.all([
+      getFont(origin, c.env),
+      getRGBColor(data.ogImage, true, data.tokenData?.overrideColor),
+    ])
 
-    const networkLogo = getNetworkLogoUrl(networkName.toUpperCase(), origin)
+    const networkLogo = getNetworkLogoUrl(URL_PARAM_TO_CHAIN_ID[networkName.toLowerCase()], origin)
 
     // ImageResponse cannot handle webp images: https://github.com/vercel/satori/issues/273#issuecomment-1296323042
     // TODO: remove this check logic once @vercel/og supports webp, which appears to be in-progress https://github.com/vercel/satori/pull/622
@@ -74,6 +86,8 @@ export async function tokenImageHandler(c: Context) {
                       position: 'absolute',
                       right: '2px',
                       bottom: '0px',
+                      borderRadius: '12px',
+                      objectFit: 'cover',
                     }}
                   />
                 )}
@@ -109,6 +123,8 @@ export async function tokenImageHandler(c: Context) {
                       position: 'absolute',
                       right: '2px',
                       bottom: '0px',
+                      borderRadius: '12px',
+                      objectFit: 'cover',
                     }}
                   />
                 )}

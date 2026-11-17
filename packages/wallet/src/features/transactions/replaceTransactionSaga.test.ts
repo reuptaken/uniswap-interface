@@ -2,10 +2,10 @@ import { faker } from '@faker-js/faker'
 import dayjs from 'dayjs'
 import { BigNumber } from 'ethers'
 import MockDate from 'mockdate'
-import { call } from 'redux-saga/effects'
 import { expectSaga } from 'redux-saga-test-plan'
 import * as matchers from 'redux-saga-test-plan/matchers'
 import { throwError } from 'redux-saga-test-plan/providers'
+import { call } from 'redux-saga/effects'
 import { AccountType } from 'uniswap/src/features/accounts/types'
 import { pushNotification } from 'uniswap/src/features/notifications/slice/slice'
 import { AppNotificationType } from 'uniswap/src/features/notifications/slice/types'
@@ -19,9 +19,9 @@ import {
 import i18n from 'uniswap/src/i18n'
 import { ethersTransactionRequest, getTxFixtures, transactionDetails } from 'uniswap/src/test/fixtures'
 import * as CreateTransactionId from 'uniswap/src/utils/createTransactionId'
+import type { MockInstance } from 'vitest'
 import { executeTransaction } from 'wallet/src/features/transactions/executeTransaction/executeTransactionSaga'
 import { attemptReplaceTransaction } from 'wallet/src/features/transactions/replaceTransactionSaga'
-
 import { selectAccounts } from 'wallet/src/features/wallet/selectors'
 import { ACCOUNT } from 'wallet/src/test/fixtures'
 
@@ -43,17 +43,17 @@ const baseTransaction: ClassicTransactionDetails = transactionDetails({
 const present = dayjs('2022-02-01')
 
 describe('attemptReplaceTransaction', () => {
-  let txnUtilSpy: jest.SpyInstance
+  let txnUtilSpy: MockInstance
 
   beforeAll(() => {
     // Mock uuid for new txns
-    txnUtilSpy = jest.spyOn(CreateTransactionId, 'createTransactionId').mockReturnValue(NEW_UNIQUE_ID)
+    txnUtilSpy = vi.spyOn(CreateTransactionId, 'createTransactionId').mockReturnValue(NEW_UNIQUE_ID)
     MockDate.reset()
   })
 
   beforeEach(() => {
     // Clear mocks between tests
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   afterAll(() => {
@@ -112,7 +112,7 @@ describe('attemptReplaceTransaction', () => {
           original_transaction_hash: baseTransaction.hash,
           replacement_transaction_hash: txResponse.hash,
           chain_id: baseTransaction.chainId,
-          nonce: baseTransaction.options.request.nonce,
+          nonce: baseTransaction.options.request?.nonce,
         })
         .silentRun()
     })

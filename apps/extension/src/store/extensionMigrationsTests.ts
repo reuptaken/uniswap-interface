@@ -1,3 +1,32 @@
+/**
+ * Test helpers for testing migrations run in sequence.
+ *
+ * Called by migrations.test.ts to verify migrations work correctly with realistic
+ * data that has passed through all prior migrations in the chain.
+ *
+ * For unit tests of individual migrations, see extensionMigrations.test.ts.
+ */
+import { createThrowingProxy } from 'utilities/src/test/utils'
+
+export function testRemoveDappInfoToChromeLocalStorage(migration: (state: any) => any, _prevSchema: any): void {
+  // Test: removes dapp property from state
+  const result = migration({
+    dapp: { someData: 'value' },
+    otherData: 'preserved',
+  })
+
+  expect(result.dapp).toBeUndefined()
+  expect(result.otherData).toBe('preserved')
+
+  // Test: handles state without dapp property
+  const resultWithoutDapp = migration({
+    otherData: 'preserved',
+  })
+
+  expect(resultWithoutDapp.dapp).toBeUndefined()
+  expect(resultWithoutDapp.otherData).toBe('preserved')
+}
+
 export function testMigratePendingDappRequestsToRecord(migration: (state: any) => any, _prevSchema: any): void {
   // Test: empty pending → empty requests
   expect(
@@ -12,7 +41,7 @@ export function testMigratePendingDappRequestsToRecord(migration: (state: any) =
 
   // Test: sets sequential timestamps
   const mockTime = 1000
-  jest.spyOn(Date, 'now').mockReturnValue(mockTime)
+  vi.spyOn(Date, 'now').mockReturnValue(mockTime)
 
   const timestampResult = migration({
     dappRequests: {
@@ -24,7 +53,7 @@ export function testMigratePendingDappRequestsToRecord(migration: (state: any) =
   expect(timestampResult.dappRequests.requests.r1.createdAt).toBe(mockTime + 1000)
   expect(timestampResult.dappRequests.requests.r2.createdAt).toBe(mockTime + 2000)
 
-  jest.restoreAllMocks()
+  vi.restoreAllMocks()
 
   // Test: preserves data and handles missing IDs
   const mockData = {
@@ -45,6 +74,14 @@ export function testMigratePendingDappRequestsToRecord(migration: (state: any) =
     meta: 'kept',
     createdAt: expect.any(Number),
   })
+
+  // Test: fallback on error - uses a throwing proxy to trigger catch block
+  const errorResult = migration({
+    dappRequests: { pending: createThrowingProxy([], { throwingMethods: ['forEach'] }) },
+    otherData: 'preserved',
+  })
+  expect(errorResult.dappRequests).toEqual({ requests: {} })
+  expect(errorResult.otherData).toBe('preserved')
 }
 
 export function testMigrateUnknownBackupAccountsToMaybeManualBackup(
@@ -107,4 +144,55 @@ export function testMigrateUnknownBackupAccountsToMaybeManualBackup(
 
   expect(migration3.wallet.accounts['0x1'].backups).toEqual(['cloud'])
   expect(migration3.wallet.accounts['0x2'].backups).toEqual(['cloud'])
+}
+
+export function testRemovePersistedApolloCache(migration: (state: any) => any, prevSchema: any): void {
+  // oxlint-disable-next-line typescript/unbound-method
+  const remove = vi.mocked(chrome.storage.local.remove).mockImplementation(() => Promise.resolve())
+
+  // The migration only touches chrome.storage.local; redux state must pass through untouched.
+  const result = migration(prevSchema)
+  expect(result).toEqual(prevSchema)
+  expect(remove).toHaveBeenCalledWith('apollo-cache-persist')
+}
+
+export function testSetLanguageToNavigatorLanguage(migration: (state: any) => any, _prevSchema: any): void {
+  // Test: sets language when userSettings exists
+  const result = migration({
+    userSettings: {
+      currentLanguage: 'es',
+      otherSetting: 'preserved',
+    },
+  })
+
+  expect(result.userSettings.currentLanguage).toBeDefined()
+  expect(result.userSettings.otherSetting).toBe('preserved')
+
+  // Test: returns state unchanged when userSettings doesn't exist
+  const resultWithoutUserSettings = migration({
+    otherData: 'preserved',
+  })
+
+  expect(resultWithoutUserSettings.userSettings).toBeUndefined()
+  expect(resultWithoutUserSettings.otherData).toBe('preserved')
+}
+
+export function testClearPendingDappRequests(migration: (state: any) => any, prevSchema: any): void {
+  const result = migration({
+    ...prevSchema,
+    dappRequests: {
+      ...prevSchema.dappRequests,
+      requests: {
+        'req-1': {
+          dappRequest: { type: 'SendTransaction', requestId: 'req-1' },
+          senderTabInfo: { id: 1, url: 'https://dapp.example' },
+        },
+      },
+      mostRecent5792DappUrl: 'https://dapp.example',
+    },
+  })
+
+  expect(result.dappRequests.requests).toEqual({})
+  expect(result.dappRequests.mostRecent5792DappUrl).toBe('https://dapp.example')
+  expect(result.dapp).toEqual(prevSchema.dapp)
 }

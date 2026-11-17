@@ -1,57 +1,79 @@
 import { DappRequestStatus } from 'src/app/features/dappRequests/shared'
 import type { DappRequestState } from 'src/app/features/dappRequests/slice'
-import { BackupType } from 'wallet/src/features/wallet/accounts/types'
+import { Language } from 'uniswap/src/features/language/constants'
+import { getCurrentLanguageFromNavigator } from 'uniswap/src/features/language/utils'
+import { createSafeMigrationFactory } from 'uniswap/src/state/createSafeMigration'
+import { logger } from 'utilities/src/logger/logger'
+import { type BackupType } from 'wallet/src/features/wallet/accounts/types'
+
+const createSafeMigration = createSafeMigrationFactory('extensionMigrations')
 
 export function removeDappInfoToChromeLocalStorage({ dapp: _dapp, ...state }: any): any {
   return state
 }
 
 // migrates pending dapp requests array without status or timestamp to a record with status (pending|confirming) and timestamp
-export function migratePendingDappRequestsToRecord(state: any): any {
-  // If there's no dappRequests state or it's already in the new format, return unchanged
-  if (!state.dappRequests || !state.dappRequests.pending || state.dappRequests.requests) {
-    return state
-  }
-
-  // Create new record object to hold requests
-  const requests: DappRequestState['requests'] = {}
-
-  // Convert each pending request to the record format with status
-  state.dappRequests.pending.forEach((item: unknown, index: number) => {
-    if (
-      item !== null &&
-      typeof item === 'object' &&
-      'dappRequest' in item &&
-      typeof item.dappRequest === 'object' &&
-      item.dappRequest !== null &&
-      'requestId' in item.dappRequest &&
-      typeof item.dappRequest.requestId === 'string'
-    ) {
-      const updatedRequest = {
-        ...item,
-        // Map to new structure with status and timestamp
-        status: DappRequestStatus.Pending,
-        createdAt: Date.now() + index * 1000, // Add timestamp for sorting
-      } as DappRequestState['requests'][string]
-
-      requests[item.dappRequest.requestId] = updatedRequest
+export const migratePendingDappRequestsToRecord = createSafeMigration({
+  name: 'migratePendingDappRequestsToRecord',
+  migrate: (state: any) => {
+    // If there's no dappRequests state or it's already in the new format, return unchanged
+    if (!state?.dappRequests || !state.dappRequests.pending || state.dappRequests.requests) {
+      return state
     }
-  })
 
-  // Return state with updated dappRequests slice
-  return {
+    // Create new record object to hold requests
+    const requests: DappRequestState['requests'] = {}
+
+    const pending = state.dappRequests.pending
+    if (!Array.isArray(pending)) {
+      // If pending is not an array, just clear the dapp requests
+      return {
+        ...state,
+        dappRequests: { requests: {} },
+      }
+    }
+
+    // Convert each pending request to the record format with status
+    pending.forEach((item: unknown, index: number) => {
+      if (
+        item !== null &&
+        typeof item === 'object' &&
+        'dappRequest' in item &&
+        typeof item.dappRequest === 'object' &&
+        item.dappRequest !== null &&
+        'requestId' in item.dappRequest &&
+        typeof item.dappRequest.requestId === 'string'
+      ) {
+        const updatedRequest = {
+          ...item,
+          // Map to new structure with status and timestamp
+          status: DappRequestStatus.Pending,
+          createdAt: Date.now() + index * 1000, // Add timestamp for sorting
+        } as DappRequestState['requests'][string]
+
+        requests[item.dappRequest.requestId] = updatedRequest
+      }
+    })
+
+    // Return state with updated dappRequests slice
+    return {
+      ...state,
+      dappRequests: {
+        requests,
+      },
+    }
+  },
+  onError: (state: any) => ({
     ...state,
-    dappRequests: {
-      requests,
-    },
-  }
-}
+    dappRequests: { requests: {} },
+  }),
+})
 
 // Migrates accounts with no backup method to have `maybe-manual` backup method.
 // Before this migration, we were not setting the backup method on accounts created during Extension onboarding,
 // so we're unsure if the user completed the backup flow during onboarding or if they hit "Skip".
 export function migrateUnknownBackupAccountsToMaybeManualBackup(state: any): any {
-  if (!state.wallet?.accounts) {
+  if (!state?.wallet?.accounts || typeof state.wallet.accounts !== 'object') {
     return state
   }
 
@@ -81,3 +103,54 @@ export function migrateUnknownBackupAccountsToMaybeManualBackup(state: any): any
     },
   }
 }
+
+export const setLanguageToNavigatorLanguage = createSafeMigration({
+  name: 'setLanguageToNavigatorLanguage',
+  migrate: (state: any) => {
+    if (!state?.userSettings) {
+      return state
+    }
+
+    return {
+      ...state,
+      userSettings: {
+        ...state.userSettings,
+        currentLanguage: getCurrentLanguageFromNavigator(),
+      },
+    }
+  },
+  onError: (state: any) => ({
+    ...state,
+    userSettings: {
+      ...state?.userSettings,
+      currentLanguage: Language.English,
+    },
+  }),
+})
+
+// apollo3-cache-persist's default key. The Apollo cache was persisted to chrome.storage.local
+// before the GraphQL codepath was removed; nothing reads it anymore, so reclaim the space
+// (extension local storage is capped at 10 MB).
+const APOLLO_CACHE_PERSIST_KEY = 'apollo-cache-persist'
+
+export const removePersistedApolloCache = createSafeMigration({
+  name: 'removePersistedApolloCache',
+  migrate: (state: any) => {
+    // Migrations are synchronous and the entry lives outside redux state, so the removal is fire-and-forget.
+    chrome.storage.local.remove(APOLLO_CACHE_PERSIST_KEY).catch((error: unknown) => {
+      logger.error(error, { tags: { file: 'extensionMigrations', function: 'removePersistedApolloCache' } })
+    })
+    return state
+  },
+  onError: (state: any) => state,
+})
+
+// Pending requests now carry the sending frame's identity (frameUrl, tabUrl, frameId and
+// isCrossOriginFrame). A request persisted by an older build lacks it, and its dapp-side promise
+// died with that page, so the queue is dropped rather than answered through a shape the
+// frame-targeted send cannot route.
+export const clearPendingDappRequests = createSafeMigration({
+  name: 'clearPendingDappRequests',
+  migrate: (state: any) => ({ ...state, dappRequests: { ...state.dappRequests, requests: {} } }),
+  onError: (state: any) => state,
+})

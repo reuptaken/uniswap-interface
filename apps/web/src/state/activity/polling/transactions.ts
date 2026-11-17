@@ -1,36 +1,45 @@
 import { TradingApi } from '@universe/api'
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { useAccount } from 'hooks/useAccount'
-import useCurrentBlockTimestamp from 'hooks/useCurrentBlockTimestamp'
-import useBlockNumber from 'lib/hooks/useBlockNumber'
+import { UniverseChainId } from '@universe/chains'
+import { isValidHexString } from '@universe/encoding'
 import ms from 'ms'
 import { useCallback, useEffect, useMemo } from 'react'
-import { CanceledError, RetryableError, retry } from 'state/activity/polling/retry'
-import { ActivityUpdateTransactionType, OnActivityUpdate } from 'state/activity/types'
-import { useAppDispatch } from 'state/hooks'
-import { useMultichainTransactions, useTransactionRemover } from 'state/transactions/hooks'
-import { PendingTransactionDetails } from 'state/transactions/types'
-import { isPendingTx } from 'state/transactions/utils'
 import { TradingApiClient } from 'uniswap/src/data/apiClients/tradingApi/TradingApiClient'
 import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
-import { RetryOptions, UniverseChainId } from 'uniswap/src/features/chains/types'
+import { RetryOptions } from 'uniswap/src/features/chains/types'
 import { InterfaceEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { checkedTransaction } from 'uniswap/src/features/transactions/slice'
 import { isUniswapX } from 'uniswap/src/features/transactions/swap/utils/routing'
 import { toTradingApiSupportedChainId } from 'uniswap/src/features/transactions/swap/utils/tradingApi'
-import { TransactionReceipt, TransactionStatus } from 'uniswap/src/features/transactions/types/transactionDetails'
-import { receiptFromViemReceipt } from 'uniswap/src/features/transactions/utils/receipt'
+import {
+  LIQUIDITY_TRANSACTION_TYPES,
+  TransactionNetworkFee,
+  TransactionReceipt,
+  TransactionStatus,
+  TransactionType,
+} from 'uniswap/src/features/transactions/types/transactionDetails'
+import { buildNetworkFeeFromViemReceipt, receiptFromViemReceipt } from 'uniswap/src/features/transactions/utils/receipt'
 import { shouldCheckTransaction } from 'uniswap/src/utils/polling'
-import { isValidHexString } from 'utilities/src/addresses/hex'
 import { usePublicClient } from 'wagmi'
+import { useAccount } from '~/hooks/useAccount'
+import { useCurrentBlockTimestamp } from '~/hooks/useCurrentBlockTimestamp'
+import { useBlockNumber } from '~/lib/hooks/useBlockNumber'
+import { CanceledError, RetryableError, retry } from '~/state/activity/polling/retry'
+import { ActivityUpdateTransactionType, OnActivityUpdate } from '~/state/activity/types'
+import { getRwaSwapAnalyticsFromTypeInfo } from '~/state/activity/utils'
+import { useAppDispatch } from '~/state/hooks'
+import { useMultichainTransactions, useTransactionRemover } from '~/state/transactions/hooks'
+import { PendingTransactionDetails } from '~/state/transactions/types'
+import { isPendingTx } from '~/state/transactions/utils'
 
 interface ReceiptWithStatus {
   status: 'success' | 'reverted'
   receipt: TransactionReceipt
+  /** Gas paid per the on-chain receipt; undefined when only the dummy fallback receipt is available */
+  networkFee?: TransactionNetworkFee
+  /** Resolved sponsor metadata from the /swaps `sponsorship` field, when the swap was gas-sponsored */
+  sponsorInfo?: TradingApi.SponsorMetadata
 }
-
-const DEFAULT_RETRY_OPTIONS: RetryOptions = { n: 1, minWait: 0, medWait: 0, maxWait: 0 }
 
 function usePendingTransactions(chainId?: UniverseChainId): PendingTransactionDetails[] {
   const multichainTransactions = useMultichainTransactions()
@@ -56,69 +65,48 @@ const SWAP_STATUS_TO_FINALIZED_STATUS: Partial<Record<TradingApi.SwapStatus, 'su
   [TradingApi.SwapStatus.EXPIRED]: 'reverted',
 }
 
+/**
+ * Resolves status from the on-chain receipt alone, bypassing the Trading API: its /swaps endpoint only
+ * tracks hashes it quoted, so for a non-swap tx (e.g. an auction launch submitted via the generic swap
+ * step) the lookup can spuriously report failure even though the receipt shows the tx landed.
+ * Returns undefined while the tx is not yet mined.
+ */
+async function getOnChainReceiptStatus(
+  tx: PendingTransactionDetails,
+  publicClient: ReturnType<typeof usePublicClient>,
+): Promise<ReceiptWithStatus | undefined> {
+  if (!publicClient || !tx.hash || !isValidHexString(tx.hash)) {
+    return undefined
+  }
+
+  const viemReceipt = await publicClient.getTransactionReceipt({ hash: tx.hash }).catch(() => undefined)
+  const adaptedReceipt = receiptFromViemReceipt(viemReceipt)
+  if (!viemReceipt || !adaptedReceipt) {
+    return undefined
+  }
+
+  return {
+    status: viemReceipt.status,
+    receipt: adaptedReceipt,
+    networkFee: buildNetworkFeeFromViemReceipt({ receipt: viemReceipt, chainId: tx.chainId }),
+  }
+}
+
 export function usePollPendingTransactions(onActivityUpdate: OnActivityUpdate) {
   const account = useAccount()
   const publicClient = usePublicClient()
-  const tradingApiPollingEnabled = useFeatureFlag(FeatureFlags.TradingApiSwapConfirmation)
 
   const pendingTransactions = usePendingTransactions(account.chainId)
   const hasPending = pendingTransactions.length > 0
-  const blockTimestamp = useCurrentBlockTimestamp({ refetchInterval: !hasPending ? false : undefined })
+  const { blockTimestamp } = useCurrentBlockTimestamp({ refetchInterval: !hasPending ? false : undefined })
 
   const lastBlockNumber = useBlockNumber()
   const removeTransaction = useTransactionRemover()
   const dispatch = useAppDispatch()
 
-  const getReceipt = useCallback(
-    (tx: PendingTransactionDetails): { promise: Promise<ReceiptWithStatus>; cancel: () => void } => {
-      if (!publicClient || !account.chainId) {
-        throw new Error('No publicClient or chainId')
-      }
-      const retryOptions = getChainInfo(account.chainId).pendingTransactionsRetryOptions ?? DEFAULT_RETRY_OPTIONS
-      return retry(() => {
-        if (!tx.hash || !isValidHexString(tx.hash)) {
-          throw new Error(`Invalid transaction hash: ${tx.hash}`)
-        }
-        return publicClient.getTransactionReceipt({ hash: tx.hash }).then(async (viemReceipt) => {
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-          if (viemReceipt === null) {
-            if (account.isConnected) {
-              // Remove transactions past their deadline or - if there is no deadline - older than 6 hours.
-              if (tx.deadline) {
-                // Deadlines are expressed as seconds since epoch, as they are used on-chain.
-                if (blockTimestamp && tx.deadline < Number(blockTimestamp)) {
-                  removeTransaction(tx.id)
-                }
-              } else if (tx.addedTime + ms(`6h`) < Date.now()) {
-                removeTransaction(tx.id)
-              }
-            }
-            throw new RetryableError()
-          }
-
-          sendAnalyticsEvent(InterfaceEventName.SwapConfirmedOnClient, {
-            time: Date.now() - tx.addedTime,
-            swap_success: viemReceipt.status === 'success',
-            chainId: account.chainId,
-            txHash: tx.hash ?? '',
-          })
-
-          const adaptedReceipt = receiptFromViemReceipt(viemReceipt)
-          if (!adaptedReceipt) {
-            throw new Error('Error converting viem receipt to transaction receipt')
-          }
-
-          return { status: viemReceipt.status, receipt: adaptedReceipt }
-        })
-      }, retryOptions)
-    },
-    [account.chainId, account.isConnected, blockTimestamp, publicClient, removeTransaction],
-  )
-
   const getReceiptWithTradingApi = useCallback(
     (tx: PendingTransactionDetails): { promise: Promise<ReceiptWithStatus>; cancel: () => void } => {
-      const chainId = toTradingApiSupportedChainId(account.chainId)
-      if (!account.chainId || !chainId) {
+      if (!account.chainId) {
         throw new Error('No chainId')
       }
 
@@ -130,39 +118,75 @@ export function usePollPendingTransactions(onActivityUpdate: OnActivityUpdate) {
         maxWait: pollingInterval,
       }
 
+      const removeIfStale = (): void => {
+        if (!account.isConnected) {
+          return
+        }
+        // Remove transactions past their deadline or - if there is no deadline - older than 6 hours.
+        if (tx.deadline) {
+          // Deadlines are expressed as seconds since epoch, as they are used on-chain.
+          if (blockTimestamp && tx.deadline < Number(blockTimestamp)) {
+            removeTransaction(tx.id)
+          }
+        } else if (tx.addedTime + ms(`6h`) < Date.now()) {
+          removeTransaction(tx.id)
+        }
+      }
+
+      // Auction launches and LP transactions (create/increase/decrease/migrate/collect) aren't
+      // quoted by the Trading API, so /swaps never reports a terminal status for them — polling it
+      // leaves them pending forever. The on-chain receipt is the only source of truth for their status.
+      const isLiquidityTransaction =
+        LIQUIDITY_TRANSACTION_TYPES.includes(tx.typeInfo.type) ||
+        tx.typeInfo.type === TransactionType.LPIncentivesClaimRewards
+      if (tx.typeInfo.type === TransactionType.AuctionLaunch || isLiquidityTransaction) {
+        return retry(async () => {
+          const receiptWithStatus = await getOnChainReceiptStatus(tx, publicClient)
+          if (!receiptWithStatus) {
+            removeIfStale()
+            throw new RetryableError()
+          }
+          return receiptWithStatus
+        }, retryOptions)
+      }
+
+      const chainId = toTradingApiSupportedChainId(account.chainId)
+      if (!chainId) {
+        throw new Error('No chainId')
+      }
+
       return retry(() => {
         if (!tx.hash) {
           throw new Error(`Invalid transaction hash: hash not defined`)
         }
-        return TradingApiClient.fetchSwaps({ txHashes: [tx.hash], chainId })
+        return TradingApiClient.fetchSwaps({ txHashes: [tx.hash], chainId, swapper: account.address })
           .then(async (res) => {
-            const status = res.swaps?.[0]?.status
+            const swap = res.swaps?.[0]
+            const status = swap?.status
             const finalizedStatus = status ? SWAP_STATUS_TO_FINALIZED_STATUS[status] : undefined
+            const sponsorInfo = swap?.sponsorship
 
             if (!finalizedStatus) {
-              if (account.isConnected) {
-                // Remove transactions past their deadline or - if there is no deadline - older than 6 hours.
-                if (tx.deadline) {
-                  // Deadlines are expressed as seconds since epoch, as they are used on-chain.
-                  if (blockTimestamp && tx.deadline < Number(blockTimestamp)) {
-                    removeTransaction(tx.id)
-                  }
-                } else if (tx.addedTime + ms(`6h`) < Date.now()) {
-                  removeTransaction(tx.id)
-                }
-              }
-
+              removeIfStale()
               throw new RetryableError()
             }
 
-            sendAnalyticsEvent(InterfaceEventName.SwapConfirmedOnClient, {
-              time: Date.now() - tx.addedTime,
-              swap_success: finalizedStatus === 'success',
-              chainId: account.chainId,
-              txHash: tx.hash ?? '',
-            })
+            // Tracked UniswapX cancel txs are not swaps — mirror the isUniswapX order exclusion
+            if (tx.typeInfo.type !== TransactionType.UniswapXCancel) {
+              sendAnalyticsEvent(InterfaceEventName.SwapConfirmedOnClient, {
+                time: Date.now() - tx.addedTime,
+                swap_success: finalizedStatus === 'success',
+                success: finalizedStatus === 'success',
+                chainId: account.chainId,
+                txHash: tx.hash ?? '',
+                transactionType: tx.typeInfo.type,
+                routing: 'classic',
+                ...getRwaSwapAnalyticsFromTypeInfo(tx.typeInfo),
+              })
+            }
 
             let adaptedReceipt: TransactionReceipt | undefined
+            let networkFee: TransactionNetworkFee | undefined
 
             if (publicClient && tx.hash && isValidHexString(tx.hash)) {
               try {
@@ -171,6 +195,7 @@ export function usePollPendingTransactions(onActivityUpdate: OnActivityUpdate) {
                 if (!adaptedReceipt) {
                   throw new Error('Error converting viem receipt to transaction receipt')
                 }
+                networkFee = buildNetworkFeeFromViemReceipt({ receipt: viemReceipt, chainId: tx.chainId })
               } catch {
                 // ignore errors and fallback to dummy
               }
@@ -187,14 +212,14 @@ export function usePollPendingTransactions(onActivityUpdate: OnActivityUpdate) {
               }
             }
 
-            return { status: finalizedStatus, receipt: adaptedReceipt } as ReceiptWithStatus
+            return { status: finalizedStatus, receipt: adaptedReceipt, networkFee, sponsorInfo } as ReceiptWithStatus
           })
           .catch((_error) => {
             throw new RetryableError()
           })
       }, retryOptions) as { promise: Promise<ReceiptWithStatus>; cancel: () => void }
     },
-    [account.chainId, account.isConnected, blockTimestamp, removeTransaction, publicClient],
+    [account.chainId, account.address, account.isConnected, blockTimestamp, removeTransaction, publicClient],
   )
 
   useEffect(() => {
@@ -205,9 +230,9 @@ export function usePollPendingTransactions(onActivityUpdate: OnActivityUpdate) {
     const cancels = pendingTransactions
       .filter((tx) => shouldCheckTransaction(lastBlockNumber, tx))
       .map((tx) => {
-        const { promise, cancel } = tradingApiPollingEnabled ? getReceiptWithTradingApi(tx) : getReceipt(tx)
+        const { promise, cancel } = getReceiptWithTradingApi(tx)
         promise
-          .then(({ status, receipt }) => {
+          .then(({ status, receipt, networkFee, sponsorInfo }) => {
             if (!account.chainId) {
               return
             }
@@ -220,7 +245,8 @@ export function usePollPendingTransactions(onActivityUpdate: OnActivityUpdate) {
                 typeInfo: tx.typeInfo,
                 receipt,
                 hash: tx.hash,
-                networkFee: tx.networkFee,
+                networkFee: networkFee ?? tx.networkFee,
+                sponsorInfo,
               },
             })
           })
@@ -248,12 +274,10 @@ export function usePollPendingTransactions(onActivityUpdate: OnActivityUpdate) {
     account.chainId,
     publicClient,
     lastBlockNumber,
-    getReceipt,
     pendingTransactions,
     hasPending,
     dispatch,
     onActivityUpdate,
     getReceiptWithTradingApi,
-    tradingApiPollingEnabled,
   ])
 }

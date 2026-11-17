@@ -1,22 +1,17 @@
 /**
- * Experiment parameter names
+ * Experiment parameter names. Ordered alphabetically.
  *
  * These must match parameter names on Statsig within an experiment
  */
 export enum Experiments {
-  PriceUxUpdate = 'price_ux_update',
-  PrivateRpc = 'private_rpc',
+  EmbeddedWalletOnboarding = 'embedded_wallet_onboarding',
+  EthAsErc20UniswapX = 'eth_as_erc20_uniswapx_experiment',
   NativeTokenPercentageBuffer = 'lp_native_buffer',
   SwapConfirmation = 'swap-confirmation',
-  UnichainFlashblocksModal = 'unichain_flashblocks_modal',
-  WebFORNudges = 'web_for_nudge',
-  ForFilters = 'for_filters',
-  PortfolioDisconnectedDemoView = 'portfolio_disconnected_demo_view',
 }
 
 export enum Layers {
   SwapPage = 'swap-page',
-  PortfolioPage = 'portfolio-page',
 }
 
 // experiment groups
@@ -32,13 +27,8 @@ export enum ArbitrumXV2SamplingProperties {
   RoutingType = 'routingType',
 }
 
-export enum PriceUxUpdateProperties {
-  UpdatedPriceUX = 'updatedPriceUX',
-}
-
-export enum PrivateRpcProperties {
-  FlashbotsEnabled = 'flashbots_enabled',
-  RefundPercent = 'refund_percent',
+export enum EmbeddedWalletOnboardingProperties {
+  NewFlowEnabled = 'newFlowEnabled',
 }
 
 export enum NativeTokenPercentageBufferProperties {
@@ -49,40 +39,27 @@ export enum SwapConfirmationProperties {
   WaitTimes = 'wait_times',
 }
 
-export enum UnichainFlashblocksProperties {
-  FlashblocksModalEnabled = 'flashblocksModalEnabled',
+// Swap Layer experiment properties
+
+export enum SwapLayerProperties {
+  EthAsErc20UniswapXEnabled = 'ethAsErc20UniswapXEnabled',
+  MinEthErc20USDValueThresholdByChain = 'minEthErc20USDValueThresholdByChain',
 }
 
-export enum ForFiltersProperties {
-  ForFiltersEnabled = 'forFiltersEnabled',
+export enum EthAsErc20UniswapXProperties {
+  EthAsErc20UniswapXEnabled = SwapLayerProperties.EthAsErc20UniswapXEnabled,
+  MinEthErc20USDValueThresholdByChain = SwapLayerProperties.MinEthErc20USDValueThresholdByChain,
 }
 
-export enum WebFORNudgesProperties {
-  NudgeEnabled = 'nudgeEnabled',
-}
-
-export enum PortfolioDisconnectedDemoViewProperties {
-  DemoViewEnabled = 'demoViewEnabled',
-}
-
+// Ordered alphabetically.
 export type ExperimentProperties = {
-  [Experiments.PriceUxUpdate]: PriceUxUpdateProperties
-  [Experiments.PrivateRpc]: PrivateRpcProperties
+  [Experiments.EmbeddedWalletOnboarding]: EmbeddedWalletOnboardingProperties
+  [Experiments.EthAsErc20UniswapX]: EthAsErc20UniswapXProperties
   [Experiments.NativeTokenPercentageBuffer]: NativeTokenPercentageBufferProperties
   [Experiments.SwapConfirmation]: SwapConfirmationProperties
-  [Experiments.UnichainFlashblocksModal]: UnichainFlashblocksProperties
-  [Experiments.ForFilters]: ForFiltersProperties
-  [Experiments.WebFORNudges]: WebFORNudgesProperties
-  [Experiments.PortfolioDisconnectedDemoView]: PortfolioDisconnectedDemoViewProperties
 }
 
 // will be a spread of all experiment properties in that layer
 export const LayerProperties: Record<Layers, string[]> = {
-  [Layers.SwapPage]: Object.values({
-    ...PriceUxUpdateProperties,
-    ...UnichainFlashblocksProperties,
-  }),
-  [Layers.PortfolioPage]: Object.values({
-    ...PortfolioDisconnectedDemoViewProperties,
-  }),
+  [Layers.SwapPage]: Object.values(SwapLayerProperties),
 }

@@ -1,34 +1,103 @@
-import { NetworkStatus } from '@apollo/client'
 import { SharedEventName } from '@uniswap/analytics-events'
-import { PortfolioExpandoRow } from 'pages/Portfolio/components/PortfolioExpandoRow'
-import { TokenData } from 'pages/Portfolio/Tokens/hooks/useTransformTokenTableData'
-import { TokensTableInner } from 'pages/Portfolio/Tokens/Table/TokensTableInner'
-import { useCallback, useState } from 'react'
+import { isMobileWeb } from '@universe/environment'
+import { TestID } from '@universe/test'
+import { startTransition, useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ScrollSync } from 'react-scroll-sync'
-import { Flex } from 'ui/src'
+import { InlineExpandoRow } from 'uniswap/src/components/ExpandoRow/InlineExpandoRow'
 import { ElementName, SectionName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { useTrace } from 'utilities/src/telemetry/trace/TraceContext'
+import { CollapsiblePinnedColumnScope } from '~/components/Table/PinnedColumns/collapse/CollapsiblePinnedColumnScope'
+import { useSimplePagination } from '~/pages/Explore/hooks/useSimplePagination'
+import { TokenData } from '~/pages/Portfolio/Tokens/hooks/useTransformTokenTableData'
+import {
+  PortfolioTokenSortMethod,
+  PortfolioTokenTableSortStoreContextProvider,
+  usePortfolioTokenTableSortStore,
+} from '~/pages/Portfolio/Tokens/Table/portfolioTokenTableSortStore'
+import { sortPortfolioTokenData } from '~/pages/Portfolio/Tokens/Table/sortPortfolioTokenData'
+import { TokensTableInner } from '~/pages/Portfolio/Tokens/Table/TokensTableInner'
+import { flattenTokenDataToSingleChainRows } from '~/pages/Portfolio/Tokens/Table/tokenTableRowUtils'
+
+// Touch browsers don't axis-lock a box that scrolls both ways, so a vertical swipe on it also
+// drifts the table sideways; on mobile the page owns vertical scroll instead.
+const TOKENS_TABLE_MAX_HEIGHT = isMobileWeb ? undefined : 700
+const HIDDEN_PAGE_SIZE = 20
 
 interface TokensTableProps {
   visible: TokenData[]
   hidden: TokenData[]
   loading: boolean
   refetching?: boolean
-  networkStatus: NetworkStatus
   error?: Error | undefined
 }
 
-export function TokensTable({ visible, hidden, loading, refetching, error }: TokensTableProps) {
+// The Hidden Tokens table has extra pagination logic due to mWeb performance constraints
+function HiddenTokensTable({
+  hidden,
+  loading,
+  error,
+  sortMethod,
+  sortAscending,
+}: {
+  hidden: TokenData[]
+  loading: boolean
+  error?: Error | undefined
+  sortMethod: PortfolioTokenSortMethod
+  sortAscending: boolean
+}) {
+  const sortedHiddenTokens = useMemo(() => {
+    const flattened = flattenTokenDataToSingleChainRows(hidden)
+    return sortPortfolioTokenData(flattened, { sortMethod, sortAscending })
+  }, [hidden, sortMethod, sortAscending])
+
+  const { page, loadMore } = useSimplePagination({
+    totalCount: sortedHiddenTokens.length,
+    pageSize: HIDDEN_PAGE_SIZE,
+  })
+
+  const displayedHiddenTokens = useMemo(() => {
+    if (!isMobileWeb) {
+      return sortedHiddenTokens
+    }
+    return sortedHiddenTokens.slice(0, page * HIDDEN_PAGE_SIZE)
+  }, [sortedHiddenTokens, page])
+
+  return (
+    <TokensTableInner
+      showHiddenTokensBanner
+      tokenData={displayedHiddenTokens}
+      hideHeader
+      loading={loading}
+      error={error}
+      maxHeight={TOKENS_TABLE_MAX_HEIGHT}
+      showUnrealizedPnlPercent
+      virtualized
+      loadMore={isMobileWeb ? loadMore : undefined}
+    />
+  )
+}
+
+function TokensTableContent({ visible, hidden, loading, refetching, error }: TokensTableProps) {
   const { t } = useTranslation()
   const [isOpen, setIsOpen] = useState(false)
   const tableLoading = loading && !refetching
   const trace = useTrace()
 
+  const { sortMethod, sortAscending } = usePortfolioTokenTableSortStore((s) => ({
+    sortMethod: s.sortMethod,
+    sortAscending: s.sortAscending,
+  }))
+
+  const sortedVisible = useMemo(
+    () => sortPortfolioTokenData(visible, { sortMethod, sortAscending }),
+    [visible, sortMethod, sortAscending],
+  )
+
   const handleToggleHiddenTokens = useCallback(() => {
     const newIsOpen = !isOpen
-    setIsOpen(newIsOpen)
+    startTransition(() => setIsOpen(newIsOpen))
     sendAnalyticsEvent(SharedEventName.ELEMENT_CLICKED, {
       element: ElementName.PortfolioHiddenTokensExpandoRow,
       section: SectionName.PortfolioTokensTab,
@@ -43,27 +112,45 @@ export function TokensTable({ visible, hidden, loading, refetching, error }: Tok
     // - Both tables use ScrollSyncPane with scrollGroup="portfolio-tokens" for coordination
     // - DO NOT remove this outer ScrollSync wrapper without updating the Table components
     <ScrollSync horizontal vertical={false}>
-      <Flex gap="$spacing16">
-        <TokensTableInner tokenData={visible} loading={tableLoading} error={error} />
+      {/* One collapse drives both tables: they share a horizontal scroll, so their token columns must match. */}
+      <CollapsiblePinnedColumnScope gap="$spacing16">
+        <TokensTableInner
+          tokenData={sortedVisible}
+          loading={tableLoading}
+          error={error}
+          maxHeight={TOKENS_TABLE_MAX_HEIGHT}
+          showUnrealizedPnlPercent
+        />
         {hidden.length > 0 && (
           <>
-            <PortfolioExpandoRow
+            <InlineExpandoRow
               isExpanded={isOpen}
               label={t('hidden.tokens.info.text.button', { numHidden: hidden.length })}
               onPress={handleToggleHiddenTokens}
+              testID={TestID.ShowHiddenTokens}
             />
+            {/* Keyed on sort so a sort change remounts the table with correct order*/}
             {isOpen && (
-              <TokensTableInner
-                showHiddenTokensBanner
-                tokenData={hidden}
-                hideHeader
+              <HiddenTokensTable
+                key={`${sortMethod}-${sortAscending}`}
+                hidden={hidden}
                 loading={tableLoading}
                 error={error}
+                sortMethod={sortMethod}
+                sortAscending={sortAscending}
               />
             )}
           </>
         )}
-      </Flex>
+      </CollapsiblePinnedColumnScope>
     </ScrollSync>
+  )
+}
+
+export function TokensTable(props: TokensTableProps) {
+  return (
+    <PortfolioTokenTableSortStoreContextProvider>
+      <TokensTableContent {...props} />
+    </PortfolioTokenTableSortStoreContextProvider>
   )
 }

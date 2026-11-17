@@ -1,8 +1,26 @@
-import { expect, getTest } from 'playwright/fixtures'
-import { Mocks } from 'playwright/mocks/mocks'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
+import type { Page } from '@playwright/test'
+import { getToken, getTokenMultiChain } from '@uniswap/client-data-api/dist/data/v2/api-DataApiService_connectquery'
+import { FeatureFlags } from '@universe/gating'
+import { TestID } from '@universe/test'
+import { expect, getTest } from '~/playwright/fixtures'
+import { getVisibleDropdownElementByTestId } from '~/playwright/fixtures/utils'
+import { Mocks } from '~/playwright/mocks/mocks'
 
 const test = getTest()
+
+// The page renders the token name in the loading skeleton too, so assertions must wait for the
+// metadata response rather than the first paint of the name.
+function waitForGetTokenResponse(page: Page): Promise<unknown> {
+  return page.waitForResponse((response) => response.url().includes(`${getToken.service.typeName}/${getToken.name}`))
+}
+
+function waitForGetTokenMultiChainResponse(page: Page): Promise<unknown> {
+  return page.waitForResponse((response) =>
+    response.url().includes(`${getTokenMultiChain.service.typeName}/${getTokenMultiChain.name}`),
+  )
+}
+
+const NOT_FOUND_EXPLORE_URL = '/explore?type=tokens&result=not-found'
 
 test.describe(
   'Token Details',
@@ -16,27 +34,19 @@ test.describe(
   () => {
     test('token with warning and low trading volume should have all information populated', async ({
       page,
-      graphql,
+      dataApi,
     }) => {
-      await graphql.intercept('TokenWeb', Mocks.TokenWeb.token_warning, {
-        chain: 'ETHEREUM',
-        address: '0x1eFBB78C8b917f67986BcE54cE575069c0143681',
-      })
-      await graphql.intercept('Token', Mocks.Token.token_warning, {
-        chain: 'ETHEREUM',
-        address: '0x1eFBB78C8b917f67986BcE54cE575069c0143681',
-      })
-      await graphql.intercept('TokenProjects', Mocks.TokenProjects.token_spam, {
-        contracts: [
-          {
-            chain: 'ETHEREUM',
-            address: '0x1eFBB78C8b917f67986BcE54cE575069c0143681',
-          },
-        ],
-      })
+      // GetTokenMultiChain gates the page (no mainnet deployment redirects to "Token not found") and
+      // GetToken powers the header name. Without these mocks the live API has no usable data for this
+      // token, so 'test token' only ever appeared in the transient loading skeleton.
+      await dataApi.intercept(getTokenMultiChain, Mocks.DataApiService.get_token_multichain_warning)
+      await dataApi.intercept(getToken, Mocks.DataApiService.get_token_warning)
+      const getTokenMultiChainResponse = waitForGetTokenMultiChainResponse(page)
       await page.goto('/explore/tokens/ethereum/0x1eFBB78C8b917f67986BcE54cE575069c0143681')
-      await expect(page.getByText('test token')).toBeVisible()
-      await expect(page.getByText('Missing chart data')).toBeVisible()
+      await getTokenMultiChainResponse
+      // .first(): the loaded page renders the name in both the breadcrumb and the header
+      await expect(page.getByText('test token').first()).toBeVisible()
+      await expect(page.getByText('No pricing data available')).toBeVisible()
       await expect(page.getByText('No stats available')).toBeVisible()
       await expect(page.getByText('No token information available')).toBeVisible()
     })
@@ -46,30 +56,39 @@ test.describe(
       await expect(page.getByText('Ethereum').first()).toBeVisible()
     })
 
-    test('connected wallet on mainnet mode should load testnet token details', async ({ page, graphql }) => {
-      await graphql.intercept('TokenWeb', Mocks.TokenWeb.sepolia_yay_token, {
-        chain: 'ETHEREUM_SEPOLIA',
-        address: '0x97dbb794244e1c27b6ff688fc8cef5fe8d80f531',
-      })
-      await graphql.intercept('Token', Mocks.Token.sepolia_yay_token, {
-        chain: 'ETHEREUM_SEPOLIA',
-        address: '0x97dbb794244e1c27b6ff688fc8cef5fe8d80f531',
-      })
+    test('connected wallet on mainnet mode should load testnet token details', async ({ page, dataApi }) => {
+      await dataApi.intercept(getToken, Mocks.DataApiService.get_token_sepolia_yay)
+      const getTokenResponse = waitForGetTokenResponse(page)
       await page.goto('/explore/tokens/ethereum_sepolia/0x97dbb794244e1c27b6ff688fc8cef5fe8d80f531')
+      await getTokenResponse
       await expect(page.getByText('Yay').first()).toBeVisible()
     })
 
     test('connected wallet on testnet mode should load mainnet token details', async ({ page }) => {
       await page.goto('/explore/tokens/ethereum/NATIVE')
       await page.getByTestId(TestID.Web3StatusConnected).click()
-      await page.getByTestId(TestID.WalletSettings).click()
-      await page.getByTestId(TestID.TestnetsToggle).click()
+      await getVisibleDropdownElementByTestId(page, TestID.WalletSettings).click()
+      await getVisibleDropdownElementByTestId(page, TestID.TestnetsToggle).click()
+      // Close the testnet mode info modal that appears
+      const modalButton = page.getByRole('button', { name: 'Close' })
+      await expect(modalButton).toBeVisible()
+      await modalButton.click()
       await expect(page.getByText('Ethereum').first()).toBeVisible()
     })
 
     test('redirect to explore if token is not found', async ({ page }) => {
       await page.goto('/explore/tokens/ethereum/0x123')
-      await expect(page).toHaveURL('/explore')
+      await expect(page).toHaveURL(NOT_FOUND_EXPLORE_URL)
+    })
+
+    test.describe('feature-gated chain', () => {
+      // Pin the chain flag off: the TDP must redirect while the chain is gated, whatever the live rollout is.
+      test.use({ pinnedFeatureFlags: { [FeatureFlags.Arc]: false } })
+
+      test('redirect to explore for a feature-gated chain (Arc)', async ({ page }) => {
+        await page.goto('/explore/tokens/arc/0xbef5f6d51cb62b58e6a8f77868681825c6fe21c1')
+        await expect(page).toHaveURL(NOT_FOUND_EXPLORE_URL)
+      })
     })
   },
 )

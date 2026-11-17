@@ -1,26 +1,21 @@
-import { getCapabilities as wagmi_getCapabilities } from '@wagmi/core/experimental'
-import {
-  handleGetCapabilities,
-  isAtomicBatchingSupportedByChainId,
-} from 'state/walletCapabilities/lib/handleGetCapabilities'
-import { GetCapabilitiesResult } from 'state/walletCapabilities/lib/types'
+import 'utilities/src/logger/mocks'
+import { getCapabilities as wagmi_getCapabilities } from '@wagmi/core'
 import { getLogger } from 'utilities/src/logger/logger'
 import type { Mock } from 'vitest'
+import {
+  handleGetCapabilities,
+  isAlternateGasFeesSupportedByChainId,
+  isAtomicBatchingSupportedByChainId,
+} from '~/state/walletCapabilities/lib/handleGetCapabilities'
+import { GetCapabilitiesResult } from '~/state/walletCapabilities/lib/types'
 
 // Mock dependencies
-vi.mock('@wagmi/core/experimental', () => ({
+vi.mock('@wagmi/core', () => ({
   getCapabilities: vi.fn(),
 }))
 
-vi.mock('components/Web3Provider/wagmiConfig', () => ({
+vi.mock('~/connection/wagmiConfig', () => ({
   wagmiConfig: {},
-}))
-
-vi.mock('utilities/src/logger/logger', () => ({
-  getLogger: vi.fn(() => ({
-    error: vi.fn(),
-    warn: vi.fn(),
-  })),
 }))
 
 describe('walletCapabilities', () => {
@@ -44,7 +39,9 @@ describe('walletCapabilities', () => {
     it('returns null for invalid response', async () => {
       // Make sure the logger is properly mocked before the test
       const mockLoggerWarn = vi.fn()
-      ;(getLogger as Mock).mockReturnValue({ error: vi.fn(), warn: mockLoggerWarn })
+      vi.mocked(getLogger).mockReturnValue({ error: vi.fn(), warn: mockLoggerWarn } as unknown as ReturnType<
+        typeof getLogger
+      >)
 
       // Invalid mock response (missing 0x prefix)
       ;(wagmi_getCapabilities as Mock).mockResolvedValue({ asdada: { atomic: { status: 'supported' } } })
@@ -63,7 +60,9 @@ describe('walletCapabilities', () => {
     it('returns null on error', async () => {
       // Make sure the logger is properly mocked before the test
       const mockLoggerWarn = vi.fn()
-      ;(getLogger as Mock).mockReturnValue({ error: vi.fn(), warn: mockLoggerWarn })
+      vi.mocked(getLogger).mockReturnValue({ error: vi.fn(), warn: mockLoggerWarn } as unknown as ReturnType<
+        typeof getLogger
+      >)
       ;(wagmi_getCapabilities as Mock).mockRejectedValue(new Error('API error'))
 
       expect(await handleGetCapabilities()).toBeNull()
@@ -84,6 +83,20 @@ describe('walletCapabilities', () => {
       expect(isAtomicBatchingSupportedByChainId(unsupportedCapabilities, 1)).toBe(false)
 
       expect(isAtomicBatchingSupportedByChainId(mockCapabilities, 2)).toBe(false)
+    })
+  })
+
+  describe('isAlternateGasFeesSupportedByChainId', () => {
+    it('returns expected support status', () => {
+      const supported: GetCapabilitiesResult = { '0x1': { alternateGasFees: { supported: true } } }
+      expect(isAlternateGasFeesSupportedByChainId(supported, 1)).toBe(true)
+
+      const unsupported: GetCapabilitiesResult = { '0x1': { alternateGasFees: { supported: false } } }
+      expect(isAlternateGasFeesSupportedByChainId(unsupported, 1)).toBe(false)
+
+      // missing capability / unknown chain
+      expect(isAlternateGasFeesSupportedByChainId({ '0x1': { atomic: { status: 'supported' } } }, 1)).toBe(false)
+      expect(isAlternateGasFeesSupportedByChainId(supported, 2)).toBe(false)
     })
   })
 })

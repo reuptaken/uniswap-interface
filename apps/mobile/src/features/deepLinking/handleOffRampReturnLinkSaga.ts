@@ -1,10 +1,10 @@
+import { UniverseChainId } from '@universe/chains'
 import { Alert } from 'react-native'
 import { navigate } from 'src/app/navigation/rootNavigation'
 import { openModal } from 'src/features/modals/modalSlice'
 import { dismissInAppBrowser } from 'src/utils/linking'
 import { call, put } from 'typed-redux-saga'
 import { AssetType, TradeableAsset } from 'uniswap/src/entities/assets'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { FiatOffRampMetaData, OffRampTransferDetailsResponse } from 'uniswap/src/features/fiatOnRamp/types'
 import { FiatOffRampEventName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
@@ -56,8 +56,7 @@ function* _handleOffRampReturnLink(url: URL) {
   if (
     !offRampTransferDetails.tokenAddress ||
     !offRampTransferDetails.baseCurrencyCode ||
-    !offRampTransferDetails.depositWalletAddress ||
-    !!offRampTransferDetails.errorCode
+    !offRampTransferDetails.depositWalletAddress
   ) {
     throw new Error('Missing offRampTransferDetails in fiat offramp deep link')
   }
@@ -83,7 +82,7 @@ function* _handleOffRampReturnLink(url: URL) {
 
   const fiatOffRampMetaData: FiatOffRampMetaData = {
     name: provider,
-    logoUrl: logos.lightLogo,
+    logoUrl: logos?.lightLogo ?? '',
     onSubmitCallback: (amountUSD?: number) => {
       sendAnalyticsEvent(FiatOffRampEventName.FiatOffRampFundsSent, { ...analyticsProperties, amountUSD })
     },
@@ -108,7 +107,7 @@ function* _handleOffRampReturnLink(url: URL) {
   }
 
   yield* put(forceFetchFiatOnRampTransactions())
-  yield* call(navigate, MobileScreens.Home)
+  yield* call(navigate, MobileScreens.MainTabs, { screen: MobileScreens.Home } as const, { pop: true })
   yield* put(openModal({ name: ModalName.Send, initialState: initialSendState }))
   yield* call(dismissInAppBrowser)
 }

@@ -1,52 +1,10 @@
-/* biome-ignore-all lint/suspicious/noExplicitAny: Third-party types not available */
-import { DdLogs, DdRum, DdSdkReactNative, ErrorSource, RumActionType } from '@datadog/mobile-react-native'
-import dayjs from 'dayjs'
-import { Action, AnyAction, PreloadedState, Reducer, StoreEnhancerStoreCreator } from 'redux'
-import { ReduxEnhancerConfig } from 'utilities/src/logger/datadog/Datadog'
-import { handleReduxAction } from 'utilities/src/logger/datadog/reduxUtils'
+// oxlint-disable typescript/no-var-requires
+import { DdLogs, DdRum, DdSdkReactNative, ErrorSource } from '@datadog/mobile-react-native'
 import { addErrorExtras } from 'utilities/src/logger/logger'
 import { LoggerErrorContext, LogLevel } from 'utilities/src/logger/types'
 
-let reduxState: Record<string, unknown> | undefined
-
-// Inspired by Sentry createReduxEnhancer
-// https://github.com/getsentry/sentry-javascript/blob/master/packages/react/src/redux.ts
-export function createDatadogReduxEnhancer({
-  shouldLogReduxState,
-}: ReduxEnhancerConfig): (next: StoreEnhancerStoreCreator) => StoreEnhancerStoreCreator {
-  return (next: StoreEnhancerStoreCreator): StoreEnhancerStoreCreator =>
-    <S = any, A extends Action = AnyAction>(reducer: Reducer<S, A>, initialState?: PreloadedState<S>) => {
-      const enhancedReducer: Reducer<S, A> = (state, action): S => {
-        const newState = reducer(state, action)
-
-        const { isAction, reduxStateToLog } = handleReduxAction({
-          action,
-          newState,
-          shouldLogState: shouldLogReduxState(newState),
-        })
-
-        if (reduxStateToLog) {
-          reduxState = reduxStateToLog
-        }
-
-        /* Log action to Datadog */
-        if (isAction) {
-          DdRum.addAction(RumActionType.CUSTOM, `Redux Action: ${action.type}`, action, dayjs().valueOf()).catch(
-            () => undefined,
-          )
-        }
-
-        return newState
-      }
-
-      return next(enhancedReducer, initialState)
-    }
-}
-
 export function logErrorToDatadog(error: Error, context: LoggerErrorContext): void {
-  DdRum.addError(error.message, ErrorSource.SOURCE, error.stack ?? '', { ...context, reduxState }, Date.now()).catch(
-    () => {},
-  )
+  DdRum.addError(error.message, ErrorSource.SOURCE, error.stack ?? '', context, Date.now()).catch(() => {})
 }
 
 export function logWarningToDatadog(
@@ -99,7 +57,6 @@ export function attachUnhandledRejectionHandler(): void {
     allRejections: true,
     onUnhandled: (id: string, rejection: unknown) => {
       if (__DEV__) {
-        // biome-ignore lint/suspicious/noConsole: Console logging needed for debugging
         console.warn(`Possible Unhandled Promise Rejection (id: ${id}):\n${rejection}`)
       } else {
         const error = rejection instanceof Error ? rejection : new Error(`${rejection}`)
@@ -111,7 +68,6 @@ export function attachUnhandledRejectionHandler(): void {
     },
     onHandled: (id: string) => {
       if (__DEV__) {
-        // biome-ignore lint/suspicious/noConsole: Console logging needed for debugging
         console.warn(
           `Promise Rejection Handled (id: ${id})\n` +
             'This means you can ignore any previous messages of the form ' +
@@ -123,5 +79,5 @@ export function attachUnhandledRejectionHandler(): void {
 }
 
 export async function setAttributesToDatadog(attributes: { [key: string]: unknown }): Promise<void> {
-  await DdSdkReactNative.setAttributes(attributes)
+  await DdSdkReactNative.addAttributes(attributes)
 }

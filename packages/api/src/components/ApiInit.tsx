@@ -1,52 +1,32 @@
-import { queryOptions, useQuery } from '@tanstack/react-query'
-import type { SessionInitializationService, SessionInitResult } from '@universe/sessions'
-import { SessionError } from '@universe/sessions'
+import { useQuery } from '@tanstack/react-query'
+import { SharedQueryClient } from '@universe/api/src/clients/base/SharedQueryClient'
+import { bootstrapSession } from '@universe/api/src/session/provideSession'
+import type { SessionInitializationService } from '@universe/sessions'
+import { SESSION_INIT_QUERY_KEY, sessionInitQuery } from '@universe/sessions'
 import { useState } from 'react'
-import { ReactQueryCacheKey } from 'utilities/src/reactQuery/cache'
+import type { Logger } from 'utilities/src/logger/logger'
 
 interface ApiInitProps {
   getSessionInitService: () => SessionInitializationService
-  isSessionServiceEnabled: boolean
+  getLogger?: () => Logger
 }
 
-/**
- * Query key for session initialization.
- * Shared between ApiInit (which triggers the query) and InitializationStatusProvider (which observes it).
- */
-export const SESSION_INIT_QUERY_KEY = [ReactQueryCacheKey.Session, 'initialization'] as const
-
-function createInitServiceQuery(ctx: {
-  getSessionInitService: () => SessionInitializationService
-}): ReturnType<typeof queryOptions<SessionInitResult>> {
-  return queryOptions<SessionInitResult>({
-    queryKey: SESSION_INIT_QUERY_KEY,
-    queryFn: async (): Promise<SessionInitResult> => {
-      return await ctx.getSessionInitService().initialize()
-    },
-    retry: (failureCount, error) => {
-      // Don't retry any session-related errors - these are terminal errors
-      if (error instanceof SessionError) {
-        return false
-      }
-      // For other errors (network issues, etc.), retry up to 3 times
-      return failureCount < 3
-    },
-    retryDelay: (attemptIndex: number) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
+function ApiInit({ getSessionInitService, getLogger }: ApiInitProps): null {
+  const [query] = useState(() => {
+    // Both calls only build the query *options* (cheap, idempotent). The fetch
+    // itself runs once: the `useQuery` below and the gate's `fetchQuery` share
+    // the same query key, so React Query dedupes the actual request.
+    bootstrapSession({ getService: getSessionInitService, getLogger })
+    return sessionInitQuery({ getService: getSessionInitService, getLogger })
   })
-}
 
-function ApiInit({ getSessionInitService, isSessionServiceEnabled }: ApiInitProps): null {
-  const [query] = useState(() => createInitServiceQuery({ getSessionInitService }))
-
-  useQuery({
-    ...query,
-    enabled: isSessionServiceEnabled,
-  })
+  useQuery(query)
 
   return null
+}
+
+export async function reinitializeSession(): Promise<void> {
+  await SharedQueryClient.invalidateQueries({ queryKey: SESSION_INIT_QUERY_KEY })
 }
 
 export { ApiInit }

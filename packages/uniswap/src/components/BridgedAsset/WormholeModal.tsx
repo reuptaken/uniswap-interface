@@ -1,31 +1,23 @@
+import { isWebAppDesktop } from '@universe/environment'
+import { Flex, Text, TouchableArea, useExtractedTokenColor, useSporeColors } from '@universe/mycelium'
+import { useColorsFromTokenColor } from '@universe/mycelium/theme-hooks-compat'
 import { atom } from 'jotai'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  Button,
-  Flex,
-  getContrastPassingTextColor,
-  ModalCloseIcon,
-  Text,
-  TouchableArea,
-  useColorsFromTokenColor,
-  useExtractedTokenColor,
-  useSporeColors,
-} from 'ui/src'
+import { Button, getContrastPassingTextColor, ModalCloseIcon } from 'ui/src'
 import { EnvelopeHeart } from 'ui/src/components/icons/EnvelopeHeart'
 import { ExternalLink } from 'ui/src/components/icons/ExternalLink'
 import { Shuffle } from 'ui/src/components/icons/Shuffle'
 import { iconSizes } from 'ui/src/theme'
-import { BaseModalProps } from 'uniswap/src/components/BridgedAsset/BridgedAssetModal'
 import { CurrencyLogo } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
 import { Modal } from 'uniswap/src/components/modals/Modal'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
+import type { BaseModalProps } from 'uniswap/src/components/modals/ModalProps'
+import { UniswapHelpUrls } from 'uniswap/src/constants/urls'
 import { getChainLabel } from 'uniswap/src/features/chains/utils'
 import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
 import { ElementName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 import { openUri } from 'uniswap/src/utils/linking'
-import { isWebAppDesktop } from 'utilities/src/platform'
 import { useEvent } from 'utilities/src/react/hooks'
 
 export type WormholeModalProps = {
@@ -46,6 +38,7 @@ export function WormholeModal({
     tokenName: currencyInfo?.currency.name,
     backgroundColor: colors.surface1.val,
     defaultColor: colors.accent1.val,
+    colorOverrides: currencyInfo?.colorOverrides,
   })
   const { validTokenColor } = useColorsFromTokenColor(tokenColor ?? undefined)
   const textColor = useMemo(() => {
@@ -54,7 +47,7 @@ export function WormholeModal({
   const bridgedWithdrawalInfo = currencyInfo?.bridgedWithdrawalInfo
 
   const onPressLearnMore = async (): Promise<void> => {
-    await openUri({ uri: uniswapUrls.helpArticleUrls.bridgedAssets })
+    await openUri({ uri: UniswapHelpUrls.articles.bridgedAssets })
     onClose()
   }
 
@@ -97,7 +90,7 @@ export function WormholeModal({
               <TouchableArea onPress={onPressLearnMore}>
                 <Flex
                   row
-                  width="max-content"
+                  maxContent
                   borderRadius="$rounded16"
                   px="$spacing8"
                   py="$spacing4"

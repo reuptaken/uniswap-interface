@@ -2,9 +2,12 @@ import {
   BridgeTransactionInfo,
   ConfirmedSwapTransactionInfo,
   FINAL_STATUSES,
+  FinalizedPlanTXDetails,
   FinalizedTransactionDetails,
   FinalizedTransactionStatus,
   InterfaceTransactionDetails,
+  PlanTransactionDetails,
+  PlanTransactionInfo,
   TransactionDetails,
   TransactionStatus,
   TransactionType,
@@ -14,7 +17,7 @@ import {
 export function isConfirmedSwapTypeInfo(typeInfo: TransactionTypeInfo): typeInfo is ConfirmedSwapTransactionInfo {
   return Boolean(
     (typeInfo as ConfirmedSwapTransactionInfo).inputCurrencyAmountRaw &&
-      (typeInfo as ConfirmedSwapTransactionInfo).outputCurrencyAmountRaw,
+    (typeInfo as ConfirmedSwapTransactionInfo).outputCurrencyAmountRaw,
   )
 }
 
@@ -26,8 +29,20 @@ export function isBridgeTypeInfo(typeInfo: TransactionTypeInfo): typeInfo is Bri
   return typeInfo.type === TransactionType.Bridge
 }
 
+export function isPlanTransactionDetails(tx: TransactionDetails): tx is PlanTransactionDetails {
+  return isPlanTransactionInfo(tx.typeInfo)
+}
+
+export function isPlanTransactionInfo(tx: TransactionTypeInfo): tx is PlanTransactionInfo {
+  return tx.type === TransactionType.Plan
+}
+
 export function isFinalizedTxStatus(status: TransactionStatus): status is FinalizedTransactionStatus {
   return FINAL_STATUSES.some((finalStatus) => finalStatus === status)
+}
+
+export function isFinalizedPlanTXDetails(tx: FinalizedTransactionDetails): tx is FinalizedPlanTXDetails {
+  return isPlanTransactionDetails(tx)
 }
 
 export function isFinalizedTx(
@@ -35,6 +50,12 @@ export function isFinalizedTx(
 ): tx is FinalizedTransactionDetails {
   const validateFinalizedTx = (): FinalizedTransactionDetails | undefined => {
     const { status, hash } = tx
+    if (isPlanTransactionDetails(tx)) {
+      if (isFinalizedTxStatus(status)) {
+        return { ...tx, status }
+      }
+      return undefined
+    }
     if (status === TransactionStatus.Success) {
       if (!hash) {
         return undefined
@@ -54,7 +75,13 @@ export function isFinalizedTx(
 export function isWalletTransaction(
   transaction: TransactionDetails | InterfaceTransactionDetails,
 ): transaction is TransactionDetails {
-  // Wallet transactions have these optional fields that interface transactions don't have.  We can't rely on this alone because it's possible none of these fields are present.
+  // networkFee is not wallet-only (it lives on TransactionDetailsCore), but it stays a wallet
+  // short-circuit here deliberately: this guard runs against wallet stores, where a pending bridge
+  // tx carries networkFee once its send leg confirms (processTransactionReceipt) alongside
+  // lastCheckedBlockNumber — an interface marker below — so without the short-circuit the
+  // fall-through would misclassify it as non-wallet and the cancel reducers would throw.
+  // isInterfaceTransaction intentionally diverges: interface txs gain networkFee too, so it is
+  // not a valid discriminator there.
   const hasWalletOptionalFields = 'cancelRequest' in transaction || 'networkFee' in transaction
 
   if (hasWalletOptionalFields) {
@@ -93,11 +120,12 @@ export function isInterfaceTransaction(
     return true
   }
 
-  // Wallet transactions have these optional fields that interface transactions don't have:
-  // - receipt
-  // - cancelRequest
-  // - networkFee
-  const hasWalletOptionalFields = 'cancelRequest' in transaction || 'networkFee' in transaction
+  // Wallet transactions have optional fields that interface transactions don't have.
+  // Only cancelRequest qualifies: receipt and networkFee live on TransactionDetailsCore and are
+  // written on interface transactions too (e.g. interfaceConfirmBridgeDeposit persists the deposit
+  // fee on a still-pending bridge tx), so treating them as wallet markers would misclassify
+  // interface transactions and hide them from the web pollers.
+  const hasWalletOptionalFields = 'cancelRequest' in transaction
 
   return !hasWalletOptionalFields
 }

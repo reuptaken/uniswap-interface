@@ -1,6 +1,9 @@
+import { ElementAfterText, Flex, Text, TouchableArea } from '@universe/mycelium'
+import { useShadowPropsShort } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
 //! tamagui-ignore
 // TODO(EXT-732): fix encoding error in tamagui optimizer on this file
-import { ElementAfterText, Flex, Text, TouchableArea, useShadowPropsShort } from 'ui/src'
+import { useState } from 'react'
 import {
   LARGE_TOAST_RADIUS,
   MAX_TEXT_LENGTH,
@@ -8,7 +11,6 @@ import {
   SMALL_TOAST_RADIUS,
   TOAST_BORDER_WIDTH,
 } from 'uniswap/src/features/notifications/constants'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 
 export interface NotificationContentProps {
   title: string
@@ -150,13 +152,28 @@ function NotificationContentSmall({
   onPressIn,
   contentOverride: overrideContent,
 }: Omit<NotificationContentProps, 'smallToast' | 'onNotificationPress' | 'onActionButtonPress'>): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  const isExpandable = title.length > MAX_TEXT_LENGTH
+
+  const handlePress = (): void => {
+    if (isExpandable) {
+      setExpanded(true)
+      // Once expanded, ignore taps - let auto-dismiss handle it
+      return
+    }
+    onPress?.()
+  }
+
+  const SMALL_TOAST_MAX_WIDTH = 420
+
   return (
-    <Flex centered row shrink pointerEvents="box-none">
+    <Flex centered row shrink maxWidth={SMALL_TOAST_MAX_WIDTH} pointerEvents="box-none">
       <TouchableArea
         backgroundColor="$surface1"
         borderRadius={SMALL_TOAST_RADIUS}
+        maxWidth="100%"
         p="$spacing12"
-        onPress={onPress}
+        onPress={handlePress}
         onPressIn={onPressIn}
       >
         {overrideContent ? (
@@ -165,10 +182,10 @@ function NotificationContentSmall({
           <Flex row alignItems="center" gap="$spacing8" justifyContent="flex-start" pr="$spacing4">
             {icon && <Flex>{icon}</Flex>}
             <Text
-              adjustsFontSizeToFit
-              numberOfLines={title.length > MAX_TEXT_LENGTH ? 2 : 1}
+              adjustsFontSizeToFit={expanded}
+              numberOfLines={expanded ? undefined : 1}
               testID={TestID.NotificationToastTitle}
-              variant={title.length > MAX_TEXT_LENGTH ? 'body3' : 'body2'}
+              variant={isExpandable ? 'body3' : 'body2'}
             >
               {title}
             </Text>

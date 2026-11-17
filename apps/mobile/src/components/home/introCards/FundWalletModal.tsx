@@ -1,5 +1,7 @@
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import React, { PropsWithChildren, useCallback, useMemo } from 'react'
+import { AnimatedFlex, Flex, UniversalImage, UniversalImageResizeMode } from '@universe/mycelium'
+import { useShadowPropsShort } from '@universe/mycelium/theme-hooks-compat'
+import { fadeInQuick } from '@universe/tailwind/animations/reanimated'
+import React, { type PropsWithChildren, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FlatList } from 'react-native'
 import { useDispatch } from 'react-redux'
@@ -7,13 +9,12 @@ import { navigate } from 'src/app/navigation/rootNavigation'
 import { useReactNavigationModal } from 'src/components/modals/useReactNavigationModal'
 import { useOpenReceiveModal } from 'src/features/modals/hooks/useOpenReceiveModal'
 import { openModal } from 'src/features/modals/modalSlice'
-import { Flex, useShadowPropsShort } from 'ui/src'
 import { ArrowDownCircle, Buy } from 'ui/src/components/icons'
 import { borderRadii, iconSizes, spacing } from 'ui/src/theme'
-import { ActionCard, ActionCardItem } from 'uniswap/src/components/misc/ActionCard'
+import { ActionCard, type ActionCardItem } from 'uniswap/src/components/misc/ActionCard'
 import { Modal } from 'uniswap/src/components/modals/Modal'
-import { ImageUri } from 'uniswap/src/components/nfts/images/ImageUri'
 import { useCexTransferProviders } from 'uniswap/src/features/fiatOnRamp/useCexTransferProviders'
+import { useIsForRegionBlocked } from 'uniswap/src/features/fiatOnRamp/useIsForRegionBlocked'
 import { ElementName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import { usePortfolioEmptyStateBackground } from 'wallet/src/components/portfolio/empty'
 
@@ -26,20 +27,20 @@ export function FundWalletModal(): JSX.Element {
 
   const { onClose } = useReactNavigationModal()
 
-  const disableForKorea = useFeatureFlag(FeatureFlags.DisableFiatOnRampKorea)
+  const isForRegionBlocked = useIsForRegionBlocked({ isOfframp: false })
 
   const backgroundImageWrapperCallback = usePortfolioEmptyStateBackground()
 
   const onPressBuy = useCallback(() => {
     onClose()
-    disableForKorea
-      ? navigate(ModalName.KoreaCexTransferInfoModal)
+    isForRegionBlocked
+      ? navigate(ModalName.CexTransferInfoModal)
       : dispatch(
           openModal({
             name: ModalName.FiatOnRampAggregator,
           }),
         )
-  }, [disableForKorea, onClose, dispatch])
+  }, [isForRegionBlocked, onClose, dispatch])
 
   const onPressReceive = useCallback(() => {
     onClose()
@@ -69,8 +70,10 @@ export function FundWalletModal(): JSX.Element {
           icon:
             cexTransferProviders.length > 0 ? (
               <OverlappingLogos
-                // biome-ignore lint/correctness/useJsxKeyInIterable: Array items are static and don't require keys
-                logos={[<ReceiveCryptoIcon />, ...cexTransferProviders.map((provider) => provider.logos.lightLogo)]}
+                logos={[
+                  <ReceiveCryptoIcon key="receive-icon" />,
+                  ...cexTransferProviders.map((provider) => provider.logos?.lightLogo ?? ''),
+                ]}
               />
             ) : (
               <ArrowDownCircle color="$accent1" size="$icon.24" />
@@ -128,16 +131,9 @@ const LogoRendererComponent = ({
   index: number
 }>): JSX.Element => {
   return (
-    <Flex
-      centered
-      animation="quick"
-      enterStyle={{ opacity: 0 }}
-      exitStyle={{ opacity: 0 }}
-      marginEnd={-ICON_SHIFT}
-      zIndex={-index}
-    >
+    <AnimatedFlex centered entering={fadeInQuick} marginEnd={-ICON_SHIFT} zIndex={-index}>
       {children}
-    </Flex>
+    </AnimatedFlex>
   )
 }
 
@@ -150,14 +146,14 @@ function ServiceProviderLogo({ uri }: { uri: string }): JSX.Element {
       borderWidth="$spacing2"
       overflow="hidden"
     >
-      <ImageUri
-        imageStyle={{
-          borderRadius: borderRadii.rounded8,
+      <UniversalImage
+        uri={uri}
+        size={{
           height: iconSizes.icon24,
           width: iconSizes.icon24,
+          resizeMode: UniversalImageResizeMode.Cover,
         }}
-        resizeMode="cover"
-        uri={uri}
+        style={{ image: { borderRadius: borderRadii.rounded8 } }}
       />
     </Flex>
   )

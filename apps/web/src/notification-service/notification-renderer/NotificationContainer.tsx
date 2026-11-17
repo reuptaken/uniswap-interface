@@ -1,20 +1,25 @@
-/* eslint-disable import/no-unused-modules */
 import { ContentStyle, type InAppNotification } from '@universe/api'
-import type { NotificationClickTarget } from '@universe/notifications'
-import { ModalNotification } from 'notification-service/notification-renderer/ModalNotification'
-import {
-  type NotificationState,
-  useNotificationStore,
-} from 'notification-service/notification-renderer/notificationStore'
-import { StackedLowerLeftBanners } from 'notification-service/notification-renderer/StackedLowerLeftBanners'
-import { useMemo } from 'react'
+import { type NotificationClickTarget } from '@universe/notifications'
+import { useEffect, useMemo } from 'react'
+import { type Location } from 'react-router'
+import { ModalNotification } from 'uniswap/src/components/notifications/ModalNotification'
 import { getLogger } from 'utilities/src/logger/logger'
 import { useEvent } from 'utilities/src/react/hooks'
 import { type StoreApi, type UseBoundStore } from 'zustand'
+import { SystemBannerNotification } from '~/notification-service/notification-renderer/components/SystemBannerNotification'
+import {
+  type NotificationState,
+  useNotificationStore,
+} from '~/notification-service/notification-renderer/notificationStore'
+import { StackedLowerLeftBanners } from '~/notification-service/notification-renderer/StackedLowerLeftBanners'
+import {
+  getNotificationDestination,
+  isDestinationAlreadyActive,
+} from '~/notification-service/utils/getNotificationDestination'
 
 /**
  * Routes a notification to the appropriate renderer based on its style
- * Note: LOWER_LEFT_BANNER notifications are handled separately in NotificationContainer
+ * Note: LOWER_LEFT_BANNER and SYSTEM_BANNER notifications are handled separately in NotificationContainer
  */
 function NotificationRenderer({
   notification,
@@ -28,36 +33,50 @@ function NotificationRenderer({
   onNotificationShown?: (notificationId: string) => void
 }) {
   const style = notification.content?.style
-  switch (style) {
-    case ContentStyle.MODAL:
-      return (
-        <ModalNotification
-          notification={notification}
-          onNotificationClick={onNotificationClick}
-          onNotificationShown={onNotificationShown}
-        />
-      )
-    case ContentStyle.LOWER_LEFT_BANNER:
-      // Lower left banners are handled by StackedLowerLeftBanners in NotificationContainer
-      return null
-    default:
-      // Handle unknown/invalid notification styles
-      // This handles cases where the server sends string enums on first request and numeric
-      // enums on subsequent requests. Clean up without marking as processed to allow retry.
-      getLogger().warn(
-        'NotificationRenderer',
-        'renderNotification',
-        `Unknown notification style: ${style}, cleaning up failed render to allow retry with correct data`,
-        {
-          notification,
-        },
-      )
-      // Delay the cleanup to allow the notification to be rendered
-      setTimeout(() => {
-        onRenderFailed?.(notification.id)
-      }, 1)
-      return null
+  const isKnownStyle =
+    style === ContentStyle.MODAL || style === ContentStyle.LOWER_LEFT_BANNER || style === ContentStyle.SYSTEM_BANNER
+  const isUnknownStyle = !isKnownStyle
+
+  // Handle unknown/invalid notification styles as a side effect
+  // This handles cases where the server sends string enums on first request and numeric
+  // enums on subsequent requests. Clean up without marking as processed to allow retry.
+  useEffect(() => {
+    if (!isUnknownStyle) {
+      return () => null
+    }
+
+    getLogger().warn(
+      'NotificationRenderer',
+      'renderNotification',
+      `Unknown notification style: ${style}, cleaning up failed render to allow retry with correct data`,
+      {
+        notification,
+      },
+    )
+
+    const timeoutId = setTimeout(() => {
+      onRenderFailed?.(notification.id)
+    }, 1)
+
+    return () => clearTimeout(timeoutId)
+  }, [isUnknownStyle, style, notification, onRenderFailed])
+
+  if (isUnknownStyle) {
+    return null
   }
+
+  if (style === ContentStyle.MODAL) {
+    return (
+      <ModalNotification
+        notification={notification}
+        onNotificationClick={onNotificationClick}
+        onNotificationShown={onNotificationShown}
+      />
+    )
+  }
+
+  // ContentStyle.LOWER_LEFT_BANNER and SYSTEM_BANNER - handled separately in NotificationContainer
+  return null
 }
 
 /**
@@ -66,11 +85,13 @@ function NotificationRenderer({
  * Should be mounted at the app root level
  */
 export function NotificationContainer({
+  currentLocation,
   onRenderFailed,
   onNotificationShown,
   onNotificationClick,
   store = useNotificationStore,
 }: {
+  currentLocation: Pick<Location, 'pathname' | 'search' | 'hash'>
   onRenderFailed?: (notificationId: string) => void
   onNotificationShown?: (notificationId: string) => void
   onNotificationClick?: (notificationId: string, target: NotificationClickTarget) => void
@@ -84,13 +105,31 @@ export function NotificationContainer({
     onRenderFailed?.(notificationId)
   })
 
-  // Separate lower left banner notifications from other notifications
-  const { lowerLeftBannerNotifications, otherNotifications } = useMemo(() => {
+  // Separate notifications by style for specialized rendering
+  const { lowerLeftBannerNotifications, systemBannerNotifications, otherNotifications } = useMemo(() => {
     const lowerLeftBanners: InAppNotification[] = []
+    const systemBanners: InAppNotification[] = []
     const others: InAppNotification[] = []
 
+    const currentDestination = currentLocation.pathname + currentLocation.search + currentLocation.hash
+
     activeNotifications.forEach((notification) => {
-      if (notification.content?.style === ContentStyle.LOWER_LEFT_BANNER) {
+      const style = notification.content?.style
+
+      if (style === ContentStyle.SYSTEM_BANNER) {
+        systemBanners.push(notification)
+        return
+      }
+
+      // A promo whose click lands on the page you're already on has nothing to offer.
+      // System banners are exempt — they report state rather than send you somewhere.
+      const isDismissibleStyle = style === ContentStyle.LOWER_LEFT_BANNER || style === ContentStyle.MODAL
+      const destination = isDismissibleStyle ? getNotificationDestination(notification) : undefined
+      if (destination && isDestinationAlreadyActive(destination, currentDestination)) {
+        return
+      }
+
+      if (style === ContentStyle.LOWER_LEFT_BANNER) {
         lowerLeftBanners.push(notification)
       } else {
         others.push(notification)
@@ -99,9 +138,10 @@ export function NotificationContainer({
 
     return {
       lowerLeftBannerNotifications: lowerLeftBanners,
+      systemBannerNotifications: systemBanners,
       otherNotifications: others,
     }
-  }, [activeNotifications])
+  }, [activeNotifications, currentLocation])
 
   return (
     <>
@@ -112,7 +152,17 @@ export function NotificationContainer({
         onNotificationShown={onNotificationShown}
       />
 
-      {/* Render other notification types */}
+      {/* Render system banner notifications (bottom-right, one at a time) */}
+      {systemBannerNotifications.map((notification) => (
+        <SystemBannerNotification
+          key={notification.id}
+          notification={notification}
+          onNotificationClick={onNotificationClick}
+          onNotificationShown={onNotificationShown}
+        />
+      ))}
+
+      {/* Render other notification types (modals, etc.) */}
       {otherNotifications.map((notification) => (
         <NotificationRenderer
           key={notification.id}

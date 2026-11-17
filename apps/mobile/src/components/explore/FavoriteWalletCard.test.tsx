@@ -1,5 +1,6 @@
 import { UseQueryResult } from '@tanstack/react-query'
-import type { UnitagAddressResponse } from '@universe/api'
+import { GetAddressResponse } from '@universe/api'
+import { sanitizeAddressText } from '@universe/chains'
 import configureMockStore from 'redux-mock-store'
 import { thunk } from 'redux-thunk'
 import FavoriteWalletCard, { FavoriteWalletCardProps } from 'src/components/explore/FavoriteWalletCard'
@@ -9,19 +10,18 @@ import * as unitagHooks from 'uniswap/src/data/apiClients/unitagsApi/useUnitagsA
 import * as ensHooks from 'uniswap/src/features/ens/api'
 import { ON_PRESS_EVENT_PAYLOAD, SAMPLE_SEED_ADDRESS_1 } from 'uniswap/src/test/fixtures'
 import { MobileScreens } from 'uniswap/src/types/screens/mobile'
-import { sanitizeAddressText } from 'uniswap/src/utils/addresses'
 import { shortenAddress } from 'utilities/src/addresses'
+import type { MockInstance } from 'vitest'
 import { preloadedWalletReducerState, signerMnemonicAccount } from 'wallet/src/test/fixtures'
 
 const mockedNavigation = {
-  navigate: jest.fn(),
+  navigate: vi.fn(),
 }
 
-jest.mock('@react-navigation/native', () => {
-  const actualNav = jest.requireActual('@react-navigation/native')
+vi.mock('@react-navigation/native', async () => {
+  const actualNav = await vi.importActual('@react-navigation/native')
   return {
     ...actualNav,
-    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
     useNavigation: () => mockedNavigation,
   }
 })
@@ -31,7 +31,7 @@ const mockStore = configureMockStore([thunk])
 const defaultProps: FavoriteWalletCardProps = {
   address: SAMPLE_SEED_ADDRESS_1,
   isEditing: false,
-  setIsEditing: jest.fn(),
+  setIsEditing: vi.fn(),
 }
 
 describe('FavoriteWalletCard', () => {
@@ -42,13 +42,23 @@ describe('FavoriteWalletCard', () => {
   })
 
   describe('displayName', () => {
+    const spies: MockInstance[] = []
+    const trackSpy = <T extends MockInstance>(spy: T): T => {
+      spies.push(spy)
+      return spy
+    }
+
     afterEach(() => {
-      jest.restoreAllMocks()
+      // restore only this file's spies: vi.restoreAllMocks would also reset the vi.fn
+      // implementations registered by the shared vitest setup mocks
+      for (const spy of spies.splice(0)) {
+        spy.mockRestore()
+      }
     })
 
     it('renders unitag name if available', () => {
-      jest.spyOn(unitagHooks, 'useUnitagsAddressQuery').mockReturnValue({
-        data: { username: 'unitagname' },
+      trackSpy(vi.spyOn(unitagHooks, 'useUnitagsAddressQuery')).mockReturnValue({
+        data: new GetAddressResponse({ username: 'unitagname' }),
         isLoading: false,
         isFetching: false,
         isPending: false,
@@ -58,7 +68,7 @@ describe('FavoriteWalletCard', () => {
         isRefetchError: false,
         isSuccess: true,
         status: 'success',
-        refetch: jest.fn(),
+        refetch: vi.fn(),
         dataUpdatedAt: 0,
         errorUpdatedAt: 0,
         failureCount: 0,
@@ -68,12 +78,13 @@ describe('FavoriteWalletCard', () => {
         isRefetching: false,
         isStale: false,
         isInitialLoading: false,
+        isEnabled: true,
         errorUpdateCount: 0,
         isFetched: true,
         isFetchedAfterMount: true,
         isPaused: false,
-        promise: Promise.resolve({ username: 'unitagname' }),
-      } as UseQueryResult<UnitagAddressResponse>)
+        promise: Promise.resolve(new GetAddressResponse({ username: 'unitagname' })),
+      } as UseQueryResult<GetAddressResponse>)
 
       const { queryByText } = render(<FavoriteWalletCard {...defaultProps} />)
 
@@ -81,7 +92,7 @@ describe('FavoriteWalletCard', () => {
     })
 
     it('renders ens name if available', () => {
-      jest.spyOn(ensHooks, 'useENSName').mockReturnValue({
+      trackSpy(vi.spyOn(ensHooks, 'useENSName')).mockReturnValue({
         data: 'ensname.eth',
         isLoading: false,
         error: null,
@@ -134,7 +145,7 @@ describe('FavoriteWalletCard', () => {
       const removeButton = getByTestId('explore/remove-button')
 
       await waitFor(() => {
-        expect(removeButton).toHaveAnimatedStyle({ opacity: 0 })
+        expect((removeButton as unknown as HTMLElement).getAttribute('aria-disabled')).toBe('true')
       })
     })
   })
@@ -146,7 +157,7 @@ describe('FavoriteWalletCard', () => {
       const removeButton = getByTestId('explore/remove-button')
 
       await waitFor(() => {
-        expect(removeButton).toHaveAnimatedStyle({ opacity: 1 })
+        expect((removeButton as unknown as HTMLElement).getAttribute('aria-disabled')).toBeNull()
       })
     })
 

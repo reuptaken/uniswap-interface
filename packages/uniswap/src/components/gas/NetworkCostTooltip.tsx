@@ -1,41 +1,43 @@
+import { FormattedUniswapXGasFeeInfo } from '@universe/api'
+import { UniverseChainId } from '@universe/chains'
+import { Flex, Text } from '@universe/mycelium'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text } from 'ui/src'
 import { UniswapX } from 'ui/src/components/icons/UniswapX'
 import { UniswapXText } from 'ui/src/components/text/UniswapXText'
 import { NetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
 import { TransactionDetailsTooltip as Tooltip } from 'uniswap/src/components/TransactionDetailsTooltip'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
+import { UniswapHelpUrls } from 'uniswap/src/constants/urls'
 import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { FormattedUniswapXGasFeeInfo } from 'uniswap/src/features/gas/types'
 
-export function NetworkCostTooltipClassic({ chainId }: { chainId: UniverseChainId }): JSX.Element {
+export function NetworkCostTooltip({
+  chainId,
+  includesDelegation,
+  includesDelegationUpgrade = false,
+}: {
+  chainId: UniverseChainId
+  includesDelegation: boolean
+  /** The included delegation is a smart wallet update (Calibur re-delegation) rather than a first-time activation */
+  includesDelegationUpgrade?: boolean
+}): JSX.Element {
   const { t } = useTranslation()
 
+  const learnMoreUrl = includesDelegationUpgrade
+    ? UniswapHelpUrls.articles.caliburUpgrades
+    : includesDelegation
+      ? UniswapHelpUrls.articles.smartWalletDelegation
+      : UniswapHelpUrls.articles.networkFeeInfo
+  const text = includesDelegationUpgrade
+    ? t('transaction.networkCost.includesSmartWalletUpdate')
+    : includesDelegation
+      ? t('smartWallet.banner.networkCost', { chainName: getChainInfo(chainId).label })
+      : t('transaction.networkCost.description')
   return (
     <Tooltip.Outer>
       <Tooltip.Header
         title={{ title: t('common.chain.networkCost', { chain: getChainInfo(chainId).name }) }}
         logo={<NetworkLogo chainId={chainId} size={16} />}
       />
-      <Tooltip.Description
-        learnMoreUrl={uniswapUrls.helpArticleUrls.networkFeeInfo}
-        text={t('transaction.networkCost.description')}
-      />
-    </Tooltip.Outer>
-  )
-}
-
-export function NetworkCostTooltipSmartWallet(): JSX.Element {
-  const { t } = useTranslation()
-
-  return (
-    <Tooltip.Outer>
-      <Tooltip.Description
-        learnMorePinkColor={true}
-        learnMoreUrl={uniswapUrls.helpArticleUrls.networkFeeInfo}
-        text={t('swap.warning.networkFee.message')}
-      />
+      <Tooltip.Description learnMoreUrl={learnMoreUrl} text={text} />
     </Tooltip.Outer>
   )
 }
@@ -74,7 +76,7 @@ export function NetworkCostTooltipUniswapX({
         )}
       </Tooltip.Content>
       <Tooltip.Separator />
-      <Tooltip.Description learnMoreUrl={uniswapUrls.helpArticleUrls.uniswapXInfo} text={t('uniswapX.cost')} />
+      <Tooltip.Description learnMoreUrl={UniswapHelpUrls.articles.uniswapXInfo} text={t('uniswapX.cost')} />
     </Tooltip.Outer>
   )
 }

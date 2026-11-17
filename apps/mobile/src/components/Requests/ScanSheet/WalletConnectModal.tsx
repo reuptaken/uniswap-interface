@@ -1,37 +1,29 @@
+import 'react-native-reanimated'
+import { isBetaEnv, isDevEnv } from '@universe/environment'
+import { FeatureFlags, useFeatureFlag } from '@universe/gating'
+import { Flex, Text, TouchableArea } from '@universe/mycelium'
+import { QrCode } from '@universe/mycelium/icons/QrCode'
+import { Scan } from '@universe/mycelium/icons/Scan'
+import { useIsDarkMode, useSporeColorsForTheme } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Alert } from 'react-native'
-import 'react-native-reanimated'
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
 import { useDispatch } from 'react-redux'
 import { useEagerExternalProfileRootNavigation } from 'src/app/navigation/hooks'
 import { BackButtonView } from 'src/components/layout/BackButtonView'
 import { QRCodeScanner } from 'src/components/QRCodeScanner/QRCodeScanner'
 import { ConnectedDappsList } from 'src/components/Requests/ConnectedDapps/ConnectedDappsList'
 import { getSupportedURI, URIType } from 'src/components/Requests/ScanSheet/util'
-import {
-  getFormattedUwuLinkTxnRequest,
-  isAllowedUwuLinkRequest,
-  useUwuLinkContractAllowlist,
-} from 'src/components/Requests/Uwulink/utils'
 import { openDeepLink } from 'src/features/deepLinking/handleDeepLinkSaga'
 import { useWalletConnect } from 'src/features/walletConnect/useWalletConnect'
 import { pairWithWalletConnectURI } from 'src/features/walletConnect/utils'
-import { addRequest } from 'src/features/walletConnect/walletConnectSlice'
-import { Flex, Text, TouchableArea, useIsDarkMode } from 'ui/src'
-import { QrCode, Scan } from 'ui/src/components/icons'
-import { useSporeColorsForTheme } from 'ui/src/hooks/useSporeColors'
 import { Modal } from 'uniswap/src/components/modals/Modal'
 import { ScannerModalState } from 'uniswap/src/components/ReceiveQRCode/constants'
 import { ReceiveQRCode } from 'uniswap/src/components/ReceiveQRCode/ReceiveQRCode'
-import { AccountType } from 'uniswap/src/features/accounts/types'
 import { ElementName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
-import { UwULinkRequest } from 'uniswap/src/types/walletConnect'
-import { isBetaEnv, isDevEnv } from 'utilities/src/environment/env'
 import { logger } from 'utilities/src/logger/logger'
-import { useContractManager, useProviderManager } from 'wallet/src/features/wallet/context'
 import { useActiveAccount } from 'wallet/src/features/wallet/hooks'
 
 type Props = {
@@ -52,13 +44,7 @@ export function WalletConnectModal({
   const [shouldFreezeCamera, setShouldFreezeCamera] = useState(false)
   const { preload, navigate } = useEagerExternalProfileRootNavigation()
   const dispatch = useDispatch()
-  const isUwULinkEnabled = useFeatureFlag(FeatureFlags.UwULink)
   const isScantasticEnabled = useFeatureFlag(FeatureFlags.Scantastic)
-
-  const uwuLinkContractAllowlist = useUwuLinkContractAllowlist()
-
-  const providerManager = useProviderManager()
-  const contractManager = useContractManager()
 
   const isScanningQr = currentScreenState === ScannerModalState.ScanQr
 
@@ -80,10 +66,7 @@ export function WalletConnectModal({
         return
       }
 
-      const supportedURI = await getSupportedURI(uri, {
-        isUwULinkEnabled,
-        isScantasticEnabled,
-      })
+      const supportedURI = await getSupportedURI(uri, { isScantasticEnabled })
       if (!supportedURI) {
         setShouldFreezeCamera(true)
         Alert.alert(t('walletConnect.error.unsupported.title'), t('walletConnect.error.unsupported.message'), [
@@ -98,7 +81,7 @@ export function WalletConnectModal({
         return
       }
 
-      if (supportedURI.type === URIType.Address) {
+      if (supportedURI.type === URIType.Address || supportedURI.type === URIType.EIP681) {
         setShouldFreezeCamera(true)
         await preload(supportedURI.value)
         await navigate(supportedURI.value, onClose)
@@ -152,51 +135,6 @@ export function WalletConnectModal({
         return
       }
 
-      if (supportedURI.type === URIType.UwULink) {
-        setShouldFreezeCamera(true)
-        try {
-          const parsedUwulinkRequest: UwULinkRequest = JSON.parse(supportedURI.value)
-          const isSignerAccount = activeAccount.type === AccountType.SignerMnemonic
-          const isAllowed = isAllowedUwuLinkRequest(parsedUwulinkRequest, uwuLinkContractAllowlist)
-          if (!isAllowed || !isSignerAccount) {
-            Alert.alert(
-              t('walletConnect.error.uwu.title'),
-              !isAllowed ? t('walletConnect.error.uwu.unsupported') : t('account.wallet.viewOnly.title'),
-              [
-                {
-                  text: t('common.button.ok'),
-                  onPress: (): void => {
-                    setShouldFreezeCamera(false)
-                  },
-                },
-              ],
-            )
-            return
-          }
-
-          const wcRequest = await getFormattedUwuLinkTxnRequest({
-            request: parsedUwulinkRequest,
-            activeAccount,
-            allowList: uwuLinkContractAllowlist,
-            providerManager,
-            contractManager,
-          })
-
-          dispatch(addRequest(wcRequest.request))
-
-          onClose()
-        } catch {
-          Alert.alert(t('walletConnect.error.uwu.title'), t('walletConnect.error.uwu.scan'), [
-            {
-              text: t('common.button.ok'),
-              onPress: (): void => {
-                setShouldFreezeCamera(false)
-              },
-            },
-          ])
-        }
-      }
-
       if (supportedURI.type === URIType.EasterEgg) {
         setShouldFreezeCamera(true)
         Alert.alert('Have you tried full-sending lately?', 'Highly recommend it', [
@@ -214,16 +152,12 @@ export function WalletConnectModal({
       activeAccount,
       hasPendingSessionError,
       shouldFreezeCamera,
-      isUwULinkEnabled,
       isScantasticEnabled,
       t,
       preload,
       navigate,
       onClose,
       dispatch,
-      uwuLinkContractAllowlist,
-      providerManager,
-      contractManager,
     ],
   )
 
@@ -250,6 +184,8 @@ export function WalletConnectModal({
   return (
     <Modal
       fullScreen
+      // fullScreen covers the backdrop, so without content panning only a drag on the handle dismisses this sheet.
+      enableContentPanningGesture
       handlebarColor={colors.surface3.val}
       backgroundColor={colors.surface1.val}
       name={ModalName.WalletConnectScan}
@@ -289,7 +225,7 @@ export function WalletConnectModal({
             borderWidth="$spacing1"
             p="$spacing16"
             paddingEnd="$spacing24"
-            backgroundColor={colors.DEP_backgroundOverlay.val}
+            backgroundColor={colors.surface3.val}
             testID={TestID.QRCodeModalToggle}
             onPress={onPressBottomToggle}
           >

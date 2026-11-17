@@ -5,7 +5,7 @@ import {
   SwapTxAndGasInfo,
   UniswapXSwapTxAndGasInfo,
 } from 'uniswap/src/features/transactions/swap/types/swapTxAndGasInfo'
-import { ClassicTrade } from 'uniswap/src/features/transactions/swap/types/trade'
+import type { ClassicTrade } from 'uniswap/src/features/transactions/swap/types/trade'
 import { generateSwapTransactionSteps } from 'uniswap/src/features/transactions/swap/utils/generateSwapTransactionSteps'
 import { mockPermit } from 'uniswap/src/test/fixtures/permit'
 import {
@@ -14,10 +14,18 @@ import {
   createMockUniswapXTrade,
 } from 'uniswap/src/test/fixtures/transactions/swap'
 
-const UserAgentMock = jest.requireMock('utilities/src/platform')
-jest.mock('utilities/src/platform', () => ({
-  ...jest.requireActual('utilities/src/platform'),
-}))
+// Use vi.hoisted to create a mutable mock state that can be changed between tests
+const mockPlatformState = vi.hoisted(() => ({ isWebApp: false }))
+
+vi.mock('@universe/environment', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@universe/environment')>()
+  return {
+    ...actual,
+    get isWebApp(): boolean {
+      return mockPlatformState.isWebApp
+    },
+  }
+})
 
 const mockTxRequest = {
   chainId: 1,
@@ -60,7 +68,7 @@ describe('Swap', () => {
     },
     trade: mockTrade.trade as ClassicTrade,
     txRequests: [mockTxRequest],
-    unsigned: false,
+    hasUnsignedPermit: false,
     includesDelegation: false,
   } as const satisfies SwapTxAndGasInfo
 
@@ -129,12 +137,12 @@ describe('Swap', () => {
 
     it('should return steps for classic trade with approval and permit required', () => {
       // We only expect `SwapTransactionAsync` step when on interface swap (unsigned w/o a wallet interaction)
-      UserAgentMock.isWebApp = true
+      mockPlatformState.isWebApp = true
 
       const swapTxContext = {
         ...baseSwapTxContext,
         approveTxRequest: mockApproveRequest,
-        unsigned: true,
+        hasUnsignedPermit: true,
         permit: mockPermit,
       }
 

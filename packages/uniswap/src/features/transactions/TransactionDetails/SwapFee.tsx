@@ -1,10 +1,10 @@
 import { Currency } from '@uniswap/sdk-core'
+import { UniverseChainId } from '@universe/chains'
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
+import { Flex, Text } from '@universe/mycelium'
+import { IndicativeLoadingWrapper } from '@universe/swap-ui'
 import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text } from 'ui/src'
-import { IndicativeLoadingWrapper } from 'uniswap/src/components/misc/IndicativeLoadingWrapper'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
 import { SwapFee as SwapFeeType } from 'uniswap/src/features/transactions/swap/types/trade'
 import { SwapFeeWarning } from 'uniswap/src/features/transactions/TransactionDetails/modals/SwapFeeWarning'
@@ -62,7 +62,7 @@ export function SwapFee({
         </SwapFeeWarning>
         <Flex row alignItems="center" gap="$spacing8">
           <Flex row alignItems="center" justifyContent="space-between">
-            <Text color="$accent1" variant="body3">
+            <Text color="$neutral1" variant="body3">
               {t('common.free')}
             </Text>
           </Flex>

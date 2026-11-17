@@ -1,17 +1,53 @@
-import { createTradingApiClient, TradingApi } from '@universe/api'
-import { TRADING_API_PATHS } from '@universe/api/src/clients/trading/createTradingApiClient'
-import { FeatureFlags, getFeatureFlag } from '@universe/gating'
+import {
+  createTradingApiClient,
+  createTradingApiFetchClient,
+  type GetFeatureFlagHeadersOptions,
+  provideSessionService,
+  SharedQueryClient,
+  TradingApi,
+  TRADING_API_PATHS,
+  type TradingApiClient as TradingApiClientType,
+  tryProvideSession,
+} from '@universe/api'
+import { type UniverseChainId, Platform } from '@universe/chains'
+import { getExperimentsClient } from '@universe/experiments'
+import {
+  EthAsErc20UniswapXProperties,
+  Experiments,
+  FeatureFlags,
+  getExperimentValueFromLayer,
+  getFeatureFlag,
+  Layers,
+  waitForStatsigReady,
+} from '@universe/gating'
+import { SessionGateSource } from '@universe/sessions'
 import { config } from 'uniswap/src/config'
-import { tradingApiVersionPrefix, uniswapUrls } from 'uniswap/src/constants/urls'
-import { createUniswapFetchClient } from 'uniswap/src/data/apiClients/createUniswapFetchClient'
+import { getUniswapServiceUrls } from 'uniswap/src/constants/urls'
+import { BASE_UNISWAP_HEADERS } from 'uniswap/src/data/apiClients/createUniswapFetchClient'
+import { getIsPermissionedTokenFromCache } from 'uniswap/src/data/apiClients/tradingApi/getIsPermissionedTokenFromCache'
+import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
 import { filterChainIdsByPlatform } from 'uniswap/src/features/chains/utils'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
+import { tradingApiToUniverseChainId } from 'uniswap/src/features/transactions/swap/utils/tradingApi'
 
-const TradingFetchClient = createUniswapFetchClient({
-  baseUrl: uniswapUrls.tradingApiUrl,
-  additionalHeaders: {
+// Built through the trading factory so web requests carry the session cookie.
+const TradingFetchClient = createTradingApiFetchClient({
+  getBaseUrl: () => getUniswapServiceUrls(config).tradingApiUrl,
+  getHeaders: () => ({
+    ...BASE_UNISWAP_HEADERS,
     'x-api-key': config.tradingApiKey,
-  },
+    // Correlate experiment buckets with the trading backend (our own service): the active
+    // set rides as `x-experiments` on every trading request. Merged here, not in a shared
+    // client, so experiment data never leaks to third-party clients (Blockaid, Jupiter).
+    ...getExperimentsClient().toHeaders(),
+  }),
+  // Absorb any experiments the backend echoes or originates (BE→FE).
+  onResponse: (response) => getExperimentsClient().absorb(response),
+  getSessionService: () =>
+    provideSessionService({
+      getBaseUrl: () => getUniswapServiceUrls(config).apiBaseUrlV2,
+    }),
+  getSession: tryProvideSession,
+  source: SessionGateSource.FetchUniswap,
 })
 
 /**
@@ -26,12 +62,56 @@ function addHeaderIfEnabled(params: { headers: Record<string, string>; key: stri
 
 export enum TradingApiHeaders {
   UniversalRouterVersion = 'x-universal-router-version',
+  RequestSwapSteps = 'x-universal-router-swapsteps',
   UniquoteEnabled = 'x-uniquote-enabled',
   ViemProviderEnabled = 'x-viem-provider-enabled',
   Erc20EthEnabled = 'x-erc20eth-enabled',
   ChainedActionsEnabled = 'x-chained-actions-enabled',
   UnirouteEnabled = 'x-uniroute-enabled',
+  UniroutePulumiEnabled = 'x-uniroute-pulumi-enabled',
   DisableUniswapInterfaceFees = 'x-disable-uniswap-interface-fees',
+}
+
+// Universal Router 2.2.0 is required to route through permissioned pools; 2.1.1/2.0 don't work
+// with them, so for a permissioned token 2.2.0 is a correctness requirement, not a rollout
+// choice. No separate feature flag gates this: permissioned-pool support (the backend and this)
+// launches as a unit, so "a permissioned token is involved" is itself the gate.
+function getUniversalRouterVersionHeader(params: {
+  chainId: UniverseChainId | undefined
+  options?: GetFeatureFlagHeadersOptions
+}): string {
+  if (isPermissionedTokenRequest(params)) {
+    return TradingApi.UniversalRouterVersion._2_2_0
+  }
+
+  const { chainId } = params
+  const chainSupports211 =
+    !!chainId && getChainInfo(chainId).supportedURVersions.includes(TradingApi.UniversalRouterVersion._2_1_1)
+  const useUR211 = getFeatureFlag(FeatureFlags.UseUniversalRouterVersion211) && chainSupports211
+  return useUR211 ? TradingApi.UniversalRouterVersion._2_1_1 : TradingApi.UniversalRouterVersion._2_0
+}
+
+// Quote requests carry the underlying token addresses, so permissioned status is resolved from
+// the cached `/permissions` results. Swap requests pre-resolve it (their embedded quote only
+// references v4-adapter addresses, which never appear in the `/permissions` cache).
+function isPermissionedTokenRequest({
+  chainId,
+  options,
+}: {
+  chainId: UniverseChainId | undefined
+  options?: GetFeatureFlagHeadersOptions
+}): boolean {
+  if (options?.isPermissionedToken !== undefined) {
+    return options.isPermissionedToken
+  }
+  if (options?.permissionCheckTokenAddresses?.length) {
+    return getIsPermissionedTokenFromCache({
+      queryClient: SharedQueryClient,
+      tokenAddresses: options.permissionCheckTokenAddresses,
+      chainId,
+    })
+  }
+  return false
 }
 
 /**
@@ -40,11 +120,14 @@ export enum TradingApiHeaders {
  * NOTE: Be sure to confirm that adding this header does not cause a CORS issue
  * with the web environments.
  */
-export const getFeatureFlaggedHeaders = (
+export const getFeatureFlaggedHeaders = async (
   tradingApiPath: (typeof TRADING_API_PATHS)[keyof typeof TRADING_API_PATHS],
-): HeadersInit => {
+  options?: GetFeatureFlagHeadersOptions,
+): Promise<HeadersInit> => {
+  await waitForStatsigReady()
+  const chainId = tradingApiToUniverseChainId(options?.chainId)
   const headers: Record<string, string> = {
-    [TradingApiHeaders.UniversalRouterVersion]: TradingApi.UniversalRouterVersion._2_0,
+    [TradingApiHeaders.UniversalRouterVersion]: getUniversalRouterVersionHeader({ chainId, options }),
   }
   const uniquoteEnabled = getFeatureFlag(FeatureFlags.UniquoteEnabled)
   const viemProviderEnabled = getFeatureFlag(FeatureFlags.ViemProviderEnabled)
@@ -53,13 +136,25 @@ export const getFeatureFlaggedHeaders = (
 
   const chainedActionsEnabled = getFeatureFlag(FeatureFlags.ChainedActions)
   const unirouteEnabled = getFeatureFlag(FeatureFlags.UnirouteEnabled)
-  const ethAsErc20UniswapXEnabled = getFeatureFlag(FeatureFlags.EthAsErc20UniswapX)
+  const shouldRequestSwapSteps = getFeatureFlag(FeatureFlags.RequestSwapSteps)
+  const ethAsErc20UniswapXEnabled = getExperimentValueFromLayer<
+    typeof Layers.SwapPage,
+    Experiments.EthAsErc20UniswapX,
+    boolean
+  >({
+    layerName: Layers.SwapPage,
+    param: EthAsErc20UniswapXProperties.EthAsErc20UniswapXEnabled,
+    defaultValue: false,
+  })
   const disableUniswapInterfaceFees = getFeatureFlag(FeatureFlags.NoUniswapInterfaceFees)
   switch (tradingApiPath) {
     case TRADING_API_PATHS.quote:
       addHeaderIfEnabled({ headers, key: TradingApiHeaders.UnirouteEnabled, enabled: unirouteEnabled })
+      // TODO(INFRA-1595): remove once backend is fully migrated to new route
+      headers[TradingApiHeaders.UniroutePulumiEnabled] = 'true'
       addHeaderIfEnabled({ headers, key: TradingApiHeaders.Erc20EthEnabled, enabled: ethAsErc20UniswapXEnabled })
       addHeaderIfEnabled({ headers, key: TradingApiHeaders.ChainedActionsEnabled, enabled: chainedActionsEnabled })
+      addHeaderIfEnabled({ headers, key: TradingApiHeaders.RequestSwapSteps, enabled: shouldRequestSwapSteps })
       addHeaderIfEnabled({
         headers,
         key: TradingApiHeaders.DisableUniswapInterfaceFees,
@@ -68,32 +163,28 @@ export const getFeatureFlaggedHeaders = (
       break
     case TRADING_API_PATHS.plan:
       addHeaderIfEnabled({ headers, key: TradingApiHeaders.ChainedActionsEnabled, enabled: chainedActionsEnabled })
+      addHeaderIfEnabled({ headers, key: TradingApiHeaders.Erc20EthEnabled, enabled: ethAsErc20UniswapXEnabled })
       break
     case TRADING_API_PATHS.order:
       addHeaderIfEnabled({ headers, key: TradingApiHeaders.Erc20EthEnabled, enabled: ethAsErc20UniswapXEnabled })
       break
     case TRADING_API_PATHS.swap7702:
       addHeaderIfEnabled({ headers, key: TradingApiHeaders.UnirouteEnabled, enabled: unirouteEnabled })
+      // TODO(INFRA-1595): remove once backend is fully migrated to new route
+      headers[TradingApiHeaders.UniroutePulumiEnabled] = 'true'
+      addHeaderIfEnabled({ headers, key: TradingApiHeaders.Erc20EthEnabled, enabled: ethAsErc20UniswapXEnabled })
       break
   }
   return headers
 }
 
-/**
- * NOTE: Be sure to confirm that adding this header does not cause a CORS issue
- * with the web environments
- */
-export const getQuoteHeaders = (): Record<string, string> => {
-  const headers: Record<string, string> = {}
-  const unirouteEnabled = getFeatureFlag(FeatureFlags.UnirouteEnabled)
-  addHeaderIfEnabled({ headers, key: 'x-uniroute-enabled', enabled: unirouteEnabled })
-  return headers
-}
-
-export const TradingApiClient = createTradingApiClient({
+// Narrowed to `TradingApiClientType` type safety to ensure we are only using the plan endpoints with sessions, until full migration
+export const TradingApiClient: TradingApiClientType = createTradingApiClient({
   fetchClient: TradingFetchClient,
   getFeatureFlagHeaders: getFeatureFlaggedHeaders,
-  getApiPathPrefix: () => tradingApiVersionPrefix,
+  // Entry gateway serves trading at unversioned paths (same as the session/Plan client and DataApi),
+  // so no `/v1` prefix. The legacy trading-api-labs cloudflare host required `/v1`; we no longer use it.
+  getApiPathPrefix: () => '',
 })
 
 // Default maximum amount of combinations wallet<>chainId per check delegation request

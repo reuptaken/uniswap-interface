@@ -1,4 +1,6 @@
-import { ReportAssetType, TokenReportEventType } from '@universe/api'
+import { ConnectError } from '@connectrpc/connect'
+import { TokenReportEventType } from '@universe/api'
+import type { UniverseChainId } from '@universe/chains'
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
 import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -8,12 +10,11 @@ import { Eye } from 'ui/src/components/icons/Eye'
 import { EyeOff } from 'ui/src/components/icons/EyeOff'
 import { Flag } from 'ui/src/components/icons/Flag'
 import { Opensea } from 'ui/src/components/icons/Opensea'
-import { type MenuOptionItem } from 'uniswap/src/components/menus/ContextMenuV2'
-import { DataServiceApiClient } from 'uniswap/src/data/apiClients/dataApi/DataApiClient'
+import { type MenuOptionItem } from 'uniswap/src/components/menus/ContextMenu'
+import { dataApiServiceClientV1 } from 'uniswap/src/data/apiClients/dataApiService/clients/DataApiClient'
+import { ASSET_TO_REPORT_STRING, ReportAssetType } from 'uniswap/src/data/apiClients/dataApiService/reporting/utils'
 import { AccountType } from 'uniswap/src/features/accounts/types'
-import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
 import { useBlockExplorerLogo } from 'uniswap/src/features/chains/logos'
-import { type UniverseChainId } from 'uniswap/src/features/chains/types'
 import { getChainExplorerName } from 'uniswap/src/features/chains/utils'
 import { useNavigateToNftExplorerLink } from 'uniswap/src/features/nfts/hooks/useNavigateToNftExplorerLink'
 import { getIsNftHidden, getNFTAssetKey } from 'uniswap/src/features/nfts/utils'
@@ -25,8 +26,8 @@ import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { selectNftsVisibility } from 'uniswap/src/features/visibility/selectors'
 import { setNftVisibility } from 'uniswap/src/features/visibility/slice'
 import { useWallet } from 'uniswap/src/features/wallet/hooks/useWallet'
-import { setClipboard } from 'uniswap/src/utils/clipboard'
 import { getOpenseaLink, openUri } from 'uniswap/src/utils/linking'
+import { setClipboard } from 'utilities/src/clipboard/clipboard'
 import { logger } from 'utilities/src/logger/logger'
 import { ONE_SECOND_MS } from 'utilities/src/time/time'
 
@@ -38,6 +39,8 @@ interface NFTMenuParams {
   showNotification?: boolean
   isSpam?: boolean
   chainId?: UniverseChainId
+  onCopySuccess?: () => void
+  onReportSuccess?: () => void
 }
 
 export function useNFTContextMenuItems({
@@ -48,10 +51,11 @@ export function useNFTContextMenuItems({
   showNotification = false,
   isSpam,
   chainId,
+  onCopySuccess,
+  onReportSuccess,
 }: NFTMenuParams): MenuOptionItem[] {
   const { t } = useTranslation()
   const dispatch = useDispatch()
-  const { defaultChainId } = useEnabledChains()
   const navigateToNftExplorerLink = useNavigateToNftExplorerLink()
   const isSelfReportSpamNFTEnabled = useFeatureFlag(FeatureFlags.SelfReportSpamNFTs)
   const { evmAccount } = useWallet()
@@ -84,11 +88,11 @@ export function useNFTContextMenuItems({
         contractAddress,
       })
       // Submit report to API
-      await DataServiceApiClient.submitTokenReport({
+      await dataApiServiceClientV1.submitReport({
         chainId,
         address: contractAddress,
-        event: TokenReportEventType.FalseNegative,
-        assetType: ReportAssetType.NFT,
+        event: TokenReportEventType.FALSE_NEGATIVE,
+        details: ASSET_TO_REPORT_STRING[ReportAssetType.NFT],
       })
 
       if (showNotification) {
@@ -99,14 +103,15 @@ export function useNFTContextMenuItems({
           }),
         )
       }
+      onReportSuccess?.()
     } catch (e) {
       logger.error(e, {
         tags: { file: 'useNftContextMenu.tsx', function: 'onPressReport' },
       })
 
       // Don't surface this error to the user if the chain ID isn't supported
-      const error = e as { data?: { message?: string } }
-      const unsupportedChainError = error.data?.message?.includes('Unsupported chain ID')
+      const errorMessage = e instanceof ConnectError ? e.message : undefined
+      const unsupportedChainError = errorMessage?.includes('Unsupported chain ID')
 
       if (unsupportedChainError) {
         return
@@ -122,7 +127,7 @@ export function useNFTContextMenuItems({
       }
       return
     }
-  }, [t, dispatch, contractAddress, isVisible, chainId, nftKey, showNotification])
+  }, [t, dispatch, contractAddress, isVisible, chainId, nftKey, showNotification, onReportSuccess])
 
   const onPressHiddenStatus = useCallback(() => {
     if (!nftKey) {
@@ -164,7 +169,8 @@ export function useNFTContextMenuItems({
         }),
       )
     }
-  }, [contractAddress, dispatch, showNotification])
+    onCopySuccess?.()
+  }, [contractAddress, dispatch, showNotification, onCopySuccess])
 
   const openseaUri = useMemo(() => {
     if (chainId && contractAddress && tokenId) {
@@ -181,9 +187,9 @@ export function useNFTContextMenuItems({
 
   const openExplorerLink = useCallback(async () => {
     if (chainId && contractAddress && tokenId) {
-      navigateToNftExplorerLink({ chainId, contractAddress, tokenId, fallbackChainId: defaultChainId })
+      navigateToNftExplorerLink({ chainId, contractAddress, tokenId })
     }
-  }, [chainId, contractAddress, tokenId, navigateToNftExplorerLink, defaultChainId])
+  }, [chainId, contractAddress, tokenId, navigateToNftExplorerLink])
 
   const ExplorerLogo = useBlockExplorerLogo(chainId)
 

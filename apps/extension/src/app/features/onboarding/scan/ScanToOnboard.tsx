@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AnimatedFlex, Flex, Square, Text, TouchableArea, useSporeColors } from '@universe/mycelium'
+import { DOT_GRID, UNISWAP_LOGO } from '@universe/mycelium/assets'
+import { SPORE_ANIMATION_CURVE_CSS } from '@universe/tailwind/animations'
+import { useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   cancelAnimation,
@@ -7,9 +10,10 @@ import {
   withRepeat,
   withSequence,
   withSpring,
+  WithSpringConfig,
 } from 'react-native-reanimated'
-import { SpringConfig } from 'react-native-reanimated/lib/typescript/animation/springUtils'
 import QRCode from 'react-qr-code' //TODO(EXT-476): Replace with custom QR code designs
+import { getUniswapServiceUrls } from 'src/app/config'
 import { OnboardingScreen } from 'src/app/features/onboarding/OnboardingScreen'
 import { useOnboardingSteps } from 'src/app/features/onboarding/OnboardingSteps'
 import { useScantasticContext } from 'src/app/features/onboarding/scan/ScantasticContextProvider'
@@ -17,15 +21,13 @@ import { getScantasticUrl } from 'src/app/features/onboarding/scan/utils'
 import { OnboardingRoutes, TopLevelRoutes } from 'src/app/navigation/constants'
 import { navigate } from 'src/app/navigation/state'
 import UAParser from 'ua-parser-js'
-import { Flex, Image, Square, Text, TouchableArea, useSporeColors } from 'ui/src'
-import { DOT_GRID, UNISWAP_LOGO } from 'ui/src/assets'
+import { Image } from 'ui/src'
 import { FileListLock, Mobile, RotatableChevron, Wifi } from 'ui/src/components/icons'
-import { AnimatedFlex } from 'ui/src/components/layout/AnimatedFlex'
 import { iconSizes, zIndexes } from 'ui/src/theme'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 import { ExtensionOnboardingFlow, ExtensionOnboardingScreens } from 'uniswap/src/types/screens/extension'
 import { logger } from 'utilities/src/logger/logger'
+import { useIsWindowVisible } from 'utilities/src/react/useIsWindowVisible'
 import { ONE_SECOND_MS } from 'utilities/src/time/time'
 import { useTimeout } from 'utilities/src/time/timing'
 import { ScantasticParamsSchema } from 'wallet/src/features/scantastic/types'
@@ -35,31 +37,12 @@ const UNISWAP_LOGO_SCALE_LOADING = 1.2
 const UNISWAP_LOGO_SCALE_DEFAULT = 1
 const QR_CODE_SIZE = 212
 
-function useDocumentVisibility(): boolean {
-  const [isDocumentVisible, setIsDocumentVisible] = useState(!document.hidden)
-
-  const handleVisibilityChange = (): void => {
-    setIsDocumentVisible(!document.hidden)
-  }
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: handleVisibilityChange is created fresh each render but behavior stays the same
-  useEffect(() => {
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [])
-
-  return isDocumentVisible
-}
-
 export function ScanToOnboard(): JSX.Element {
   const colors = useSporeColors()
   const { t } = useTranslation()
 
   const { goToNextStep } = useOnboardingSteps()
-  const isDocumentVisible = useDocumentVisibility()
+  const isWindowVisible = useIsWindowVisible()
 
   const { sessionUUID, isLoadingUUID, publicKey, resetScantastic, expirationTimestamp, setExpirationTimestamp } =
     useScantasticContext()
@@ -104,7 +87,7 @@ export function ScanToOnboard(): JSX.Element {
     }
     try {
       // poll OTP state
-      const response = await fetch(`${uniswapUrls.scantasticApiUrl}/otp-state/${sessionUUID}`, {
+      const response = await fetch(`${getUniswapServiceUrls().scantasticApiUrl}/otp-state/${sessionUUID}`, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -141,14 +124,14 @@ export function ScanToOnboard(): JSX.Element {
   }, [sessionUUID, setExpirationTimestamp, goToNextStep, resetScantastic])
 
   useEffect(() => {
-    let interval: NodeJS.Timeout | undefined
+    let interval: ReturnType<typeof setInterval> | undefined
 
-    if (isDocumentVisible) {
+    if (isWindowVisible) {
       interval = setInterval(checkOTPState, ONE_SECOND_MS)
     }
 
     return () => clearInterval(interval)
-  }, [checkOTPState, isDocumentVisible])
+  }, [checkOTPState, isWindowVisible])
 
   useTimeout(resetScantastic, expirationTimestamp - Date.now())
 
@@ -159,7 +142,7 @@ export function ScanToOnboard(): JSX.Element {
       return undefined
     }
 
-    const springConfig: SpringConfig = {
+    const springConfig: WithSpringConfig = {
       mass: 1,
       stiffness: 80,
       damping: 20,
@@ -174,6 +157,7 @@ export function ScanToOnboard(): JSX.Element {
     )
 
     return () => cancelAnimation(qrScale)
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
   }, [isLoadingUUID])
   // Using useAnimatedStyle and AnimatedFlex because tamagui scale animation not working
   const qrAnimatedStyle = useAnimatedStyle(() => {
@@ -226,12 +210,7 @@ export function ScanToOnboard(): JSX.Element {
                       </Text>
                     </Flex>
 
-                    <RotatableChevron
-                      color="$neutral3"
-                      direction="end"
-                      height={iconSizes.icon24}
-                      width={iconSizes.icon24}
-                    />
+                    <RotatableChevron color="$neutral3" direction="end" size="$icon.24" />
                   </Flex>
                 </Flex>
               </TouchableArea>
@@ -239,12 +218,7 @@ export function ScanToOnboard(): JSX.Element {
           ) : undefined
         }
         Icon={
-          <Square
-            backgroundColor="$surface2"
-            borderRadius="$rounded12"
-            height={iconSizes.icon48}
-            width={iconSizes.icon48}
-          >
+          <Square backgroundColor="$surface2" borderRadius="$rounded12" size={iconSizes.icon48}>
             <Mobile color="$neutral1" size="$icon.24" />
           </Square>
         }
@@ -269,7 +243,7 @@ export function ScanToOnboard(): JSX.Element {
           >
             {errorDerivingQR ? (
               <Flex px="$spacing16" height={QR_CODE_SIZE} width={QR_CODE_SIZE}>
-                <Text color="$neutral2" m="auto" textAlign="center" variant="body3">
+                <Text color={colors.black.val} m="auto" textAlign="center" variant="body3">
                   {t('onboarding.scan.error')}
                 </Text>
               </Flex>
@@ -297,8 +271,7 @@ export function ScanToOnboard(): JSX.Element {
                   <Image height={QR_CODE_SIZE} source={DOT_GRID} width={QR_CODE_SIZE} />
                 ) : (
                   <Flex
-                    animateOnly={['opacity']}
-                    animation="lazy"
+                    transition={`opacity ${SPORE_ANIMATION_CURVE_CSS.lazy}`}
                     enterStyle={{
                       opacity: 0,
                     }}
@@ -306,6 +279,7 @@ export function ScanToOnboard(): JSX.Element {
                     <QRCode
                       bgColor="transparent"
                       fgColor={colors.black.val}
+                      level="L"
                       size={QR_CODE_SIZE}
                       value={scantasticValue}
                     />

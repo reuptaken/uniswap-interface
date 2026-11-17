@@ -1,6 +1,6 @@
+import { Flex } from '@universe/mycelium'
+import { Flag } from '@universe/mycelium/icons/Flag'
 import { lazy, Suspense } from 'react'
-import { Flex } from 'ui/src'
-import { Flag } from 'ui/src/components/icons/Flag'
 import { Modal } from 'uniswap/src/components/modals/Modal'
 import { ModalName } from 'uniswap/src/features/telemetry/constants'
 import { useBooleanState } from 'utilities/src/react/useBooleanState'
@@ -22,7 +22,7 @@ export function DevMenuModal(): JSX.Element {
         p="$spacing4"
         left="$spacing24"
         zIndex={Number.MAX_SAFE_INTEGER}
-        borderWidth={1}
+        borderWidth="$spacing1"
         borderColor="$neutral2"
         borderRadius="$rounded4"
         cursor="pointer"

@@ -1,98 +1,124 @@
-import { PoolData, usePoolData } from 'appGraphql/data/pools/usePoolData'
-import { calculateApr } from 'appGraphql/data/pools/useTopPools'
-import { gqlToCurrency, unwrapToken } from 'appGraphql/data/util'
-import { GraphQLApi } from '@universe/api'
+import { ProtocolVersion as RestProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
+import { AddressStringFormat, normalizeAddress, type UniverseChainId } from '@universe/chains'
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import Column from 'components/deprecated/Column'
-import Row from 'components/deprecated/Row'
-import { LpIncentivesPoolDetailsRewardsDistribution } from 'components/LpIncentives/LpIncentivesPoolDetailsRewardsDistribution'
-import ChartSection from 'components/Pools/PoolDetails/ChartSection'
-import { PoolDetailsApr } from 'components/Pools/PoolDetails/PoolDetailsApr'
-import { PoolDetailsBreadcrumb, PoolDetailsHeader } from 'components/Pools/PoolDetails/PoolDetailsHeader'
-import { PoolDetailsLink } from 'components/Pools/PoolDetails/PoolDetailsLink'
-import { PoolDetailsStats } from 'components/Pools/PoolDetails/PoolDetailsStats'
-import { PoolDetailsStatsButtons } from 'components/Pools/PoolDetails/PoolDetailsStatsButtons'
-import { PoolDetailsTableTab } from 'components/Pools/PoolDetails/PoolDetailsTable'
-import { useColor } from 'hooks/useColor'
-import { deprecatedStyled } from 'lib/styled-components'
-import { ExploreTab } from 'pages/Explore/constants'
-import { useDynamicMetatags } from 'pages/metatags'
-import { getPoolDetailPageTitle } from 'pages/PoolDetails/utils'
-import { useEffect, useMemo, useReducer } from 'react'
+import {
+  Flex,
+  type FlexCompatProps,
+  Text,
+  type TextCompatProps,
+  useIsDarkMode,
+  useSporeColors,
+} from '@universe/mycelium'
+import { useQueryState } from 'nuqs'
+import { forwardRef, useEffect, useMemo, useState } from 'react'
 import { Helmet } from 'react-helmet-async/lib/index'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
-import { Text } from 'rebass'
-import { ThemeProvider } from 'theme'
-import { Flex, useIsDarkMode, useSporeColors } from 'ui/src'
-import { breakpoints } from 'ui/src/theme'
+import { Separator } from 'ui/src'
 import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
+import { fromGraphQLChain } from 'uniswap/src/features/chains/utils'
+import { type ParsedToken, v2TokenToCurrency, v2UnwrapToken } from 'uniswap/src/features/dataApi/utils/parsedToken'
 import { InterfacePageName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
-import { AddressStringFormat, normalizeAddress } from 'uniswap/src/utils/addresses'
-import { isEVMAddress } from 'utilities/src/addresses/evm/evm'
-import { useChainIdFromUrlParam } from 'utils/chainParams'
+import { shouldReverseForWaterfall } from 'uniswap/src/features/tokens/waterfallPriority'
+import { MOBILE_BAR_MAX_HEIGHT } from '~/components/NavBar/MobileBottomBar'
+import { StickyCollapsibleHeader } from '~/components/StickyCollapsibleHeader/StickyCollapsibleHeader'
+import type { PoolData } from '~/data/pools/poolData'
+import { useLiquidityServicePoolData } from '~/data/pools/useLiquidityServicePoolData'
+import { LpIncentivesPoolDetailsRewardsDistribution } from '~/features/Liquidity/LPIncentives/LpIncentivesPoolDetailsRewardsDistribution'
+import { toPoolRewardAprEntries } from '~/features/Liquidity/LPIncentives/utils'
+import { useColor } from '~/hooks/useColor'
+import { useScrollCompact } from '~/hooks/useScrollCompact'
+import { useDynamicMetatags } from '~/pages/metatags'
+import { ChartSection } from '~/pages/PoolDetails/components/ChartSection'
+import { OrderBook } from '~/pages/PoolDetails/components/ChartSection/OrderBook'
+import { PdpPoolStats, PdpPoolTokens } from '~/pages/PoolDetails/components/PdpPoolInfo'
+import { PdpWalletPositions } from '~/pages/PoolDetails/components/PdpWalletPositions'
+import { PoolDetailsBreadcrumb } from '~/pages/PoolDetails/components/PoolDetailsHeader/PoolDetailsBreadcrumb'
+import { PoolDetailsHeader } from '~/pages/PoolDetails/components/PoolDetailsHeader/PoolDetailsHeader'
+import { PoolDetailsLink } from '~/pages/PoolDetails/components/PoolDetailsLink'
+import { PoolDetailsStats } from '~/pages/PoolDetails/components/PoolDetailsStats'
+import { PoolDetailsStatsButtons } from '~/pages/PoolDetails/components/PoolDetailsStatsButtons'
+import { PoolDetailsTableTab } from '~/pages/PoolDetails/components/PoolDetailsTable'
+import { getPoolDetailPageTitle } from '~/pages/PoolDetails/utils'
+import { ExploreTab } from '~/types/explore'
+import { useChainIdFromUrlParam } from '~/utils/params/chainParams'
 
-const PageWrapper = deprecatedStyled(Row)`
-  padding: 0 20px 52px;
-  justify-content: center;
-  width: 100%;
-  gap: 80px;
-  align-items: flex-start;
+// Extra bottom padding so content (e.g. pool address links) can scroll above the fixed Swap/Add Liquidity
+// CTA bar. Only the bar's own height: the bottom inset the bar also grows by is already on AppBody.
+const STICKY_CTA_CLEARANCE = MOBILE_BAR_MAX_HEIGHT
 
-  @media screen and (min-width: ${({ theme }) => theme.breakpoint.lg}px) {
-    padding: 48px 40px;
-  }
-  @media screen and (max-width: ${({ theme }) => theme.breakpoint.xl}px) {
-    flex-direction: column;
-    align-items: center;
-    gap: 0px;
-  }
-`
+const PageWrapper = forwardRef<HTMLDivElement, FlexCompatProps>(function PageWrapper(
+  { $lg: lg, $xl: xl, ...props },
+  ref,
+) {
+  return (
+    <Flex
+      ref={ref}
+      row
+      pt={24}
+      pb={48}
+      px={40}
+      justifyContent="center"
+      width="100%"
+      gap={80}
+      alignItems="flex-start"
+      // Merge, don't spread: Tamagui deep-merged a caller's object-valued prop into the config's value for the same key.
+      $lg={{ px: 20, pb: STICKY_CTA_CLEARANCE, ...lg }}
+      $md={{ px: 0 }}
+      $xl={{
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '$none',
+        pb: STICKY_CTA_CLEARANCE,
+        ...xl,
+      }}
+      {...props}
+    />
+  )
+})
 
-const LeftColumn = deprecatedStyled(Column)`
-  gap: 40px;
-  max-width: 780px;
-  overflow: hidden;
-  justify-content: flex-start;
-  width: 100%;
+const LeftColumn = forwardRef<HTMLDivElement, FlexCompatProps>(function LeftColumn({ $xl: xl, ...props }, ref) {
+  return (
+    <Flex
+      ref={ref}
+      gap={40}
+      flex={1}
+      minWidth={0}
+      maxWidth={780}
+      overflow="hidden"
+      justifyContent="flex-start"
+      width="100%"
+      // Merge, don't spread: Tamagui deep-merged a caller's object-valued prop into the config's value for the same key.
+      $xl={{ maxWidth: 'none', ...xl }}
+      {...props}
+    />
+  )
+})
 
-  @media (max-width: ${breakpoints.xl}px) {
-    max-width: unset;
-  }
-`
+const TokenDetailsWrapper = forwardRef<HTMLDivElement, FlexCompatProps>(function TokenDetailsWrapper(
+  { $xl: xl, ...props },
+  ref,
+) {
+  return (
+    <Flex
+      ref={ref}
+      gap="$gap24"
+      p="$padding20"
+      // Merge, don't spread: Tamagui deep-merged a caller's object-valued prop into the config's value for the same key.
+      $xl={{ flexWrap: 'nowrap', p: '$none', ...xl }}
+      {...props}
+    />
+  )
+})
 
-const HR = deprecatedStyled.hr`
-  border: 0.5px solid ${({ theme }) => theme.surface3};
-  width: 100%;
-`
+const TokenDetailsHeader = forwardRef<HTMLElement, TextCompatProps>(function TokenDetailsHeader(props, ref) {
+  return <Text ref={ref} width="100%" fontSize={24} fontWeight="$book" lineHeight={32} {...props} />
+})
 
-const TokenDetailsWrapper = deprecatedStyled(Column)`
-  gap: 24px;
-  padding: 20px;
-
-  @media (max-width: ${breakpoints.xl}px) and (min-width: ${breakpoints.md}px) {
-    flex-direction: row;
-    flex-wrap: wrap;
-    padding: unset;
-  }
-
-  @media (max-width: ${breakpoints.md}px) {
-    padding: unset;
-  }
-`
-
-const TokenDetailsHeader = deprecatedStyled(Text)`
-  width: 100%;
-  font-size: 24px;
-  font-weight: 485;
-  line-height: 32px;
-`
-
-const LinksContainer = deprecatedStyled(Column)`
-  gap: 16px;
-  width: 100%;
-`
+const LinksContainer = forwardRef<HTMLDivElement, FlexCompatProps>(function LinksContainer(props, ref) {
+  return <Flex ref={ref} gap="$gap16" width="100%" {...props} />
+})
 
 function getUnwrappedPoolToken({
   poolData,
@@ -100,62 +126,83 @@ function getUnwrappedPoolToken({
   protocolVersion,
 }: {
   poolData?: PoolData
-  chainId?: number
-  protocolVersion?: GraphQLApi.ProtocolVersion
-}): [GraphQLApi.Token | undefined, GraphQLApi.Token | undefined] {
+  chainId?: UniverseChainId
+  protocolVersion?: RestProtocolVersion
+}): [ParsedToken | undefined, ParsedToken | undefined] {
   // for v4 pools can be created with ETH or WETH so we need to keep the original tokens
-  if (protocolVersion === GraphQLApi.ProtocolVersion.V4) {
+  if (protocolVersion === RestProtocolVersion.V4) {
     return [poolData?.token0, poolData?.token1]
   }
 
   return poolData && chainId
-    ? [unwrapToken(chainId, poolData.token0), unwrapToken(chainId, poolData.token1)]
+    ? [v2UnwrapToken(chainId, poolData.token0), v2UnwrapToken(chainId, poolData.token1)]
     : [undefined, undefined]
 }
 
-export default function PoolDetailsPage() {
+// oxlint-disable-next-line complexity
+export function PoolDetailsPage() {
   const { t } = useTranslation()
   const { poolAddress } = useParams<{ poolAddress: string }>()
   const urlChain = useChainIdFromUrlParam()
   const chainInfo = urlChain ? getChainInfo(urlChain) : undefined
-  const { data: poolData, loading } = usePoolData({
+  const isPdpRevampEnabled = useFeatureFlag(FeatureFlags.PdpRevamp)
+  const [chartParam] = useQueryState('chart')
+  const showOrderBook = chartParam?.toLowerCase() === 'depth'
+  const { data: poolData, loading: poolLoading } = useLiquidityServicePoolData({
     poolIdOrAddress: normalizeAddress(poolAddress ?? '', AddressStringFormat.Lowercase),
     chainId: chainInfo?.id,
-    isPoolAddress: isEVMAddress(poolAddress),
   })
-  const [isReversed, toggleReversed] = useReducer((x) => !x, false)
   const unwrappedTokens = getUnwrappedPoolToken({
     poolData,
     chainId: chainInfo?.id,
     protocolVersion: poolData?.protocolVersion,
   })
-  const [token0, token1] = isReversed ? [unwrappedTokens[1], unwrappedTokens[0]] : unwrappedTokens
-  const isLPIncentivesEnabled = useFeatureFlag(FeatureFlags.LpIncentives)
 
-  const poolApr = useMemo(
-    () =>
-      calculateApr({
-        volume24h: poolData?.volumeUSD24H,
-        tvl: poolData?.tvlUSD,
-        feeTier: poolData?.feeTier?.feeAmount,
-      }),
-    [poolData?.volumeUSD24H, poolData?.tvlUSD, poolData?.feeTier],
+  const waterfallDefault = useMemo(() => {
+    if (!unwrappedTokens[0] || !unwrappedTokens[1]) {
+      return false
+    }
+    const currA = v2TokenToCurrency(unwrappedTokens[0])
+    const currB = v2TokenToCurrency(unwrappedTokens[1])
+    return Boolean(currA && currB && shouldReverseForWaterfall(currA, currB))
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- unwrappedTokens changes every render; use underlying stable deps instead
+  }, [poolData?.token0, poolData?.token1, chainInfo?.id, poolData?.protocolVersion])
+
+  // The user's flip is stored relative to the waterfall default rather than as the absolute value,
+  // since poolData arrives after mount.
+  const [userFlipped, setUserFlipped] = useState(false)
+  const toggleReversed = () => setUserFlipped((flipped) => !flipped)
+  const isReversed = waterfallDefault !== userFlipped
+
+  const [token0, token1] = isReversed ? [unwrappedTokens[1], unwrappedTokens[0]] : unwrappedTokens
+
+  // GetPool serves the fee tier and the protocol fee on the same row, so they always pair.
+  const protocolFeePips = poolData?.protocolFeePips
+  const feeTier = poolData?.feeTier
+  const [orderBookCurrencyA, orderBookCurrencyB] = useMemo(
+    () => [
+      poolData?.token0 ? v2TokenToCurrency(poolData.token0) : undefined,
+      poolData?.token1 ? v2TokenToCurrency(poolData.token1) : undefined,
+    ],
+    [poolData?.token0, poolData?.token1],
   )
+
   const navigate = useNavigate()
 
   const colors = useSporeColors()
   const isDarkMode = useIsDarkMode()
-  const color0 = useColor(token0 && gqlToCurrency(token0), {
+  const color0 = useColor(token0 && v2TokenToCurrency(token0), {
     backgroundColor: colors.surface2.val,
     darkMode: isDarkMode,
   })
-  const color1 = useColor(token1 && gqlToCurrency(token1), {
+  const color1 = useColor(token1 && v2TokenToCurrency(token1), {
     backgroundColor: colors.surface2.val,
     darkMode: isDarkMode,
   })
 
   const isInvalidPool = !poolAddress || !chainInfo
-  const poolNotFound = (!loading && !poolData) || isInvalidPool
+  const loading = poolLoading
+  const poolNotFound = (!poolLoading && !poolData) || isInvalidPool
 
   const metatagProperties = useMemo(() => {
     const token0Symbol = poolData?.token0.symbol
@@ -170,18 +217,19 @@ export default function PoolDetailsPage() {
   }, [chainInfo?.label, poolData?.token0.symbol, poolData?.token1.symbol])
   const metatags = useDynamicMetatags(metatagProperties)
 
+  // Every reward token the pool pays, not just the campaign's — `rewardsCampaign` collapses to the
+  // first, and the stats breakdown renders the whole set.
+  const poolRewards = useMemo(() => toPoolRewardAprEntries(poolData?.rewardTokens), [poolData?.rewardTokens])
+
   const showRewardsDistribution = useMemo(() => {
-    return Boolean(
-      isLPIncentivesEnabled &&
-        poolData &&
-        poolData.rewardsCampaign?.boostedApr &&
-        poolData.rewardsCampaign.boostedApr > 0,
-    )
-  }, [isLPIncentivesEnabled, poolData])
+    return Boolean(poolData && poolData.rewardsCampaign?.boostedApr && poolData.rewardsCampaign.boostedApr > 0)
+  }, [poolData])
+
+  const isCompact = useScrollCompact({ thresholdCompact: 100, thresholdExpanded: 60 })
 
   useEffect(() => {
     if (poolNotFound) {
-      navigate(`/explore/pools?type=${ExploreTab.Pools}&result=${ModalName.NotFound}`)
+      navigate(`/explore/pools?type=${ExploreTab.Pools}&result=${ModalName.NotFound}`, { replace: true })
     }
   }, [poolNotFound, navigate])
 
@@ -189,13 +237,60 @@ export default function PoolDetailsPage() {
     return null
   }
 
+  const rewardsDistribution = showRewardsDistribution && (
+    <LpIncentivesPoolDetailsRewardsDistribution rewardsCampaign={poolData?.rewardsCampaign} />
+  )
+
+  const legacyPoolInfoSections = (
+    <>
+      {rewardsDistribution}
+      <PoolDetailsStats
+        poolData={poolData}
+        isReversed={isReversed}
+        tokenAColor={color0}
+        tokenBColor={color1}
+        chainId={chainInfo.id}
+        loading={loading}
+        poolApr={poolData?.apr}
+        rewards={poolRewards}
+        totalApr={poolData?.totalApr}
+      />
+      <TokenDetailsWrapper>
+        <TokenDetailsHeader>{t('common.links')}</TokenDetailsHeader>
+        <LinksContainer>
+          {poolData?.protocolVersion !== RestProtocolVersion.V4 && (
+            <PoolDetailsLink address={poolAddress} chainId={chainInfo.id} tokens={[token0, token1]} loading={loading} />
+          )}
+          <PoolDetailsLink
+            address={poolData?.token0.address}
+            chainId={chainInfo.id}
+            tokens={[poolData?.token0]}
+            loading={loading}
+          />
+          <PoolDetailsLink
+            address={poolData?.token1.address}
+            chainId={chainInfo.id}
+            tokens={[poolData?.token1]}
+            loading={loading}
+          />
+        </LinksContainer>
+      </TokenDetailsWrapper>
+    </>
+  )
+
+  // The PDP revamp moves these under the chart, leaving the side column to the pool actions and the wallet's positions.
+  const pdpPoolInfoSections = (
+    <>
+      {rewardsDistribution}
+      <PdpPoolStats poolData={poolData} loading={loading} rewards={poolRewards} />
+      <PdpPoolTokens tokens={[token0, token1]} chainId={chainInfo.id} loading={loading} />
+    </>
+  )
+
   return (
-    <ThemeProvider
-      token0={color0 !== colors.accent1.val ? color0 : undefined}
-      token1={color1 !== colors.accent1.val ? color1 : undefined}
-    >
+    <>
       <Helmet>
-        <title>{getPoolDetailPageTitle(t, poolData)}</title>
+        <title>{getPoolDetailPageTitle(t, { token0, token1 })}</title>
         {metatags.map((tag, index) => (
           <meta key={index} {...tag} />
         ))}
@@ -206,7 +301,7 @@ export default function PoolDetailsPage() {
         properties={{
           poolAddress,
           chainId: chainInfo.id,
-          feeTier: poolData?.feeTier,
+          feeTier,
           token0Address: poolData?.token0.address,
           token1Address: poolData?.token1.address,
           token0Symbol: poolData?.token0.symbol,
@@ -215,98 +310,93 @@ export default function PoolDetailsPage() {
           token1Name: poolData?.token1.name,
         }}
       >
+        <PoolDetailsBreadcrumb poolAddress={poolAddress} token0={token0} token1={token1} loading={loading} />
+        <StickyCollapsibleHeader isCompact={isCompact}>
+          <PoolDetailsHeader
+            chainId={chainInfo.id}
+            poolAddress={poolAddress}
+            token0={token0}
+            token1={token1}
+            feeTier={feeTier}
+            protocolFeePips={protocolFeePips}
+            hookAddress={poolData?.hookAddress}
+            protocolVersion={poolData?.protocolVersion}
+            toggleReversed={toggleReversed}
+            loading={loading}
+            isCompact={isCompact}
+          />
+        </StickyCollapsibleHeader>
         <PageWrapper>
           <LeftColumn>
-            <Column gap="20px">
-              <Column>
-                <PoolDetailsBreadcrumb
-                  chainId={chainInfo.id}
-                  poolAddress={poolAddress}
-                  token0={token0}
-                  token1={token1}
-                  loading={loading}
-                />
-                <PoolDetailsHeader
-                  chainId={chainInfo.id}
-                  poolAddress={poolAddress}
-                  token0={token0}
-                  token1={token1}
-                  feeTier={poolData?.feeTier}
-                  hookAddress={poolData?.hookAddress}
-                  protocolVersion={poolData?.protocolVersion}
-                  rewardsApr={poolData?.rewardsCampaign?.boostedApr}
-                  toggleReversed={toggleReversed}
-                  loading={loading}
-                />
-              </Column>
+            <Flex gap="$spacing20">
               <ChartSection
                 poolData={poolData}
                 loading={loading}
                 isReversed={isReversed}
-                chain={chainInfo.backendChain.chain}
+                chainId={chainInfo.id}
                 tokenAColor={isReversed ? color1 : color0}
                 tokenBColor={isReversed ? color0 : color1}
               />
-            </Column>
-            <HR />
+            </Flex>
+            {isPdpRevampEnabled ? pdpPoolInfoSections : <Separator />}
             <PoolDetailsTableTab
               poolAddress={poolAddress}
+              chainId={chainInfo.id}
               token0={token0}
               token1={token1}
-              protocolVersion={poolData?.protocolVersion}
+              isPoolDataLoading={poolLoading}
+              showWalletPositions={!isPdpRevampEnabled}
             />
           </LeftColumn>
-          <Flex gap="$spacing24" width={360} $xl={{ width: '100%', mt: 44, minWidth: 'unset', mb: 24 }}>
-            <Flex $xl={{ marginTop: -24 }}>
+          <Flex
+            gap="$spacing24"
+            width={360}
+            flexShrink={0}
+            $lg={{ width: '100%', mt: 44, minWidth: 'unset' }}
+            $xl={{ width: '100%', mt: 44, minWidth: 'unset' }}
+          >
+            <Flex gap="$spacing24" min-height="fit-content">
               <PoolDetailsStatsButtons
                 chainId={chainInfo.id}
+                poolIdOrAddress={poolAddress}
                 token0={token0}
                 token1={token1}
-                feeTier={poolData?.feeTier?.feeAmount}
-                tickSpacing={poolData?.feeTier?.tickSpacing}
+                feeTier={feeTier?.feeAmount}
+                tickSpacing={feeTier?.tickSpacing}
                 hookAddress={poolData?.hookAddress}
-                isDynamic={poolData?.feeTier?.isDynamic}
+                isDynamic={feeTier?.isDynamic}
                 protocolVersion={poolData?.protocolVersion}
                 loading={loading}
               />
-            </Flex>
-            {poolData && (
-              <PoolDetailsApr
-                poolApr={poolApr}
-                rewardsApr={isLPIncentivesEnabled ? poolData.rewardsCampaign?.boostedApr : undefined}
-              />
-            )}
-            {showRewardsDistribution && (
-              <LpIncentivesPoolDetailsRewardsDistribution rewardsCampaign={poolData?.rewardsCampaign} />
-            )}
-            <PoolDetailsStats
-              poolData={poolData}
-              isReversed={isReversed}
-              tokenAColor={color0}
-              tokenBColor={color1}
-              chainId={chainInfo.id}
-              loading={loading}
-            />
-            <TokenDetailsWrapper>
-              <TokenDetailsHeader>
-                <Trans i18nKey="common.links" />
-              </TokenDetailsHeader>
-              <LinksContainer>
-                {poolData?.protocolVersion !== GraphQLApi.ProtocolVersion.V4 && (
-                  <PoolDetailsLink
-                    address={poolAddress}
-                    chainId={chainInfo.id}
-                    tokens={[token0, token1]}
-                    loading={loading}
+              {showOrderBook &&
+                poolData &&
+                poolData.protocolVersion !== RestProtocolVersion.V2 &&
+                feeTier &&
+                orderBookCurrencyA &&
+                orderBookCurrencyB && (
+                  <OrderBook
+                    tokenA={orderBookCurrencyA}
+                    tokenB={orderBookCurrencyB}
+                    feeTier={Number(feeTier.feeAmount)}
+                    isReversed={isReversed}
+                    chainId={fromGraphQLChain(chainInfo.backendChain.chain) ?? chainInfo.id}
+                    version={poolData.protocolVersion ?? RestProtocolVersion.V3}
+                    hooks={poolData.hookAddress}
+                    poolId={poolData.idOrAddress}
+                    height={356}
                   />
                 )}
-                <PoolDetailsLink address={token0?.address} chainId={chainInfo.id} tokens={[token0]} loading={loading} />
-                <PoolDetailsLink address={token1?.address} chainId={chainInfo.id} tokens={[token1]} loading={loading} />
-              </LinksContainer>
-            </TokenDetailsWrapper>
+            </Flex>
+            {isPdpRevampEnabled ? (
+              <PdpWalletPositions poolAddress={poolAddress} chainId={chainInfo.id} />
+            ) : (
+              legacyPoolInfoSections
+            )}
           </Flex>
         </PageWrapper>
       </Trace>
-    </ThemeProvider>
+    </>
   )
 }
+
+export default PoolDetailsPage

@@ -1,30 +1,33 @@
 import { ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
+import type { HookEntry } from '@uniswap/client-liquidity/dist/uniswap/liquidity/v2/types_pb'
 import { Currency, Price, Token } from '@uniswap/sdk-core'
 import { Pair } from '@uniswap/v2-sdk'
 import { Pool as V3Pool } from '@uniswap/v3-sdk'
 import { Pool as V4Pool } from '@uniswap/v4-sdk'
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { useDerivedPositionInfo } from 'components/Liquidity/Create/hooks/useDerivedPositionInfo'
-import { useLiquidityUrlState } from 'components/Liquidity/Create/hooks/useLiquidityUrlState'
+import { createContext, Dispatch, SetStateAction, useContext, useEffect, useMemo, useState } from 'react'
+import type { FeeBreakdown } from 'uniswap/src/features/fees/types'
+import { TransactionStep } from 'uniswap/src/features/transactions/steps/types'
+import { useEvent, usePrevious } from 'utilities/src/react/hooks'
+import { getFollowedPresetTicks } from '~/features/Liquidity/charts/D3LiquidityRangeInput/D3LiquidityRangeChart/utils/priceStrategies'
+import { useDerivedPositionInfo } from '~/features/Liquidity/Create/hooks/useDerivedPositionInfo'
+import { useLiquidityUrlState } from '~/features/Liquidity/Create/hooks/useLiquidityUrlState'
 import {
   type DynamicFeeTierSpeedbumpData,
   PositionFlowStep,
   type PositionState,
   type PriceRangeState,
   RangeAmountInputPriceMode,
-} from 'components/Liquidity/Create/types'
-import type { DepositState } from 'components/Liquidity/types'
-import { getPriceRangeInfo } from 'components/Liquidity/utils/priceRangeInfo'
-import { createContext, Dispatch, SetStateAction, useContext, useEffect, useMemo, useState } from 'react'
-import { PositionField } from 'types/position'
-import { TransactionStep } from 'uniswap/src/features/transactions/steps/types'
-import { useEvent } from 'utilities/src/react/hooks'
+} from '~/features/Liquidity/Create/types'
+import { useSelectedFeeBreakdown } from '~/features/Liquidity/hooks/useSelectedFeeBreakdown'
+import { getPriceRangeInfo } from '~/features/Liquidity/utils/priceRangeInfo'
+import type { DepositState } from '~/types/liquidity'
+import { PositionField } from '~/types/position'
 
 export const DEFAULT_PRICE_RANGE_STATE: PriceRangeState = {
   priceInverted: false,
   fullRange: false,
-  minPrice: '',
-  maxPrice: '',
+  minTick: undefined,
+  maxTick: undefined,
   initialPrice: '',
   inputMode: RangeAmountInputPriceMode.PRICE,
 }
@@ -46,19 +49,30 @@ interface BaseCreateLiquidityState {
   protocolVersion: ProtocolVersion
   creatingPoolOrPair?: boolean
   poolId?: string
+  // Protocol fee (integer pips) for the selected tier's pool, carried on the poolInfo response so every
+  // create surface reads the same value; undefined for a not-yet-created pool.
+  protocolFee?: number
+  // See `useDerivedPositionInfo`.
+  poolHasNoActiveLiquidity?: boolean
+  // LP/protocol/all-in breakdown for the currently selected tier, computed once here so every surface
+  // (selector header, review modal, edit summary) shares it; undefined for a dynamic tier.
+  selectedFeeBreakdown?: FeeBreakdown
   poolOrPairLoading?: boolean
   poolOrPair: V4Pool | V3Pool | Pair | undefined
   price: Price<Currency, Currency> | undefined
   ticks: [Maybe<number>, Maybe<number>]
-  pricesAtTicks: [Maybe<Price<Currency, Currency>>, Maybe<Price<Currency, Currency>>]
-  ticksAtLimit: [boolean, boolean]
 
   // From CreatePositionContext
   isNativeTokenAOnly: boolean
   positionState: PositionState
   step: PositionFlowStep
   currentTransactionStep?: { step: TransactionStep; accepted: boolean }
+  isReviewModalOpen: boolean
+  /** The review modal is open or a transaction is in flight, so the range must hold still. */
+  isRangeLocked: boolean
   feeTierSearchModalOpen: boolean
+  hookSearchModalOpen: boolean
+  selectedHookEntry?: HookEntry
   dynamicFeeTierSpeedbumpData: DynamicFeeTierSpeedbumpData
 
   // From PriceRangeContext
@@ -109,7 +123,10 @@ type CreateLiquidityContextType = CreateLiquidityState & {
   setCurrentTransactionStep: React.Dispatch<
     React.SetStateAction<{ step: TransactionStep; accepted: boolean } | undefined>
   >
+  setIsReviewModalOpen: (isOpen: boolean) => void
   setFeeTierSearchModalOpen: React.Dispatch<React.SetStateAction<boolean>>
+  setHookSearchModalOpen: React.Dispatch<React.SetStateAction<boolean>>
+  setSelectedHookEntry: React.Dispatch<React.SetStateAction<HookEntry | undefined>>
   setDynamicFeeTierSpeedbumpData: React.Dispatch<React.SetStateAction<DynamicFeeTierSpeedbumpData>>
   setPriceRangeState: React.Dispatch<React.SetStateAction<PriceRangeState>>
   setDepositState: React.Dispatch<React.SetStateAction<DepositState>>
@@ -146,7 +163,6 @@ export function CreateLiquidityContextProvider({
   initialDepositState?: Partial<DepositState>
   initialFlowStep: PositionFlowStep
 }) {
-  const isD3LiquidityRangeChartEnabled = useFeatureFlag(FeatureFlags.D3LiquidityRangeChart)
   const [positionState, setPositionState] = useState<PositionState>(() => ({
     ...DEFAULT_POSITION_STATE,
     ...initialPositionState,
@@ -158,6 +174,8 @@ export function CreateLiquidityContextProvider({
   >()
 
   const [feeTierSearchModalOpen, setFeeTierSearchModalOpen] = useState(false)
+  const [hookSearchModalOpen, setHookSearchModalOpen] = useState(false)
+  const [selectedHookEntry, setSelectedHookEntry] = useState<HookEntry | undefined>()
   const [dynamicFeeTierSpeedbumpData, setDynamicFeeTierSpeedbumpData] = useState<DynamicFeeTierSpeedbumpData>({
     open: false,
     wishFeeData: undefined,
@@ -165,10 +183,7 @@ export function CreateLiquidityContextProvider({
   const [refetch, setRefetch] = useState<() => void>()
 
   // Initialize price range state
-  const initialPosition = positionState.initialPosition
-  const defaultFullRange = initialPosition?.isOutOfRange ? false : !isD3LiquidityRangeChartEnabled
-  const urlFullRange = initialPriceRangeState?.fullRange
-  const initialFullRange = urlFullRange !== undefined ? urlFullRange : defaultFullRange
+  const initialFullRange = initialPriceRangeState?.fullRange ?? false
   const [priceRangeState, setPriceRangeState] = useState<PriceRangeState>(() => ({
     ...DEFAULT_PRICE_RANGE_STATE,
     fullRange: initialFullRange,
@@ -181,7 +196,21 @@ export function CreateLiquidityContextProvider({
     ...initialDepositState,
   })
 
-  // Derived info
+  // Hooks are chain-specific: clear any selected hook when the selected tokens move to a different chain
+  const tokenChainId = currencyInputs.tokenA?.chainId ?? currencyInputs.tokenB?.chainId
+  const previousTokenChainId = usePrevious(tokenChainId)
+  useEffect(() => {
+    if (!tokenChainId || !previousTokenChainId || tokenChainId === previousTokenChainId) {
+      return
+    }
+    setSelectedHookEntry(undefined)
+    setPositionState((prevState) =>
+      prevState.hook ? { ...prevState, hook: undefined, userApprovedHook: undefined, fee: undefined } : prevState,
+    )
+  }, [tokenChainId, previousTokenChainId, setSelectedHookEntry, setPositionState])
+
+  // Derived info — the poolInfo response carries the pool's protocol fee (integer pips), so the flow no
+  // longer fetches it separately; it's undefined for a not-yet-created pool.
   const derivedPositionInfo = useDerivedPositionInfo(currencyInputs, positionState)
 
   // Get URL sync function from consolidated hook
@@ -197,10 +226,37 @@ export function CreateLiquidityContextProvider({
     })
   }, [currencyInputs, positionState, priceRangeState, depositState, syncToUrl])
 
+  // Remembered with the step it was opened on, so it can't outlive that step — e.g. browser back off the
+  // deposit step unmounts the modal without closing it, which would otherwise lock the range for good.
+  const [reviewModalStep, setReviewModalStep] = useState<PositionFlowStep | undefined>(undefined)
+  if (reviewModalStep !== undefined && reviewModalStep !== step) {
+    setReviewModalStep(undefined)
+  }
+  const isReviewModalOpen = reviewModalStep === step
+  const setIsReviewModalOpen = useEvent((isOpen: boolean) => setReviewModalStep(isOpen ? step : undefined))
+  const isRangeLocked = isReviewModalOpen || Boolean(currentTransactionStep)
+
+  // An existing pool's followed preset is re-derived from the polled tick in this render, so the deposit
+  // step never sees the new price against the previous range (which would clear the typed amount).
+  const effectivePriceRangeState = useMemo(() => {
+    const pool = derivedPositionInfo.protocolVersion === ProtocolVersion.V2 ? undefined : derivedPositionInfo.pool
+    if (!pool || derivedPositionInfo.creatingPoolOrPair || priceRangeState.fullRange || isRangeLocked) {
+      return priceRangeState
+    }
+    const followedTicks = getFollowedPresetTicks({
+      followedPreset: priceRangeState.followedPreset,
+      minTick: priceRangeState.minTick,
+      maxTick: priceRangeState.maxTick,
+      currentTick: priceRangeState.priceInverted ? -pool.tickCurrent : pool.tickCurrent,
+      tickSpacing: pool.tickSpacing,
+    })
+    return followedTicks ? { ...priceRangeState, ...followedTicks } : priceRangeState
+  }, [derivedPositionInfo, priceRangeState, isRangeLocked])
+
   // Derived price range info
   const derivedPriceRangeInfo = useMemo(() => {
-    return getPriceRangeInfo({ derivedPositionInfo, state: priceRangeState, positionState })
-  }, [derivedPositionInfo, priceRangeState, positionState])
+    return getPriceRangeInfo({ derivedPositionInfo, state: effectivePriceRangeState, positionState })
+  }, [derivedPositionInfo, effectivePriceRangeState, positionState])
 
   const poolOrPair = useMemo(() => {
     if (!derivedPriceRangeInfo) {
@@ -241,6 +297,7 @@ export function CreateLiquidityContextProvider({
       tokenA: defaultInitialToken,
       tokenB: undefined,
     })
+    setReviewModalStep(undefined)
     setHistoryState(PositionFlowStep.SELECT_TOKENS_AND_FEE_TIER)
   })
 
@@ -278,10 +335,22 @@ export function CreateLiquidityContextProvider({
 
   const isNativeTokenAOnly = Boolean(currencyInputs.tokenA?.isNative && !currencyInputs.tokenB)
 
+  // Computed once here and shared via context so the selector header, review modal, and edit summary
+  // don't each recompute the same breakdown from the same inputs.
+  const selectedFeeBreakdown = useSelectedFeeBreakdown({
+    protocolVersion: protocolSpecificValues.protocolVersion,
+    fee: positionState.fee,
+    servedProtocolFee: derivedPositionInfo.protocolFee,
+    hook: positionState.hook,
+  })
+
   const value: CreateLiquidityContextType = {
     // State
     ...protocolSpecificValues,
     poolId: derivedPositionInfo.poolId,
+    protocolFee: derivedPositionInfo.protocolFee,
+    poolHasNoActiveLiquidity: derivedPositionInfo.poolHasNoActiveLiquidity,
+    selectedFeeBreakdown,
     poolOrPairLoading: derivedPositionInfo.poolOrPairLoading,
     creatingPoolOrPair: derivedPositionInfo.creatingPoolOrPair,
     price: derivedPriceRangeInfo?.price,
@@ -289,19 +358,15 @@ export function CreateLiquidityContextProvider({
       derivedPriceRangeInfo?.protocolVersion === ProtocolVersion.V2 || !derivedPriceRangeInfo
         ? [undefined, undefined]
         : derivedPriceRangeInfo.ticks,
-    ticksAtLimit:
-      derivedPriceRangeInfo?.protocolVersion === ProtocolVersion.V2 || !derivedPriceRangeInfo
-        ? [false, false]
-        : derivedPriceRangeInfo.ticksAtLimit,
-    pricesAtTicks:
-      derivedPriceRangeInfo?.protocolVersion === ProtocolVersion.V2 || !derivedPriceRangeInfo
-        ? [undefined, undefined]
-        : derivedPriceRangeInfo.pricesAtTicks,
     isNativeTokenAOnly,
     positionState,
     step,
     currentTransactionStep,
+    isReviewModalOpen,
+    isRangeLocked,
     feeTierSearchModalOpen,
+    hookSearchModalOpen,
+    selectedHookEntry,
     dynamicFeeTierSpeedbumpData,
     priceRangeState,
     depositState,
@@ -311,7 +376,10 @@ export function CreateLiquidityContextProvider({
     setPositionState,
     setStep: setHistoryState,
     setCurrentTransactionStep,
+    setIsReviewModalOpen,
     setFeeTierSearchModalOpen,
+    setHookSearchModalOpen,
+    setSelectedHookEntry,
     setDynamicFeeTierSpeedbumpData,
     setPriceRangeState,
     setDepositState,

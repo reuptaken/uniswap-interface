@@ -1,7 +1,8 @@
 import { GraphQLApi } from '@universe/api'
+import { UniverseChainId } from '@universe/chains'
 import { PersistState } from 'redux-persist'
-import { TransactionInfo } from 'state/transactions/types'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import type { TransactionTypeInfo } from 'uniswap/src/features/transactions/types/transactionDetails'
+import { createPersistState, createSafeMigration } from 'uniswap/src/state/createSafeMigration'
 
 interface SerializableTransactionReceipt {
   to: string
@@ -31,7 +32,7 @@ interface BaseTransactionDetails {
   batchInfo?: { connectorId?: string; batchId: string; chainId: UniverseChainId }
   addedTime: number
   from: string
-  info: TransactionInfo
+  info: TransactionTypeInfo
   nonce?: number
   cancelled?: true
 }
@@ -62,29 +63,38 @@ export type PersistAppStateV12 = {
 /**
  * Migration for the change that refactored TransactionDetails into a union discriminated by `status` and removed `receipt`.
  */
-export const migration12 = (state: PersistAppStateV12 | undefined) => {
-  if (!state?.transactions) {
-    return state
-  }
-
-  // eslint-disable-next-line guard-for-in
-  for (const chainId in state.transactions) {
-    const transactionsForChain = state.transactions[chainId]
-    // eslint-disable-next-line guard-for-in
-    for (const txHash in transactionsForChain) {
-      const { receipt, ...tx } = transactionsForChain[txHash]
-
-      const status = receipt
-        ? receipt.status === 1
-          ? GraphQLApi.TransactionStatus.Confirmed
-          : GraphQLApi.TransactionStatus.Failed
-        : GraphQLApi.TransactionStatus.Pending
-
-      ;(tx as unknown as { status: GraphQLApi.TransactionStatus }).status = status
-
-      transactionsForChain[txHash] = tx
+export const migration12 = createSafeMigration({
+  filename: '12.ts',
+  name: 'migration12',
+  migrate: (state: PersistAppStateV12 | undefined) => {
+    if (!state?.transactions) {
+      return state
     }
-  }
 
-  return { ...state, _persist: { ...state._persist, version: 12 } }
-}
+    // oxlint-disable-next-line guard-for-in
+    for (const chainId in state.transactions) {
+      const transactionsForChain = state.transactions[chainId]
+      // oxlint-disable-next-line guard-for-in
+      for (const txHash in transactionsForChain) {
+        const { receipt, ...tx } = transactionsForChain[txHash]
+
+        const status = receipt
+          ? receipt.status === 1
+            ? GraphQLApi.TransactionStatus.Confirmed
+            : GraphQLApi.TransactionStatus.Failed
+          : GraphQLApi.TransactionStatus.Pending
+
+        ;(tx as unknown as { status: GraphQLApi.TransactionStatus }).status = status
+
+        transactionsForChain[txHash] = tx
+      }
+    }
+
+    return { ...state, _persist: { ...state._persist, version: 12 } }
+  },
+  onError: (state: PersistAppStateV12 | undefined) => ({
+    ...state,
+    transactions: {},
+    _persist: createPersistState(state, 12),
+  }),
+})

@@ -1,21 +1,24 @@
-import { PropsWithChildren } from 'react'
+import { type GasFeeResult, type TradingApi } from '@universe/api'
+import type { UniverseChainId } from '@universe/chains'
+import { Button, Flex, type SpaceTokens, Text } from '@universe/mycelium'
+import { ENTER_PRESET_CLASSES } from '@universe/mycelium/compat'
+import { Presence } from '@universe/mycelium/presence'
+import { TestID } from '@universe/test'
+import { type PropsWithChildren } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Animated } from 'react-native'
 import { useDispatch } from 'react-redux'
 import { useDappLastChainId } from 'src/app/features/dapp/hooks'
 import { useDappRequestQueueContext } from 'src/app/features/dappRequests/DappRequestQueueContext'
 import { handleExternallySubmittedUniswapXOrder } from 'src/app/features/dappRequests/handleUniswapX'
 import { useIsDappRequestConfirming } from 'src/app/features/dappRequests/hooks'
-import { DappRequestStoreItem } from 'src/app/features/dappRequests/shared'
-import { DappRequest, isBatchedSwapRequest } from 'src/app/features/dappRequests/types/DappRequestTypes'
-import { AnimatePresence, Button, Flex, GetThemeValueForKey, styled, Text } from 'ui/src'
+import { useIsRequestStale } from 'src/app/features/dappRequests/hooks/useIsRequestStale'
+import { type DappRequestStoreItem } from 'src/app/features/dappRequests/shared'
+import { type DappRequest, isBatchedSwapRequest } from 'src/app/features/dappRequests/types/DappRequestTypes'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { DappRequestType } from 'uniswap/src/features/dappRequests/types'
-import { GasFeeResult } from 'uniswap/src/features/gas/types'
-import { hasSufficientFundsIncludingGas } from 'uniswap/src/features/gas/utils'
-import { useOnChainNativeCurrencyBalance } from 'uniswap/src/features/portfolio/api'
-import { TransactionTypeInfo } from 'uniswap/src/features/transactions/types/transactionDetails'
+import { useChainGasToken } from 'uniswap/src/features/gas/hooks/useChainGasToken'
+import { hasGasEstimationFailed, hasSufficientGasBalance } from 'uniswap/src/features/gas/utils'
+import { type TransactionTypeInfo } from 'uniswap/src/features/transactions/types/transactionDetails'
 import { extractNameFromUrl } from 'utilities/src/format/extractNameFromUrl'
 import { logger } from 'utilities/src/logger/logger'
 import { useEvent } from 'utilities/src/react/hooks'
@@ -23,7 +26,9 @@ import { useThrottledCallback } from 'utilities/src/react/useThrottledCallback'
 import { MAX_HIDDEN_CALLS_BY_DEFAULT } from 'wallet/src/components/BatchedTransactions/BatchedTransactionDetails'
 import { DappRequestHeader } from 'wallet/src/components/dappRequests/DappRequestHeader'
 import { WarningBox } from 'wallet/src/components/WarningBox/WarningBox'
-import { DappVerificationStatus } from 'wallet/src/features/dappRequests/types'
+import { safeNormalizeSendCalls } from 'wallet/src/features/batchedTransactions/normalizeSendCalls'
+import { useSiteVerification } from 'wallet/src/features/dappRequests/hooks/useSiteVerification'
+import { type DappVerificationStatus } from 'wallet/src/features/dappRequests/types'
 import { AddressFooter } from 'wallet/src/features/transactions/TransactionRequest/AddressFooter'
 import { NetworkFeeFooter } from 'wallet/src/features/transactions/TransactionRequest/NetworkFeeFooter'
 import { useActiveAccountWithThrow } from 'wallet/src/features/wallet/hooks'
@@ -31,6 +36,7 @@ import { useActiveAccountWithThrow } from 'wallet/src/features/wallet/hooks'
 interface DappRequestHeaderProps {
   title: string
   verificationStatus?: DappVerificationStatus
+  isFirstParty?: boolean
   headerIcon?: JSX.Element
 }
 
@@ -40,47 +46,30 @@ interface DappRequestFooterProps {
   confirmText?: string
   maybeCloseOnConfirm?: boolean
   onCancel?: (requestToConfirm?: DappRequestStoreItem, transactionTypeInfo?: TransactionTypeInfo) => void
-  onConfirm?: (requestToCancel?: DappRequestStoreItem) => void
+  onConfirm?: (requestToCancel?: DappRequestStoreItem) => void | Promise<void>
   showNetworkCost?: boolean
   showSmartWalletActivation?: boolean
   showAddressFooter?: boolean
   transactionGasFeeResult?: GasFeeResult
+  sponsorMetadata?: TradingApi.SponsorMetadata
   isUniswapX?: boolean
   disableConfirm?: boolean
-  contentHorizontalPadding?: number | Animated.AnimatedNode | GetThemeValueForKey<'paddingHorizontal'> | null
+  /**
+   * Malicious (critical Blockaid risk) requests reorder and restyle the footer
+   * buttons: cancel becomes the recommended primary action and confirm is
+   * demoted to critical theming, placed first to add friction.
+   */
+  isCriticalRisk?: boolean
+  contentHorizontalPadding?: SpaceTokens
 }
 
 type DappRequestContentProps = DappRequestHeaderProps & DappRequestFooterProps
-
-export const AnimatedPane = styled(Flex, {
-  variants: {
-    forwards: (dir: boolean) => ({
-      enterStyle: {
-        x: dir ? 10 : -10,
-        opacity: 0,
-      },
-    }),
-    increasing: (dir: boolean) => ({
-      enterStyle: dir
-        ? {
-            y: 10,
-            opacity: 0,
-          }
-        : undefined,
-      exitStyle: !dir
-        ? {
-            y: 10,
-            opacity: 0,
-          }
-        : undefined,
-    }),
-  } as const,
-})
 
 export function DappRequestContent({
   chainId,
   title,
   verificationStatus,
+  isFirstParty,
   headerIcon,
   confirmText,
   connectedAccountAddress,
@@ -90,14 +79,20 @@ export function DappRequestContent({
   showNetworkCost,
   showSmartWalletActivation,
   transactionGasFeeResult,
+  sponsorMetadata,
   children,
   isUniswapX,
   disableConfirm,
+  isCriticalRisk,
   showAddressFooter = true,
   contentHorizontalPadding = '$spacing12',
 }: PropsWithChildren<DappRequestContentProps>): JSX.Element {
-  const { forwards, currentIndex, dappIconUrl, dappUrl } = useDappRequestQueueContext()
+  const { forwards, currentIndex, dappIconUrl, dappUrl, tabUrl, isCrossOriginFrame } = useDappRequestQueueContext()
   const hostname = extractNameFromUrl(dappUrl).toUpperCase()
+
+  // Site verification applies to every request type; flows that compute their own
+  // status (e.g. connection, which feeds it into confirmation gating) can override.
+  const siteVerification = useSiteVerification(dappUrl)
 
   return (
     <>
@@ -107,17 +102,25 @@ export function DappRequestContent({
             name: hostname,
             url: dappUrl,
             icon: dappIconUrl,
+            tabUrl,
+            isCrossOriginFrame,
           }}
           title={title}
-          verificationStatus={verificationStatus}
+          verificationStatus={verificationStatus ?? siteVerification.verificationStatus}
+          isFirstParty={isFirstParty ?? siteVerification.isFirstParty}
           headerIcon={headerIcon}
         />
       </Flex>
-      <AnimatePresence exitBeforeEnter custom={{ forwards }}>
-        <AnimatedPane key={currentIndex} animation="200ms" px={contentHorizontalPadding}>
+      <Presence exitBeforeEnter>
+        {/* No exit classes on purpose: the legacy pane declared no exitStyle, so the outgoing pane never animated out. */}
+        <Flex
+          key={currentIndex}
+          className={forwards ? ENTER_PRESET_CLASSES.fadeInRight : ENTER_PRESET_CLASSES.fadeInLeft}
+          px={contentHorizontalPadding}
+        >
           {children}
-        </AnimatedPane>
-      </AnimatePresence>
+        </Flex>
+      </Presence>
       <DappRequestFooter
         chainId={chainId}
         confirmText={confirmText}
@@ -128,7 +131,9 @@ export function DappRequestContent({
         showSmartWalletActivation={showSmartWalletActivation}
         showAddressFooter={showAddressFooter}
         transactionGasFeeResult={transactionGasFeeResult}
+        sponsorMetadata={sponsorMetadata}
         disableConfirm={disableConfirm}
+        isCriticalRisk={isCriticalRisk}
         onCancel={onCancel}
         onConfirm={onConfirm}
       />
@@ -137,6 +142,18 @@ export function DappRequestContent({
 }
 
 const WINDOW_CLOSE_DELAY = 10
+
+function getNativeValueForBalanceCheck(request: DappRequest): string | undefined {
+  // Persisted requests can predate intake normalization (e.g. a bare '0x' value for zero).
+  const normalizedCalls = request.type === DappRequestType.SendCalls ? safeNormalizeSendCalls(request.calls) : undefined
+  const firstTransaction =
+    request.type === DappRequestType.SendTransaction
+      ? request.transaction
+      : normalizedCalls?.ok
+        ? normalizedCalls.calls[0]
+        : undefined
+  return firstTransaction?.value?.toString()
+}
 
 function DappRequestFooter({
   chainId,
@@ -149,8 +166,10 @@ function DappRequestFooter({
   showSmartWalletActivation,
   showAddressFooter,
   transactionGasFeeResult,
+  sponsorMetadata,
   isUniswapX,
   disableConfirm,
+  isCriticalRisk,
 }: DappRequestFooterProps): JSX.Element {
   const { t } = useTranslation()
   const dispatch = useDispatch()
@@ -176,21 +195,32 @@ function DappRequestFooter({
   const sendTransactionChainId =
     request.dappRequest.type === DappRequestType.SendTransaction ? request.dappRequest.transaction.chainId : undefined
   const currentChainId = chainId || sendTransactionChainId || activeChain || defaultChainId
-  const { balance: nativeBalance } = useOnChainNativeCurrencyBalance(currentChainId, currentAccount.address)
+  const { gasBalance } = useChainGasToken({ chainId: currentChainId, accountAddress: currentAccount.address })
   const isRequestConfirming = useIsDappRequestConfirming(request.dappRequest.requestId)
+  const isRequestStale = useIsRequestStale(request.createdAt)
 
-  const hasSufficientGas = hasSufficientFundsIncludingGas({
+  const nativeValue = getNativeValueForBalanceCheck(request.dappRequest)
+
+  const hasSufficientGas = hasSufficientGasBalance({
+    chainId: currentChainId,
+    gasBalance,
     gasFee: transactionGasFeeResult?.value,
-    nativeCurrencyBalance: nativeBalance,
+    // Later calls can spend funds received earlier in the batch.
+    spend: nativeValue ? { kind: 'raw-native-value', value: nativeValue } : undefined,
   })
 
   const shouldCloseSidebar = request.isSidebarClosed && totalRequestCount <= 1
 
-  // Disable submission if no gas fee value
-  const isConfirmEnabled =
-    request.dappRequest.type === DappRequestType.SendTransaction
-      ? transactionGasFeeResult?.value && hasSufficientGas
-      : true
+  // Check if this is a transaction request that needs gas estimation
+  const isTransactionRequest =
+    request.dappRequest.type === DappRequestType.SendTransaction ||
+    request.dappRequest.type === DappRequestType.SendCalls
+
+  // Check if gas estimation failed (has error or no value after loading)
+  const gasEstimationFailed = hasGasEstimationFailed(isTransactionRequest, transactionGasFeeResult)
+
+  // Disable submission when gas estimation fails or user has insufficient funds
+  const isConfirmEnabled = !isTransactionRequest || (!gasEstimationFailed && hasSufficientGas)
 
   const handleOnConfirm = useEvent(async () => {
     if (isRequestConfirming) {
@@ -198,7 +228,7 @@ function DappRequestFooter({
     }
 
     if (onConfirm) {
-      onConfirm()
+      await onConfirm()
     } else {
       await defaultOnConfirm({ request })
       if (isUniswapX) {
@@ -232,11 +262,18 @@ function DappRequestFooter({
   return (
     <>
       <Flex gap="$spacing8" mt={showNetworkCost || showAddressFooter ? '$spacing8' : '$none'} px="$spacing12">
-        {!hasSufficientGas && (
+        {gasEstimationFailed && (
+          <Flex pb="$spacing8">
+            <Text color="$statusCritical" variant="body3">
+              {t('dapp.request.error.gasEstimation')}
+            </Text>
+          </Flex>
+        )}
+        {!hasSufficientGas && !gasEstimationFailed && (
           <Flex pb="$spacing8">
             <Text color="$statusWarning" variant="body3">
               {t('swap.warning.insufficientGas.title', {
-                currencySymbol: nativeBalance?.currency.symbol ?? '',
+                currencySymbol: gasBalance?.currency.symbol ?? '',
               })}
             </Text>
           </Flex>
@@ -249,6 +286,7 @@ function DappRequestFooter({
             showNetworkLogo={!!transactionGasFeeResult}
             requestMethod={request.dappRequest.type}
             showSmartWalletActivation={showSmartWalletActivation}
+            sponsorMetadata={sponsorMetadata}
           />
         )}
         {showAddressFooter && (
@@ -258,31 +296,89 @@ function DappRequestFooter({
             px="$spacing8"
           />
         )}
-        <WarningSection request={request.dappRequest} />
-        <Flex row gap="$spacing12">
-          <Button flexBasis={1} size="medium" emphasis="secondary" onPress={handleOnCancel}>
-            {t('common.button.cancel')}
-          </Button>
-          {confirmText && (
-            <Button
-              isDisabled={isDisabled}
-              loading={isLoading}
-              flexBasis={1}
-              size="medium"
-              variant="branded"
-              onPress={debouncedHandleOnConfirm}
-            >
-              {confirmText}
-            </Button>
-          )}
-        </Flex>
+        <WarningSection request={request.dappRequest} isRequestStale={isRequestStale} />
+        <FooterButtons
+          isRequestStale={isRequestStale}
+          isCriticalRisk={isCriticalRisk}
+          confirmText={confirmText}
+          isDisabled={isDisabled}
+          isLoading={isLoading}
+          onCancel={handleOnCancel}
+          onConfirm={debouncedHandleOnConfirm}
+        />
       </Flex>
     </>
   )
 }
 
-function WarningSection({ request }: { request: DappRequest }) {
+function FooterButtons({
+  isRequestStale,
+  isCriticalRisk,
+  confirmText,
+  isDisabled,
+  isLoading,
+  onCancel,
+  onConfirm,
+}: {
+  isRequestStale: boolean
+  isCriticalRisk?: boolean
+  confirmText?: string
+  isDisabled: boolean
+  isLoading: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}): JSX.Element {
   const { t } = useTranslation()
+  const applyCriticalStyling = Boolean(isCriticalRisk) && !isRequestStale
+
+  const cancelButton = (
+    <Button
+      key="cancel"
+      flexBasis={1}
+      size="medium"
+      emphasis={applyCriticalStyling ? 'primary' : 'secondary'}
+      testID={TestID.Cancel}
+      onPress={onCancel}
+    >
+      {isRequestStale
+        ? t('common.button.close')
+        : applyCriticalStyling
+          ? t('common.button.reject')
+          : t('common.button.cancel')}
+    </Button>
+  )
+
+  const confirmButton =
+    confirmText && !isRequestStale ? (
+      <Button
+        key="confirm"
+        disabled={isDisabled}
+        loading={isLoading}
+        flexBasis={1}
+        size="medium"
+        variant={applyCriticalStyling ? 'critical' : 'branded'}
+        emphasis={applyCriticalStyling ? 'secondary' : 'primary'}
+        testID={TestID.Confirm}
+        onPress={onConfirm}
+      >
+        {confirmText}
+      </Button>
+    ) : null
+
+  return (
+    <Flex row gap="$spacing12">
+      {applyCriticalStyling ? [confirmButton, cancelButton] : [cancelButton, confirmButton]}
+    </Flex>
+  )
+}
+
+// oxlint-disable-next-line typescript/consistent-return -- biome-parity: oxlint is stricter here
+function WarningSection({ request, isRequestStale }: { request: DappRequest; isRequestStale: boolean }) {
+  const { t } = useTranslation()
+
+  if (isRequestStale) {
+    return <WarningBox level="warning" message={t('dapp.request.expired.warning')} />
+  }
 
   if (request.type === DappRequestType.SendCalls) {
     if (request.calls.length <= 1 || isBatchedSwapRequest(request)) {

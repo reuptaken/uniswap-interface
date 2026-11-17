@@ -1,8 +1,17 @@
+import { isWebPlatform } from '@universe/environment'
+import {
+  Flex,
+  type FlexCompatProps as FlexProps,
+  iconSizes,
+  ModalCloseIcon,
+  Text,
+  validColor,
+} from '@universe/mycelium'
+import { ArrowDown } from '@universe/mycelium/icons/ArrowDown'
+import { useMedia } from '@universe/mycelium/theme-hooks-compat'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex, type FlexProps, Loader, ModalCloseIcon, Text, useMedia } from 'ui/src'
-import { ArrowDown } from 'ui/src/components/icons/ArrowDown'
-import { iconSizes, validColor } from 'ui/src/theme'
+import { Loader } from 'ui/src'
 import { CurrencyLogo } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
 import { NetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
@@ -11,26 +20,25 @@ import type { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
 import { useCurrencyInfo } from 'uniswap/src/features/tokens/useCurrencyInfo'
 import { useUSDCValue } from 'uniswap/src/features/transactions/hooks/useUSDCPrice'
-import { usePriceUXEnabled } from 'uniswap/src/features/transactions/swap/hooks/usePriceUXEnabled'
 import type { DerivedSwapInfo } from 'uniswap/src/features/transactions/swap/types/derivedSwapInfo'
 import { getTradeAmounts } from 'uniswap/src/features/transactions/swap/utils/getTradeAmounts'
-import { isBridge } from 'uniswap/src/features/transactions/swap/utils/routing'
 import { CurrencyField } from 'uniswap/src/types/currency'
 import { useNetworkColors } from 'uniswap/src/utils/colors'
 import { getSymbolDisplayText } from 'uniswap/src/utils/currency'
 import { buildCurrencyId, currencyAddress } from 'uniswap/src/utils/currencyId'
 import { NumberType } from 'utilities/src/format/types'
 import { logger } from 'utilities/src/logger/logger'
-import { isWebPlatform } from 'utilities/src/platform'
 
 const SHORT_GAP: FlexProps['$short'] = { gap: '$spacing8' }
 
 export function TransactionAmountsReview({
   acceptedDerivedSwapInfo,
+  quoteRefreshField,
   newTradeRequiresAcceptance,
   onClose,
 }: {
   acceptedDerivedSwapInfo: DerivedSwapInfo<CurrencyInfo, CurrencyInfo>
+  quoteRefreshField?: CurrencyField
   newTradeRequiresAcceptance: boolean
   onClose: () => void
 }): JSX.Element {
@@ -42,15 +50,14 @@ export function TransactionAmountsReview({
     trade: { trade, indicativeTrade },
   } = acceptedDerivedSwapInfo
   const displayTrade = trade ?? indicativeTrade
-  const isBridgeTrade = (trade && isBridge(trade)) ?? false
-
-  const priceUXEnabled = usePriceUXEnabled()
-  const { inputCurrencyAmount, outputCurrencyAmount } = getTradeAmounts(acceptedDerivedSwapInfo, priceUXEnabled)
+  const { inputCurrencyAmount, outputCurrencyAmount } = getTradeAmounts(acceptedDerivedSwapInfo)
 
   // This should never happen. It's just to keep TS happy.
   if (!inputCurrencyAmount || !outputCurrencyAmount) {
     throw new Error('Missing required `currencyAmount` to render `TransactionAmountsReview`')
   }
+
+  const isCrossChainSwap = inputCurrencyAmount.currency.chainId !== outputCurrencyAmount.currency.chainId
 
   const formattedTokenAmountIn = useMemo(
     () =>
@@ -83,6 +90,8 @@ export function TransactionAmountsReview({
 
   const shouldDimInput = newTradeRequiresAcceptance && exactCurrencyField === CurrencyField.OUTPUT
   const shouldDimOutput = newTradeRequiresAcceptance && exactCurrencyField === CurrencyField.INPUT
+  const isInputAmountLoading = quoteRefreshField === CurrencyField.INPUT
+  const isOutputAmountLoading = quoteRefreshField === CurrencyField.OUTPUT
 
   const isInputIndicative = Boolean(displayTrade?.indicative && exactCurrencyField === CurrencyField.OUTPUT)
   const isOutputIndicative = Boolean(displayTrade?.indicative && exactCurrencyField === CurrencyField.INPUT)
@@ -137,7 +146,8 @@ export function TransactionAmountsReview({
           formattedTokenAmount={formattedTokenAmountIn}
           indicative={isInputIndicative}
           shouldDim={shouldDimInput}
-          isBridgeTrade={isBridgeTrade}
+          isAmountLoading={isInputAmountLoading}
+          isCrossChainSwap={isCrossChainSwap}
         />
       )}
 
@@ -152,7 +162,8 @@ export function TransactionAmountsReview({
           formattedTokenAmount={formattedTokenAmountOut}
           indicative={isOutputIndicative}
           shouldDim={shouldDimOutput}
-          isBridgeTrade={isBridgeTrade}
+          isAmountLoading={isOutputAmountLoading}
+          isCrossChainSwap={isCrossChainSwap}
         />
       )}
     </Flex>
@@ -169,14 +180,16 @@ function CurrencyValueWithIcon({
   formattedTokenAmount,
   shouldDim,
   indicative,
-  isBridgeTrade,
+  isAmountLoading,
+  isCrossChainSwap,
 }: {
   currencyInfo: CurrencyInfo
   formattedFiatAmount: string
   formattedTokenAmount: string
   shouldDim: boolean
   indicative: boolean
-  isBridgeTrade: boolean
+  isAmountLoading: boolean
+  isCrossChainSwap: boolean
 }): JSX.Element {
   const { defaultChainId } = useEnabledChains()
   const amountColor = indicative ? '$neutral2' : shouldDim ? '$neutral3' : '$neutral1'
@@ -197,7 +210,7 @@ function CurrencyValueWithIcon({
   return (
     <Flex centered grow row>
       <Flex grow gap="$spacing4">
-        {isBridgeTrade && (
+        {isCrossChainSwap && (
           <Flex row mt={media.sm ? '$spacing8' : undefined} gap="$spacing4" alignItems="center">
             <NetworkLogo chainId={currencyInfo.currency.chainId} size={iconSizes.icon16} />
             <Text color={networkColor} variant="buttonLabel3">
@@ -205,13 +218,26 @@ function CurrencyValueWithIcon({
             </Text>
           </Flex>
         )}
-        <Text color={amountColor} variant="heading3">
-          {formattedTokenAmount} {symbolDisplayText}
-        </Text>
+        {isAmountLoading ? (
+          <Flex row alignItems="center" gap="$spacing8">
+            <Loader.Box height={28} width={96} />
+            <Text color={amountColor} variant="heading3">
+              {symbolDisplayText}
+            </Text>
+          </Flex>
+        ) : (
+          <Text color={amountColor} variant="heading3">
+            {formattedTokenAmount} {symbolDisplayText}
+          </Text>
+        )}
 
-        <Text color={fiatColor} variant="body2">
-          {formattedFiatAmount}
-        </Text>
+        {isAmountLoading ? (
+          <Loader.Box height={18} width={72} />
+        ) : (
+          <Text color={fiatColor} variant="body2">
+            {formattedFiatAmount}
+          </Text>
+        )}
       </Flex>
 
       <CurrencyLogo currencyInfo={currencyInfo} size={iconSizes.icon40} />

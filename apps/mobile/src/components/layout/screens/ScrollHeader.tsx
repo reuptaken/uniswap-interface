@@ -1,11 +1,16 @@
 import { useScrollToTop } from '@react-navigation/native'
+import { type ColorTokens, Flex, AnimatedFlex } from '@universe/mycelium'
 import React, { ReactElement, useMemo } from 'react'
 import { StyleProp, ViewStyle } from 'react-native'
-import Animated, { Extrapolate, interpolate, SharedValue, useAnimatedStyle } from 'react-native-reanimated'
+import {
+  type AnimatedStyle,
+  Extrapolate,
+  interpolate,
+  type SharedValue,
+  useAnimatedStyle,
+} from 'react-native-reanimated'
 import { BackButton } from 'src/components/buttons/BackButton'
 import { WithScrollToTop } from 'src/components/layout/screens/WithScrollToTop'
-import { ColorTokens, Flex } from 'ui/src'
-import { AnimatedFlex } from 'ui/src/components/layout/AnimatedFlex'
 import { iconSizes, zIndexes } from 'ui/src/theme'
 import { useAppInsets } from 'uniswap/src/hooks/useAppInsets'
 
@@ -14,7 +19,7 @@ type ScrollHeaderProps = {
   showHeaderScrollYDistance: number
   fullScreen?: boolean
   // hard to type
-  // biome-ignore lint/suspicious/noExplicitAny: Ref type varies based on list component used
+  // oxlint-disable-next-line typescript/no-explicit-any -- Ref type varies based on list component used
   listRef: React.MutableRefObject<any>
   centerElement?: JSX.Element
   rightElement?: JSX.Element
@@ -26,8 +31,7 @@ type ScrollHeaderProps = {
  * Fixed header that will fade in on scroll. Define values in parent, to be used by some
  * relevant list component.
  *
- * Used to achieve functionality of HeaderScrollScreen, but can be used in any context. One
- * example is using a scrolled above a full screen view like NFTCollectionScreen.
+ * Used to achieve functionality of HeaderScrollScreen, but can be used in any context.
  */
 export function ScrollHeader({
   listRef,
@@ -77,8 +81,8 @@ export function ScrollHeader({
           {rightElement}
         </Flex>
         <AnimatedFlex
-          borderBottomColor={backgroundColor ?? '$surface3'}
           borderBottomWidth={0.25}
+          borderColor="$surface3"
           height={1}
           overflow="visible"
           style={visibleOnScrollStyle}
@@ -97,7 +101,7 @@ function HeaderWrapper({
 }: {
   fullScreen: boolean
   children: ReactElement
-  style?: StyleProp<Animated.AnimateStyle<StyleProp<ViewStyle>>>
+  style?: StyleProp<AnimatedStyle<StyleProp<ViewStyle>>>
   backgroundColor?: ColorTokens
 }): JSX.Element {
   if (!fullScreen) {

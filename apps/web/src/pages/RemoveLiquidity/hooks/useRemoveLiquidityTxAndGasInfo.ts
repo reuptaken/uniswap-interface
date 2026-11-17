@@ -1,25 +1,72 @@
-import { ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
-import { TradingApi } from '@universe/api'
-import { getTokenOrZeroAddress } from 'components/Liquidity/utils/currency'
-import { getProtocolItems } from 'components/Liquidity/utils/protocolVersion'
-import JSBI from 'jsbi'
-import { useRemoveLiquidityModalContext } from 'pages/RemoveLiquidity/RemoveLiquidityModalContext'
-import type { RemoveLiquidityTxInfo } from 'pages/RemoveLiquidity/RemoveLiquidityTxContext'
+import { useQuery } from '@tanstack/react-query'
+import { Protocols } from '@uniswap/client-liquidity/dist/uniswap/liquidity/v1/types_pb'
+import { DecreasePositionRequest, LPApprovalRequest } from '@uniswap/client-liquidity/dist/uniswap/liquidity/v2/api_pb'
+import { LPAction, LPToken } from '@uniswap/client-liquidity/dist/uniswap/liquidity/v2/types_pb'
 import { useEffect, useMemo, useState } from 'react'
-import { useCheckLpApprovalQuery } from 'uniswap/src/data/apiClients/tradingApi/useCheckLpApprovalQuery'
-import { useDecreaseLpPositionCalldataQuery } from 'uniswap/src/data/apiClients/tradingApi/useDecreaseLpPositionCalldataQuery'
+import { liquidityQueries } from 'uniswap/src/data/apiClients/liquidityService/liquidityQueries'
+import { useCheckLPApprovalQuery } from 'uniswap/src/data/apiClients/liquidityService/useCheckLPApprovalQuery'
+import { getTradeSettingsDeadline } from 'uniswap/src/data/apiClients/tradingApi/utils/getTradeSettingsDeadline'
 import { toSupportedChainId } from 'uniswap/src/features/chains/utils'
 import { useTransactionGasFee, useUSDCurrencyAmountOfGasFee } from 'uniswap/src/features/gas/hooks'
+import type { PositionInfo } from 'uniswap/src/features/positions/types'
+import { getIsPermissioned } from 'uniswap/src/features/positions/utils'
 import { InterfaceEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { useTransactionSettingsStore } from 'uniswap/src/features/transactions/components/settings/stores/transactionSettingsStore/useTransactionSettingsStore'
+import { useLogLiquidityTxError } from 'uniswap/src/features/transactions/liquidity/useLogLiquidityTxError'
 import { getErrorMessageToDisplay, parseErrorMessageTitle } from 'uniswap/src/features/transactions/liquidity/utils'
-import { TransactionStepType } from 'uniswap/src/features/transactions/steps/types'
+import { getWrappedTokenIfExists } from 'uniswap/src/utils/currency'
 import { logger } from 'utilities/src/logger/logger'
-import { ONE_SECOND_MS } from 'utilities/src/time/time'
+import { LP_GAS_URGENCY } from '~/features/Liquidity/constants'
+import { getTokenOrZeroAddress } from '~/features/Liquidity/utils/currency'
+import { getProtocols } from '~/features/Liquidity/utils/protocolVersion'
+import {
+  REMOVE_LIQUIDITY_REFETCH_INTERVAL_MS,
+  useRemoveLiquidityModalContext,
+} from '~/pages/RemoveLiquidity/RemoveLiquidityModalContext'
+import type { RemoveLiquidityTxInfo } from '~/pages/RemoveLiquidity/RemoveLiquidityTxContext'
 
+function buildCheckApprovalLPRequest({
+  positionInfo,
+  walletAddress,
+}: {
+  positionInfo: PositionInfo
+  walletAddress: string
+}): LPApprovalRequest | undefined {
+  const protocol = getProtocols(positionInfo.version)
+
+  if (protocol === undefined) {
+    return undefined
+  }
+
+  switch (protocol) {
+    case Protocols.V2:
+      return new LPApprovalRequest({
+        walletAddress,
+        protocol,
+        chainId: positionInfo.liquidityToken?.chainId,
+        lpTokens: [
+          new LPToken({
+            tokenAddress: getWrappedTokenIfExists(positionInfo.currency0Amount.currency)?.address,
+            amount: '0', // the amounts here don't matter since the approval is based on the positionToken
+          }),
+          new LPToken({
+            tokenAddress: getWrappedTokenIfExists(positionInfo.currency1Amount.currency)?.address,
+            amount: '0',
+          }),
+        ],
+        action: LPAction.DECREASE,
+        simulateTransaction: true,
+      })
+    default:
+      return undefined
+  }
+}
+
+// oxlint-disable-next-line complexity
 export function useRemoveLiquidityTxAndGasInfo({ account }: { account?: string }): RemoveLiquidityTxInfo {
-  const { positionInfo, percent, percentInvalid, currencies, currentTransactionStep } = useRemoveLiquidityModalContext()
+  const { positionInfo, percent, percentInvalid, currencies, committedDecrease, unwrapNativeCurrency } =
+    useRemoveLiquidityModalContext()
   const { customDeadline, customSlippageTolerance } = useTransactionSettingsStore((s) => ({
     customDeadline: s.customDeadline,
     customSlippageTolerance: s.customSlippageTolerance,
@@ -30,43 +77,46 @@ export function useRemoveLiquidityTxAndGasInfo({ account }: { account?: string }
   const currency0 = currencies?.TOKEN0
   const currency1 = currencies?.TOKEN1
 
-  const v2LpTokenApprovalQueryParams: TradingApi.CheckApprovalLPRequest | undefined = useMemo(() => {
-    if (!positionInfo || !positionInfo.liquidityToken || percentInvalid || !positionInfo.liquidityAmount) {
+  const approvalQueryParams = useMemo(() => {
+    if (!positionInfo || !account || percentInvalid) {
       return undefined
     }
-    return {
-      protocol: TradingApi.ProtocolItems.V2,
+
+    return buildCheckApprovalLPRequest({
+      positionInfo,
       walletAddress: account,
-      chainId: positionInfo.liquidityToken.chainId,
-      positionToken: positionInfo.liquidityToken.address,
-      positionAmount: positionInfo.liquidityAmount
-        .multiply(JSBI.BigInt(percent))
-        .divide(JSBI.BigInt(100))
-        .quotient.toString(),
-    }
-  }, [positionInfo, percent, account, percentInvalid])
+    })
+  }, [positionInfo, account, percentInvalid])
+
   const {
-    data: v2LpTokenApproval,
-    isLoading: v2ApprovalLoading,
-    error: approvalError,
-    refetch: approvalRefetch,
-  } = useCheckLpApprovalQuery({
-    params: v2LpTokenApprovalQueryParams,
-    staleTime: 5 * ONE_SECOND_MS,
-    enabled: Boolean(v2LpTokenApprovalQueryParams),
+    approvalData: v2LpTokenApproval,
+    approvalLoading: v2ApprovalLoading,
+    approvalError,
+    approvalRefetch,
+  } = useCheckLPApprovalQuery({
+    approvalQueryParams,
+    isQueryEnabled: Boolean(approvalQueryParams),
+    positionTokenAddress: positionInfo?.liquidityToken?.address,
   })
 
-  if (approvalError) {
-    logger.info(
-      'RemoveLiquidityTxAndGasInfo',
-      'RemoveLiquidityTxAndGasInfo',
-      parseErrorMessageTitle(approvalError, { defaultTitle: 'unkown CheckLpApprovalQuery' }),
-      {
-        error: JSON.stringify(approvalError),
-        v2LpTokenApprovalQueryParams: JSON.stringify(v2LpTokenApprovalQueryParams),
-      },
-    )
-  }
+  const approvalErrorMessage = approvalError
+    ? parseErrorMessageTitle(approvalError, { defaultTitle: 'unknown CheckLpApprovalQuery' })
+    : undefined
+
+  useEffect(() => {
+    if (!approvalErrorMessage) {
+      return
+    }
+
+    logger.info('RemoveLiquidityTxAndGasInfo', 'RemoveLiquidityTxAndGasInfo', approvalErrorMessage, {
+      error: JSON.stringify(approvalError),
+      v2LpTokenApprovalQueryParams: JSON.stringify(approvalQueryParams),
+    })
+    // Keyed on the parsed message alone, as in `useLogLiquidityTxError`: the error object and the
+    // query params are rebuilt on every render, so depending on them would restore the per-render
+    // logging — and both `JSON.stringify` calls — that this replaces.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- dedupe is keyed on the message only
+  }, [approvalErrorMessage])
 
   const v2ApprovalGasFeeUSD =
     useUSDCurrencyAmountOfGasFee(
@@ -74,100 +124,98 @@ export function useRemoveLiquidityTxAndGasInfo({ account }: { account?: string }
       v2LpTokenApproval?.gasFeePositionTokenApproval,
     ) ?? undefined
 
-  const approvalsNeeded = Boolean(v2LpTokenApproval)
+  const approvalsNeeded = !v2ApprovalLoading && Boolean(v2LpTokenApproval?.positionTokenApproval)
 
-  const { token0UncollectedFees, token1UncollectedFees } = positionInfo ?? {}
+  // `positionInfo` and `currencies` are rebuilt from every GetPosition poll (protobuf responses defeat
+  // structural sharing), so build the request from the primitives it carries. Rebuilding on identity
+  // would re-stamp a now-based custom `deadline` each poll, re-keying the query and dropping the calldata
+  // (and with it the Confirm button) while the refetch is in flight.
+  const hasPosition = Boolean(positionInfo)
+  const protocol = positionInfo ? getProtocols(positionInfo.version) : undefined
+  const nftTokenId = positionInfo?.tokenId
+  const permissioned = positionInfo ? getIsPermissioned(positionInfo) : undefined
+  const chainId = currency0?.chainId
+  const token0Address = getTokenOrZeroAddress(currency0)
+  const token1Address = getTokenOrZeroAddress(currency1)
 
-  const decreaseCalldataQueryParams = useMemo((): TradingApi.DecreaseLPPositionRequest | undefined => {
-    const apiProtocolItems = getProtocolItems(positionInfo?.version)
-    if (!positionInfo || !apiProtocolItems || !account || percentInvalid || !currency0 || !currency1) {
+  const decreaseCalldataQueryParams = useMemo((): DecreasePositionRequest | undefined => {
+    if (!hasPosition || !account || percentInvalid || chainId === undefined || !token0Address || !token1Address) {
       return undefined
     }
 
-    return {
-      simulateTransaction: !approvalsNeeded,
-      protocol: apiProtocolItems,
-      tokenId: positionInfo.tokenId ? Number(positionInfo.tokenId) : undefined,
-      chainId: positionInfo.currency0Amount.currency.chainId,
+    return new DecreasePositionRequest({
       walletAddress: account,
+      chainId,
+      protocol,
+      token0Address,
+      token1Address,
+      nftTokenId,
+      permissioned,
       liquidityPercentageToDecrease: Number(percent),
-      liquidity0:
-        positionInfo.version === ProtocolVersion.V2 ? positionInfo.currency0Amount.quotient.toString() : undefined,
-      liquidity1:
-        positionInfo.version === ProtocolVersion.V2 ? positionInfo.currency1Amount.quotient.toString() : undefined,
-      positionLiquidity:
-        positionInfo.version === ProtocolVersion.V2
-          ? positionInfo.liquidityAmount?.quotient.toString()
-          : positionInfo.liquidity,
-      expectedTokenOwed0RawAmount: positionInfo.version !== ProtocolVersion.V4 ? token0UncollectedFees : undefined,
-      expectedTokenOwed1RawAmount: positionInfo.version !== ProtocolVersion.V4 ? token1UncollectedFees : undefined,
-      position: {
-        tickLower: positionInfo.tickLower !== undefined ? positionInfo.tickLower : undefined,
-        tickUpper: positionInfo.tickUpper !== undefined ? positionInfo.tickUpper : undefined,
-        pool: {
-          token0: getTokenOrZeroAddress(currency0),
-          token1: getTokenOrZeroAddress(currency1),
-          fee: positionInfo.feeTier?.feeAmount,
-          tickSpacing: positionInfo.tickSpacing ? Number(positionInfo.tickSpacing) : undefined,
-          hooks: positionInfo.v4hook,
-        },
-      },
       slippageTolerance: customSlippageTolerance,
-    }
+      deadline: getTradeSettingsDeadline(customDeadline),
+      simulateTransaction: !approvalsNeeded,
+      withdrawAsWeth: !unwrapNativeCurrency,
+    })
   }, [
-    positionInfo,
+    hasPosition,
     account,
     percentInvalid,
-    currency0,
-    currency1,
-    approvalsNeeded,
+    chainId,
+    protocol,
+    token0Address,
+    token1Address,
+    nftTokenId,
+    permissioned,
     percent,
-    token0UncollectedFees,
-    token1UncollectedFees,
     customSlippageTolerance,
+    customDeadline,
+    approvalsNeeded,
+    unwrapNativeCurrency,
   ])
 
-  const isUserCommittedToDecrease =
-    currentTransactionStep?.step.type === TransactionStepType.DecreasePositionTransaction
+  // Once the user has committed the saga holds its calldata; a fresher quote could only disagree with it.
+  const hasCommitted = committedDecrease !== undefined
+  const isQueryEnabled =
+    !hasCommitted &&
+    ((!percentInvalid && !approvalQueryParams) || (!v2ApprovalLoading && !approvalError && Boolean(v2LpTokenApproval)))
 
   const {
     data: decreaseCalldata,
     isLoading: decreaseCalldataLoading,
     error: calldataError,
     refetch: calldataRefetch,
-  } = useDecreaseLpPositionCalldataQuery({
-    params: decreaseCalldataQueryParams,
-    deadlineInMinutes: customDeadline,
-    refetchInterval: transactionError ? false : 5 * ONE_SECOND_MS,
-    retry: false,
-    enabled:
-      !isUserCommittedToDecrease &&
-      !!decreaseCalldataQueryParams &&
-      ((!percentInvalid && !v2LpTokenApprovalQueryParams) ||
-        (!v2ApprovalLoading && !approvalError && Boolean(v2LpTokenApproval))),
-  })
+  } = useQuery(
+    liquidityQueries.decreasePosition({
+      params: decreaseCalldataQueryParams,
+      refetchInterval: transactionError ? false : REMOVE_LIQUIDITY_REFETCH_INTERVAL_MS,
+      retry: false,
+      enabled: isQueryEnabled && Boolean(decreaseCalldataQueryParams),
+    }),
+  )
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +decreaseCalldataQueryParams
   useEffect(() => {
     setTransactionError(getErrorMessageToDisplay({ approvalError, calldataError }))
   }, [calldataError, decreaseCalldataQueryParams, approvalError])
 
-  if (calldataError) {
-    const message = parseErrorMessageTitle(calldataError, { defaultTitle: 'DecreaseLpPositionCalldataQuery' })
-    logger.error(message, {
-      tags: {
-        file: 'RemoveLiquidityTxAndGasInfo',
-        function: 'useEffect',
-      },
-    })
-    sendAnalyticsEvent(InterfaceEventName.DecreaseLiquidityFailed, {
-      message,
-    })
-  }
+  useLogLiquidityTxError({
+    error: calldataError,
+    defaultTitle: 'DecreaseLpPositionCalldataQuery',
+    file: 'RemoveLiquidityTxAndGasInfo',
+    functionName: 'liquidityQueries.decreasePosition',
+    onError: (message) => {
+      sendAnalyticsEvent(InterfaceEventName.DecreaseLiquidityFailed, {
+        message,
+        // oxlint-disable-next-line typescript/no-misused-spread -- biome-parity: oxlint is stricter here
+        ...decreaseCalldataQueryParams,
+      })
+    },
+  })
 
-  const { value: estimatedGasFee } = useTransactionGasFee({
+  const { displayValue: estimatedGasFee } = useTransactionGasFee({
     tx: decreaseCalldata?.decrease,
     skip: !!decreaseCalldata?.gasFee,
+    urgency: LP_GAS_URGENCY,
   })
   const decreaseGasFeeUsd =
     useUSDCurrencyAmountOfGasFee(

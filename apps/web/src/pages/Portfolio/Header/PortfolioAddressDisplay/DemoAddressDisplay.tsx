@@ -1,23 +1,35 @@
-import { ReactComponent as Unicon } from 'assets/svg/demo-wallet-emblem.svg'
+import { Flex, iconSizes, Text } from '@universe/mycelium'
+import { Eye } from '@universe/mycelium/icons/Eye'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
+import { TooltipCompat as Tooltip } from '@universe/mycelium/tooltip-compat'
+import { TestID } from '@universe/test'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text, Tooltip, useSporeColors } from 'ui/src'
-import { Eye } from 'ui/src/components/icons/Eye'
-import { iconSizes, zIndexes } from 'ui/src/theme'
+import { ReactComponent as Unicon } from '~/assets/svg/demo-wallet-emblem.svg'
+import { HEADER_TRANSITION } from '~/components/StickyCollapsibleHeader/constants'
 
-export function DemoAddressDisplay() {
+export function DemoAddressDisplay({ isCompact }: { isCompact: boolean }) {
   const colors = useSporeColors()
   const { t } = useTranslation()
 
+  const iconSize = isCompact ? iconSizes.icon24 : iconSizes.icon48
+  const uniconSize = isCompact ? 16 : 32
+
   return (
-    <Flex row alignItems="center" gap="$spacing12">
+    <Flex row alignItems="center" gap="$spacing12" testID={TestID.DemoWalletDisplay}>
       <Flex
         borderRadius="$roundedFull"
         backgroundColor="$accent2"
-        width={iconSizes.icon48}
-        height={iconSizes.icon48}
+        width={iconSize}
+        height={iconSize}
         centered
+        transition={HEADER_TRANSITION}
       >
-        <Unicon width={32} height={32} style={{ color: colors.accent1.val }} fill={colors.accent1.val} />
+        <Unicon
+          width={uniconSize}
+          height={uniconSize}
+          style={{ color: colors.accent1.val }}
+          fill={colors.accent1.val}
+        />
       </Flex>
       <Tooltip>
         <Tooltip.Trigger>
@@ -28,7 +40,7 @@ export function DemoAddressDisplay() {
             <Eye color="$neutral2" size="$icon.16" />
           </Flex>
         </Tooltip.Trigger>
-        <Tooltip.Content ml="$spacing8" zIndex={zIndexes.overlay}>
+        <Tooltip.Content ml="$spacing8">
           <Text variant="body4">{t('portfolio.disconnected.demoWallet.description')}</Text>
         </Tooltip.Content>
       </Tooltip>

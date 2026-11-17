@@ -1,24 +1,27 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type */
-import { NetworkStatus } from '@apollo/client'
+import { QueryStatus } from '@tanstack/react-query'
 import { TradingApi } from '@universe/api'
 import dayjs from 'dayjs'
 import { useFormattedTransactionDataForActivity } from 'uniswap/src/features/activity/hooks/useFormattedTransactionDataForActivity'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { TransactionStatus } from 'uniswap/src/features/transactions/types/transactionDetails'
 import { transactionDetails, uniswapXOrderDetails } from 'uniswap/src/test/fixtures/wallet/transactions'
 import { renderHook } from 'uniswap/src/test/test-utils'
+import type { MockedFunction } from 'vitest'
 
 // Mock dependencies
-jest.mock('uniswap/src/features/dataApi/listTransactions/listTransactions')
-jest.mock('uniswap/src/features/activity/hooks/useMergeLocalAndRemoteTransactions')
-jest.mock('uniswap/src/features/activity/formatTransactionsByDate')
-jest.mock('uniswap/src/features/language/localizedDayjs')
-jest.mock('uniswap/src/features/transactions/selectors')
-jest.mock('react-redux', () => ({
-  ...jest.requireActual('react-redux'),
-  useSelector: jest.fn(),
-}))
+vi.mock('uniswap/src/features/dataApi/listTransactions/listTransactions')
+vi.mock('uniswap/src/features/activity/hooks/useMergeLocalAndRemoteTransactions')
+vi.mock('uniswap/src/features/activity/formatTransactionsByDate')
+vi.mock('uniswap/src/features/language/localizedDayjs')
+vi.mock('uniswap/src/features/transactions/selectors')
+vi.mock('react-redux', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-redux')>()
+  return {
+    ...actual,
+    useSelector: vi.fn(),
+  }
+})
 
+import { UniverseChainId } from '@universe/chains'
 import { useSelector } from 'react-redux'
 import { formatTransactionsByDate } from 'uniswap/src/features/activity/formatTransactionsByDate'
 import { useMergeLocalAndRemoteTransactions } from 'uniswap/src/features/activity/hooks/useMergeLocalAndRemoteTransactions'
@@ -27,21 +30,21 @@ import { useLocalizedDayjs } from 'uniswap/src/features/language/localizedDayjs'
 import { useCurrencyIdToVisibility } from 'uniswap/src/features/transactions/selectors'
 import { TEST_WALLET } from 'uniswap/src/test/fixtures/wallet/addresses'
 
-const mockUseSelector = useSelector as jest.MockedFunction<typeof useSelector>
-const mockUseCurrencyIdToVisibility = useCurrencyIdToVisibility as jest.MockedFunction<typeof useCurrencyIdToVisibility>
-const mockUseLocalizedDayjs = useLocalizedDayjs as jest.MockedFunction<typeof useLocalizedDayjs>
-const mockUseMergeLocalAndRemoteTransactions = useMergeLocalAndRemoteTransactions as jest.MockedFunction<
+const mockUseSelector = useSelector as MockedFunction<typeof useSelector>
+const mockUseCurrencyIdToVisibility = useCurrencyIdToVisibility as MockedFunction<typeof useCurrencyIdToVisibility>
+const mockUseLocalizedDayjs = useLocalizedDayjs as MockedFunction<typeof useLocalizedDayjs>
+const mockUseMergeLocalAndRemoteTransactions = useMergeLocalAndRemoteTransactions as MockedFunction<
   typeof useMergeLocalAndRemoteTransactions
 >
-const mockFormatTransactionsByDate = formatTransactionsByDate as jest.MockedFunction<typeof formatTransactionsByDate>
-const mockUseListTransactions = useListTransactions as jest.MockedFunction<typeof useListTransactions>
+const mockFormatTransactionsByDate = formatTransactionsByDate as MockedFunction<typeof formatTransactionsByDate>
+const mockUseListTransactions = useListTransactions as MockedFunction<typeof useListTransactions>
 
 describe('useFormattedTransactionDataForActivity', () => {
-  const mockRefetch = jest.fn().mockResolvedValue(undefined)
-  const mockFetchNextPage = jest.fn()
+  const mockRefetch = vi.fn().mockResolvedValue(undefined)
+  const mockFetchNextPage = vi.fn()
 
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
 
     // Default mocks
     mockUseSelector.mockReturnValue({})
@@ -60,10 +63,12 @@ describe('useFormattedTransactionDataForActivity', () => {
       isFetching: false,
       error: undefined,
       refetch: mockRefetch,
-      networkStatus: NetworkStatus.ready,
+      isPending: false,
+      isError: false,
       fetchNextPage: mockFetchNextPage,
       hasNextPage: false,
       isFetchingNextPage: false,
+      isFetchNextPageError: false,
     })
   })
 
@@ -82,10 +87,12 @@ describe('useFormattedTransactionDataForActivity', () => {
       isFetching: false,
       error: undefined,
       refetch: mockRefetch,
-      networkStatus: NetworkStatus.ready,
+      isPending: false,
+      isError: false,
       fetchNextPage: mockFetchNextPage,
       hasNextPage: false,
       isFetchingNextPage: false,
+      isFetchNextPageError: false,
       ...overrides,
     })
   }
@@ -113,7 +120,7 @@ describe('useFormattedTransactionDataForActivity', () => {
 
   describe('loading states', () => {
     it('should show loading data when no data and loading', () => {
-      mockListTransactions({ data: undefined, loading: true, networkStatus: NetworkStatus.loading })
+      mockListTransactions({ data: undefined, loading: true, isPending: true })
       const { result } = renderFormattedHook()
 
       expect(result.current.isLoading).toBe(true)
@@ -136,16 +143,17 @@ describe('useFormattedTransactionDataForActivity', () => {
   describe('error states', () => {
     it('should handle error from useListTransactions', () => {
       const mockError = new Error('API error')
-      mockListTransactions({ data: undefined, error: mockError, networkStatus: NetworkStatus.error })
+      mockListTransactions({ data: undefined, error: mockError, isError: true, isFetchNextPageError: true })
 
       const { result } = renderFormattedHook()
 
-      expect(result.current.isError).toBe(mockError)
+      expect(result.current.error).toBe(mockError)
+      expect(result.current.isFetchNextPageError).toBe(true)
       expect(result.current.hasData).toBe(false)
     })
 
     it('should provide retry functionality', async () => {
-      mockListTransactions({ data: undefined, error: new Error('Test error'), networkStatus: NetworkStatus.error })
+      mockListTransactions({ data: undefined, error: new Error('Test error'), isError: true })
 
       const { result } = renderFormattedHook()
 
@@ -268,6 +276,18 @@ describe('useFormattedTransactionDataForActivity', () => {
       // Should be false despite API returning hasNextPage=true because limit reached
       expect(result.current.hasNextPage).toBe(false)
     })
+
+    it('should continue paginating beyond 250 items when maxItems is Infinity', () => {
+      // Simulate a web Activity page with 500+ transactions — should never hit the cap
+      const transactions = Array.from({ length: 500 }, (_, i) => createTestTransaction({ id: `tx-${i}` }))
+
+      mockListTransactions({ data: transactions, hasNextPage: true })
+      mockUseMergeLocalAndRemoteTransactions.mockReturnValue(transactions)
+
+      const { result } = renderFormattedHook({ maxItems: Infinity })
+
+      expect(result.current.hasNextPage).toBe(true)
+    })
   })
 
   describe('combined filtering', () => {
@@ -297,6 +317,31 @@ describe('useFormattedTransactionDataForActivity', () => {
 
       // Should only pass mainnetSwap (limit order filtered, arbitrum filtered)
       expect(formatTransactionsByDate).toHaveBeenCalledWith([mainnetSwap], expect.anything())
+    })
+  })
+
+  describe('filterTransactionTypes', () => {
+    it('should pass filterTransactionTypes to useListTransactions', () => {
+      const { TransactionTypeFilter } = require('@uniswap/client-data-api/dist/data/v1/types_pb')
+      const filterTypes = [TransactionTypeFilter.SWAP]
+
+      renderFormattedHook({ filterTransactionTypes: filterTypes })
+
+      expect(mockUseListTransactions).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filterTransactionTypes: filterTypes,
+        }),
+      )
+    })
+
+    it('should not include filterTransactionTypes when undefined', () => {
+      renderFormattedHook()
+
+      expect(mockUseListTransactions).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filterTransactionTypes: undefined,
+        }),
+      )
     })
   })
 })

@@ -1,10 +1,10 @@
+import { Flex } from '@universe/mycelium'
 import { useTranslation } from 'react-i18next'
-import { Flex } from 'ui/src'
 import { Contract } from 'ui/src/components/icons/Contract'
 import { Sign } from 'ui/src/components/icons/Sign'
 import { StepRowProps, StepRowSkeleton } from 'uniswap/src/components/ConfirmSwapModal/steps/StepRowSkeleton'
 import { StepStatus } from 'uniswap/src/components/ConfirmSwapModal/types'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
+import { UniswapHelpUrls } from 'uniswap/src/constants/urls'
 import { Permit2SignatureStep } from 'uniswap/src/features/transactions/steps/permit2Signature'
 import { Permit2TransactionStep } from 'uniswap/src/features/transactions/steps/permit2Transaction'
 
@@ -28,7 +28,7 @@ export function Permit2SignatureStepRow({
       title={title}
       icon={<SignIcon />}
       learnMore={{
-        url: uniswapUrls.helpArticleUrls.approvalsExplainer,
+        url: UniswapHelpUrls.articles.approvalsExplainer,
         text: t('common.whySign'),
       }}
       status={status}
@@ -45,6 +45,7 @@ const ContractIcon = (): JSX.Element => (
 )
 
 export function Permit2TransactionStepRow({
+  // oxlint-disable-next-line no-unused-vars -- biome-parity: oxlint is stricter here
   step,
   status,
   currentStepIndex,
@@ -62,6 +63,8 @@ export function Permit2TransactionStepRow({
 
   const title = {
     [StepStatus.Preview]: t('common.approvePermitTx', { indexText }),
+    [StepStatus.Failed]: t('common.approvePermitTx', { indexText }),
+    [StepStatus.Replaced]: t('common.approvePermitTx', { indexText }),
     [StepStatus.Active]: t('common.approvePermitTx.active', { indexText }),
     [StepStatus.InProgress]: t('common.approvePermitTx.pending', { indexText }),
     [StepStatus.Complete]: t('common.approvePermitTx', { indexText }),
@@ -72,7 +75,7 @@ export function Permit2TransactionStepRow({
       title={title}
       icon={<ContractIcon />}
       learnMore={{
-        url: uniswapUrls.helpArticleUrls.mismatchedImports,
+        url: UniswapHelpUrls.articles.mismatchedImports,
         text: t('common.approvePermitTx.explainer'),
       }}
       status={status}

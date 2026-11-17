@@ -1,10 +1,11 @@
+import { Flex, TouchableArea } from '@universe/mycelium'
+import { TestID } from '@universe/test'
 import { forwardRef } from 'react'
 import { TextInput } from 'react-native'
-import { Flex, TouchableArea } from 'ui/src'
-import { RotatableChevron } from 'ui/src/components/icons'
-import { iconSizes } from 'ui/src/theme'
+// RotatableChevron is still web-only on mycelium (WEB_ONLY_MYCELIUM_ICONS); packages/wallet
+// is native-reachable, so it stays on ui/src until it gets a native leg.
+import { RotatableChevron } from 'ui/src/components/icons/RotatableChevron'
 import { SearchTextInput, SearchTextInputProps } from 'uniswap/src/features/search/SearchTextInput'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 
 interface SearchBarProps extends SearchTextInputProps {
   onBack?: () => void
@@ -20,7 +21,7 @@ export const SearchBar = forwardRef<TextInput, SearchBarProps>(function _SearchB
     <Flex centered row gap="$spacing12">
       {onBack && !hideBackButton && (
         <TouchableArea testID={TestID.Back} onPress={onBack}>
-          <RotatableChevron color="$neutral2" height={iconSizes.icon24} width={iconSizes.icon24} />
+          <RotatableChevron color="$neutral2" size="$icon.24" />
         </TouchableArea>
       )}
       <SearchTextInput ref={ref} {...rest} />

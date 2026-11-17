@@ -1,23 +1,20 @@
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
+import { isAndroid } from '@universe/environment'
+import { Button, Flex, spacing, TouchableArea, zIndexes, flexStyles, AnimatedFlex } from '@universe/mycelium'
+import { UNISWAP_MONO_LOGO_LARGE } from '@universe/mycelium/assets'
+import { useDeviceDimensions, useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
 import { BlurView } from 'expo-blur'
 import React, { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Image } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { useBiometricsIcon } from 'src/components/icons/useBiometricsIcon'
-import { SPLASH_SCREEN_IMAGE_SIZE, SplashScreen } from 'src/features/appLoading/SplashScreen'
+import { SPLASH_SCREEN_IMAGE_SIZE } from 'src/features/appLoading/SplashScreen'
 import { useBiometricsAlert } from 'src/features/biometrics/useBiometricsAlert'
 import { useDeviceSupportsBiometricAuth } from 'src/features/biometrics/useDeviceSupportsBiometricAuth'
 import { useOsBiometricAuthEnabled } from 'src/features/biometrics/useOsBiometricAuthEnabled'
 import { useBiometricName, useBiometricPrompt } from 'src/features/biometricsSettings/hooks'
 import { useLockScreenState } from 'src/features/lockScreen/hooks/useLockScreenState'
-import { Button, Flex, flexStyles, TouchableArea, useIsDarkMode } from 'ui/src'
-import { UNISWAP_MONO_LOGO_LARGE } from 'ui/src/assets'
-import { AnimatedFlex } from 'ui/src/components/layout/AnimatedFlex'
-import { useDeviceDimensions } from 'ui/src/hooks/useDeviceDimensions'
-import { spacing, zIndexes } from 'ui/src/theme'
 import { useAppInsets } from 'uniswap/src/hooks/useAppInsets'
-import { isAndroid } from 'utilities/src/platform'
 import { useEvent } from 'utilities/src/react/hooks'
 
 const fadeIn = FadeIn.duration(250)
@@ -46,7 +43,6 @@ const useBiometricAuth = (): (() => Promise<void>) => {
 
 export const LockScreenModal = memo(function LockScreenModal(): JSX.Element | null {
   const { isLockScreenVisible } = useLockScreenState()
-  const isBlurredLockScreenEnabled = useFeatureFlag(FeatureFlags.BlurredLockScreen)
   const onPress = useBiometricAuth()
 
   if (!isLockScreenVisible) {
@@ -58,30 +54,9 @@ export const LockScreenModal = memo(function LockScreenModal(): JSX.Element | nu
   return (
     <FullScreenFader>
       <TouchableArea activeOpacity={1} style={flexStyles.fill} onPress={onPress}>
-        {isBlurredLockScreenEnabled ? (
-          <BlurredLockScreen />
-        ) : (
-          // fallback to splash screen with unlock button
-          <LegacySplashLockScreen />
-        )}
+        <BlurredLockScreen />
       </TouchableArea>
     </FullScreenFader>
-  )
-})
-
-const LegacySplashLockScreen = memo(function LegacySplashLockScreen(): JSX.Element {
-  const { manualRetryRequired } = useLockScreenState()
-  const bottomInset = useBottomInset()
-
-  return (
-    <>
-      <SplashScreen />
-      {manualRetryRequired && (
-        <Flex position="absolute" top={0} left={0} right={0} bottom={0} justifyContent="flex-end" pb={bottomInset}>
-          <UnlockButton />
-        </Flex>
-      )}
-    </>
   )
 })
 
@@ -91,13 +66,8 @@ const BlurredLockScreen = memo(function BlurredLockScreen(): JSX.Element {
   const bottomInset = useBottomInset()
   const dimensions = useDeviceDimensions()
 
-  return (
-    <BlurView
-      experimentalBlurMethod={isAndroid ? 'dimezisBlurView' : undefined}
-      intensity={60}
-      tint={isDarkMode ? 'systemMaterialDark' : 'systemMaterialLight'}
-      style={flexStyles.fill}
-    >
+  const contents = (
+    <>
       <Image
         source={UNISWAP_MONO_LOGO_LARGE}
         style={{
@@ -113,6 +83,23 @@ const BlurredLockScreen = memo(function BlurredLockScreen(): JSX.Element {
           <UnlockButton />
         </Flex>
       )}
+    </>
+  )
+
+  // Android: opaque cover. expo-blur on Android requires a blur target that must not contain this
+  // overlay (a contained BlurView creates a RenderNode cycle and crashes the RenderThread), and an
+  // opaque cover obscures app content more reliably anyway. iOS keeps the native UIKit blur.
+  if (isAndroid) {
+    return (
+      <Flex fill backgroundColor={isDarkMode ? '$surface1' : '$white'}>
+        {contents}
+      </Flex>
+    )
+  }
+
+  return (
+    <BlurView intensity={60} tint={isDarkMode ? 'systemMaterialDark' : 'systemMaterialLight'} style={flexStyles.fill}>
+      {contents}
     </BlurView>
   )
 })
@@ -135,8 +122,10 @@ const FullScreenFader = memo(function FullScreenFader({ children }: { children: 
   const dimensions = useDeviceDimensions()
   return (
     <Animated.View
-      entering={fadeIn}
-      exiting={fadeOut}
+      // No fades on Android: Fabric defers exiting-animation removal to the next rendered frame,
+      // which after a biometric unlock only comes on the next touch — the cover would appear stuck.
+      entering={isAndroid ? undefined : fadeIn}
+      exiting={isAndroid ? undefined : fadeOut}
       style={{
         position: 'absolute',
         top: 0,

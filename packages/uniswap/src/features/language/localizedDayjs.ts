@@ -1,6 +1,3 @@
-import dayjs, { Dayjs } from 'dayjs'
-import localizedFormat from 'dayjs/plugin/localizedFormat'
-
 import 'dayjs/locale/en'
 import 'dayjs/locale/es'
 import 'dayjs/locale/fr'
@@ -13,6 +10,8 @@ import 'dayjs/locale/tr'
 import 'dayjs/locale/vi'
 import 'dayjs/locale/zh-cn'
 import 'dayjs/locale/zh-tw'
+import dayjs, { Dayjs } from 'dayjs'
+import localizedFormat from 'dayjs/plugin/localizedFormat'
 import { Locale } from 'uniswap/src/features/language/constants'
 import { useCurrentLanguageInfo } from 'uniswap/src/features/language/hooks'
 
@@ -25,6 +24,7 @@ export const FORMAT_DATE_LONG: DateFormat = 'LL' // MMMM D, YYYY	e.g. August 16,
 export const FORMAT_DATE_MONTH = 'MMMM' // January-December
 export const FORMAT_DATE_MONTH_YEAR = 'MMMM YYYY'
 export const FORMAT_DATE_MONTH_DAY = 'MMM D' // Jan-Dec 1-31
+export const FORMAT_DATE_MONTH_DAY_TIME = 'MMM D, h:mma' // e.g. May 6, 8:12am
 
 export type TimeFormat = 'LT' | 'LTS'
 export const FORMAT_TIME_SHORT: TimeFormat = 'LT' // h:mm A	e.g. 8:02 PM

@@ -1,4 +1,5 @@
 import type { Currency, CurrencyAmount } from '@uniswap/sdk-core'
+import { isDevEnv } from '@universe/environment'
 import type { MutableRefObject } from 'react'
 import type { PresetPercentage } from 'uniswap/src/components/CurrencyInputPanel/AmountInputPresets/types'
 import type { CurrencyInputPanelRef } from 'uniswap/src/components/CurrencyInputPanel/types'
@@ -11,7 +12,6 @@ import {
 } from 'uniswap/src/features/transactions/swap/form/stores/swapFormScreenStore/devUtils'
 import type { TradeWithStatus } from 'uniswap/src/features/transactions/swap/types/trade'
 import type { CurrencyField } from 'uniswap/src/types/currency'
-import { isDevEnv } from 'utilities/src/environment/env'
 import type { StoreApi, UseBoundStore } from 'zustand'
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
@@ -35,7 +35,7 @@ export type SwapFormScreenStoreState = {
   exactFieldIsInput: boolean
   exactFieldIsOutput: boolean
   exactOutputDisabled: boolean
-  resetSelection: (params: { start: number; end?: number; currencyField?: CurrencyField }) => void
+  resetSelection: (params: { start: number; end?: number; currencyField?: CurrencyField; value?: string }) => void
   currencyAmountsUSDValue: { [field in CurrencyField]: Maybe<CurrencyAmount<Currency>> }
   exactValue: string | undefined
   formattedDerivedValue: string

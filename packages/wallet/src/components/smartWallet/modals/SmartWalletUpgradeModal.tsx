@@ -2,7 +2,7 @@ import { SharedEventName } from '@uniswap/analytics-events'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDispatch } from 'react-redux'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
+import { UniswapHelpUrls } from 'uniswap/src/constants/urls'
 import { ElementName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { useEvent } from 'utilities/src/react/hooks'
@@ -16,7 +16,7 @@ import {
   setHasDismissedSmartWalletHomeScreenNudge,
   setHasShownSmartWalletHomeScreenNudge,
 } from 'wallet/src/features/behaviorHistory/slice'
-import { Account } from 'wallet/src/features/wallet/accounts/types'
+import { type Account } from 'wallet/src/features/wallet/accounts/types'
 import { useDisplayName, useHasSmartWalletConsent } from 'wallet/src/features/wallet/hooks'
 import { setSmartWalletConsent } from 'wallet/src/features/wallet/slice'
 
@@ -27,6 +27,7 @@ interface SmartWalletUpgradeModalsProps {
   isHomeScreenFocused?: boolean
 }
 
+// oxlint-disable-next-line typescript/consistent-return -- biome-parity: oxlint is stricter here
 export function SmartWalletUpgradeModals({
   account,
   onEnableSmartWallet,
@@ -35,7 +36,7 @@ export function SmartWalletUpgradeModals({
 }: SmartWalletUpgradeModalsProps): JSX.Element | null {
   const { t } = useTranslation()
   const dispatch = useDispatch()
-  const { status: delegationStatus } = useSmartWalletDelegationStatus({ isSmartWalletUpgradeModal: true })
+  const { status: delegationStatus } = useSmartWalletDelegationStatus()
   const hasSmartWalletConsent = useHasSmartWalletConsent()
   const [showModal, setShowModal] = useState(true)
   const selectedWalletDisplayName = useDisplayName(account.address, { includeUnitagSuffix: true })
@@ -99,7 +100,7 @@ export function SmartWalletUpgradeModals({
             onClick: handleEnableSmartWalletClick,
           }}
           secondaryButton={{ text: t('common.button.later'), onClick: handleSmartWalletDismiss, emphasis: 'text-only' }}
-          learnMoreUrl={uniswapUrls.helpArticleUrls.smartWalletDelegation}
+          learnMoreUrl={UniswapHelpUrls.articles.smartWalletDelegation}
           modalName={ModalName.SmartWalletUpgradeModal}
           isDismissible={false}
           onClose={handleSmartWalletDismiss}

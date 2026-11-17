@@ -1,4 +1,4 @@
-/* eslint-disable max-params */
+/* oxlint-disable max-params */
 import { PlatformSplitStubError } from 'utilities/src/errors'
 
 /**
@@ -158,7 +158,7 @@ class NullKeyring implements IKeyring {
     throw new PlatformSplitStubError('isUnlocked')
   }
 
-  unlock(): Promise<boolean> {
+  unlock(_password: string): Promise<boolean> {
     return Promise.resolve(true)
   }
 

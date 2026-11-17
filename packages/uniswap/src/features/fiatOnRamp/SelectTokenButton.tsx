@@ -1,11 +1,10 @@
+import { Flex, Text, TouchableArea, iconSizes, spacing } from '@universe/mycelium'
+import { TestIDType } from '@universe/test'
 import { ComponentProps } from 'react'
-import { Trans } from 'react-i18next'
-import { Flex, SpinningLoader, Text, TouchableArea } from 'ui/src'
+import { SpinningLoader, Trans } from 'ui/src'
 import { RotatableChevron } from 'ui/src/components/icons/RotatableChevron'
-import { iconSizes, spacing } from 'ui/src/theme'
 import { CurrencyLogo } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
 import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
-import { TestIDType } from 'uniswap/src/test/fixtures/testIDs'
 import { getSymbolDisplayText } from 'uniswap/src/utils/currency'
 
 interface SelectTokenButtonProps {
@@ -69,7 +68,7 @@ export function SelectTokenButton({
             <Trans i18nKey="common.selectToken.label" />
           </Text>
         )}
-        <RotatableChevron color={textColor} direction={chevronDirection} height={iconSizes.icon16} />
+        <RotatableChevron color={textColor} direction={chevronDirection} size="$icon.16" />
       </Flex>
     </TouchableArea>
   )

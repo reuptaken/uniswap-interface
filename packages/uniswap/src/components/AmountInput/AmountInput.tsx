@@ -1,6 +1,10 @@
-import { forwardRef, useCallback, useEffect, useMemo, useState } from 'react'
+import { isMobileApp } from '@universe/environment'
+import { Input, Text } from '@universe/mycelium'
+import { forwardRef, useCallback, useEffect, useMemo } from 'react'
 import { getNumberFormatSettings } from 'react-native-localize'
-import { Input, Text } from 'ui/src'
+// mycelium's `fonts` is the flat web table; ui's applies the native +1 ramp this default depends on
+import { fonts } from 'ui/src/theme'
+import { useTextWidth } from 'uniswap/src/components/AmountInput/useTextWidth'
 import { numericInputEnforcer } from 'uniswap/src/components/AmountInput/utils/numericInputEnforcer'
 import { parseValue } from 'uniswap/src/components/AmountInput/utils/parseValue'
 import { replaceSeparators } from 'uniswap/src/components/AmountInput/utils/replaceSeparators'
@@ -11,6 +15,9 @@ import { useOnMobileAppState } from 'utilities/src/device/appState'
 import { dismissNativeKeyboard } from 'utilities/src/device/keyboard/dismissNativeKeyboard'
 import { noop } from 'utilities/src/react/noop'
 
+// Default font size when not explicitly provided (matches heading2)
+const DEFAULT_FONT_SIZE = fonts.heading2.fontSize
+
 type Props = {
   adjustWidthToContent?: boolean
   fiatCurrencyInfo?: FiatCurrencyInfo
@@ -19,7 +26,7 @@ type Props = {
   inputEnforcer?: (value?: string) => boolean
 } & TextInputProps
 
-export const AmountInput = forwardRef<Input, Props>(function _AmountInput(
+export const AmountInput = forwardRef<Input, Props>(function AmountInputInner(
   {
     onChangeText,
     value,
@@ -76,7 +83,19 @@ export const AmountInput = forwardRef<Input, Props>(function _AmountInput(
     decimalOverride: decimalSeparator,
   })
 
-  const [width, setWidth] = useState(0)
+  // Estimate width to prevent overflown input on web
+  const fontSize = typeof rest.fontSize === 'number' ? rest.fontSize : DEFAULT_FONT_SIZE
+  const measurementText = formattedValue || rest.placeholder || ''
+  const maxWidth = typeof rest.maxWidth === 'number' ? rest.maxWidth : undefined
+  const { width, onLayout } = useTextWidth({
+    text: measurementText,
+    maxWidth,
+    enabled: adjustWidthToContent,
+    fontSize: adjustWidthToContent ? fontSize : undefined,
+    // on mobile, use onLayout to prevent performance stutters
+    useLayoutOnly: isMobileApp,
+  })
+
   const textInputProps: TextInputProps = useMemo(
     () => ({
       ref,
@@ -85,10 +104,11 @@ export const AmountInput = forwardRef<Input, Props>(function _AmountInput(
       value: formattedValue,
       onChangeText: handleChange,
       ...rest,
-      ...(adjustWidthToContent ? { width } : {}),
+      // Override fontSize to ensure TextInput and hidden Text use the same numeric value.
+      ...(adjustWidthToContent ? { fontSize } : {}),
+      ...(width !== undefined ? { width } : {}),
     }),
-    // biome-ignore lint/correctness/useExhaustiveDependencies: TODO https://linear.app/uniswap/issue/INFRA-1031/optimize-memoization-in
-    [ref, value, dimTextColor, formattedValue, handleChange, rest, width, adjustWidthToContent],
+    [ref, value, dimTextColor, formattedValue, handleChange, rest, width, adjustWidthToContent, fontSize],
   )
 
   // Dismiss keyboard when mobile app is foregrounded (showSoftInputOnFocus doesn't work when the app activates from the background)
@@ -104,39 +124,37 @@ export const AmountInput = forwardRef<Input, Props>(function _AmountInput(
     <TextInput {...textInputProps} showSoftInputOnFocus={false} />
   )
 
-  if (adjustWidthToContent) {
-    return (
-      <>
-        <Text
-          // Hidden element measures text width to keep input width consistent when a currency symbol is present,
-          // preventing it from using all horizontal space.
-          fontFamily="$heading"
-          fontSize={textInputProps.fontSize}
-          fontWeight="500"
-          height={0}
-          numberOfLines={1}
-          overflow="hidden"
-          position="absolute"
-          onLayout={(e) =>
-            setWidth(
-              Math.min(
-                e.nativeEvent.layout.width,
-                typeof textInputProps.maxWidth === 'number' ? textInputProps.maxWidth : +Infinity,
-              ),
-            )
-          }
-        >
-          {value || textInputProps.placeholder}
-        </Text>
-        {textInputElement}
-      </>
-    )
-  }
-
-  return textInputElement
+  // Always render the same fragment shape (with the input at a stable position) so toggling
+  // `adjustWidthToContent` (e.g. switching between fiat and crypto) doesn't remount the input,
+  // which would drop focus/cursor and cause a visible bounce.
+  return (
+    <>
+      <Text
+        // Hidden element measures actual text width when adjustWidthToContent is enabled.
+        // On web, width is estimated instantly, then refined when onLayout fires.
+        // On mobile, width comes only from onLayout measurement.
+        fontFamily="$heading"
+        fontSize={fontSize}
+        fontWeight="500"
+        // mycelium's Text doesn't bake a default cap into its `body2` variant the way ui/src's
+        // did; pass it explicitly so the measured width still matches the rendered TextInput
+        // (still on ui/src Input) above 1.4x system font scaling.
+        maxFontSizeMultiplier={fonts.body2.maxFontSizeMultiplier}
+        height={0}
+        numberOfLines={1}
+        overflow="hidden"
+        pointerEvents="none"
+        position="absolute"
+        onLayout={adjustWidthToContent ? onLayout : undefined}
+      >
+        {measurementText}
+      </Text>
+      {textInputElement}
+    </>
+  )
 })
 
-const TextInputWithNativeKeyboard = forwardRef<Input, TextInputProps>(function _TextInputWithNativeKeyboard(
+const TextInputWithNativeKeyboard = forwardRef<Input, TextInputProps>(function TextInputWithNativeKeyboardInner(
   props: TextInputProps,
   ref,
 ) {

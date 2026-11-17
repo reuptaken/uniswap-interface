@@ -1,37 +1,52 @@
-import React, { memo, PropsWithChildren, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { isAndroid, isTouchable, isWebApp, isWebPlatform } from '@universe/environment'
+import {
+  cn,
+  Flex,
+  type FlexCompatProps as FlexProps,
+  spacing,
+  TouchableArea,
+  type TouchableAreaProps,
+  zIndexes,
+} from '@universe/mycelium'
+import { RotatableChevron } from '@universe/mycelium/icons/RotatableChevron'
+import { Portal } from '@universe/mycelium/portal'
+import { Presence } from '@universe/mycelium/presence'
+import { useDeviceDimensions, useSporeColors } from '@universe/mycelium/theme-hooks-compat'
+import React, {
+  type CSSProperties,
+  forwardRef,
+  memo,
+  PropsWithChildren,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { LayoutChangeEvent, View } from 'react-native'
-// eslint-disable-next-line @typescript-eslint/no-restricted-imports
 import { GestureResponderEvent } from 'react-native'
 import Animated, { useSharedValue } from 'react-native-reanimated'
-import {
-  AnimatePresence,
-  Flex,
-  FlexProps,
-  OverKeyboardContent,
-  Portal,
-  styled,
-  TouchableArea,
-  TouchableAreaProps,
-  useIsDarkMode,
-} from 'ui/src'
-import { RotatableChevron } from 'ui/src/components/icons/RotatableChevron'
-import { useDeviceDimensions } from 'ui/src/hooks/useDeviceDimensions'
-import { iconSizes, spacing, zIndexes } from 'ui/src/theme'
+import { OverKeyboardContent } from 'ui/src'
 import { BaseCard } from 'uniswap/src/components/BaseCard/BaseCard'
+import { Backdrop } from 'uniswap/src/components/dropdowns/ActionSheetDropdownBackdrop'
+import {
+  OVERLAY_ANIMATE_PRESENCE,
+  CONTENT_PRESENCE_STYLE,
+  dropdownExitProps,
+  PRESENCE_CLASSES,
+} from 'uniswap/src/components/dropdowns/actionSheetDropdownPresence'
+import { measureDropdownAnchor } from 'uniswap/src/components/dropdowns/measureDropdownAnchor'
 import { Scrollbar } from 'uniswap/src/components/misc/Scrollbar'
 import { MenuItemProp } from 'uniswap/src/components/modals/ActionSheetModal'
 import { useAppInsets } from 'uniswap/src/hooks/useAppInsets'
+import { useOnMobileAppState } from 'utilities/src/device/appState'
 import { closeKeyboardBeforeCallback } from 'utilities/src/device/keyboard/dismissNativeKeyboard'
-import { isAndroid, isTouchable, isWebApp, isWebPlatform } from 'utilities/src/platform'
 import { executeWithFrameDelay } from 'utilities/src/react/delayUtils'
 import { useEvent } from 'utilities/src/react/hooks'
 import { useTimeout } from 'utilities/src/time/timing'
 
 const DEFAULT_MIN_WIDTH = 225
 const MIN_HEIGHT = 250
-
-const enterStyle = { y: -20, opacity: 0 }
-const exitStyle = { y: -10, opacity: 0 }
 
 const contentContainerStyle = {
   padding: spacing.spacing8,
@@ -107,6 +122,7 @@ export function ActionSheetDropdown({
   ...contentProps
 }: ActionSheetDropdownProps): JSX.Element {
   const insets = useAppInsets()
+  const colors = useSporeColors()
   const containerRef = useRef<View>(null)
   const [isOpen, setOpen] = useState(false)
   const [toggleMeasurements, setToggleMeasurements] = useState<ToggleMeasurements | null>(null)
@@ -119,8 +135,7 @@ export function ActionSheetDropdown({
       const containerNode = containerRef.current
 
       if (containerNode) {
-        // eslint-disable-next-line max-params
-        containerNode.measureInWindow((x, y, width, height) => {
+        measureDropdownAnchor(containerNode, ({ x, y, width, height }) => {
           setToggleMeasurements({
             x,
             y: y + (isAndroid ? insets.top : 0),
@@ -134,22 +149,15 @@ export function ActionSheetDropdown({
     })
   }
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +toggleMeasurements?.sticky, insets.top
   useEffect(() => {
     if (!isWebPlatform) {
       return undefined
     }
 
     function resizeListener(): void {
-      // eslint-disable-next-line max-params
-      containerRef.current?.measureInWindow((x, y, width, height) => {
-        setToggleMeasurements((prev) => ({
-          ...prev,
-          x,
-          y,
-          width,
-          height,
-        }))
+      measureDropdownAnchor(containerRef.current, ({ x, y, width, height }) => {
+        // Only reposition an open dropdown: a null `prev` would spread into a truthy object.
+        setToggleMeasurements((prev) => (prev ? { ...prev, x, y, width, height } : prev))
       })
     }
 
@@ -160,7 +168,6 @@ export function ActionSheetDropdown({
     }
   }, [toggleMeasurements?.sticky, insets.top])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +setOpen, setToggleMeasurements
   const closeDropdown = useCallback(
     (event: GestureResponderEvent): void => {
       setOpen(false)
@@ -170,6 +177,13 @@ export function ActionSheetDropdown({
     },
     [setOpen, setToggleMeasurements],
   )
+
+  const dismissOnBackground = useEvent(() => {
+    setOpen(false)
+    setToggleMeasurements(null)
+  })
+
+  useOnMobileAppState('background', dismissOnBackground)
 
   return (
     <>
@@ -183,20 +197,17 @@ export function ActionSheetDropdown({
           collapsable={false}
           gap="$spacing8"
           px={styles?.buttonPaddingX}
-          py={styles?.buttonPaddingY || '$spacing8'}
+          py={styles?.buttonPaddingY ?? '$spacing8'}
           // TODO(INFRA-1126) -- testIDs inside TouchableArea are not recognized by Maestro
           testID={testID || 'dropdown-toggle'}
         >
+          {/* Toggle children must set their own colour: the compat TouchableArea clones its Spore
+              guidance into direct children but skips mycelium primitives, so nothing cascades here. */}
           {children}
+          {/* Pre-resolved, not `$neutral2`: the web icon lane maps a token it cannot resolve to
+              `undefined` and silently falls back to `currentColor`. */}
           {showArrow && (
-            <RotatableChevron
-              animation="100ms"
-              color="$neutral2"
-              direction={isOpen ? 'up' : 'down'}
-              height={iconSizes.icon20}
-              width={iconSizes.icon20}
-              $group-item-hover={{}}
-            />
+            <RotatableChevron color={colors.neutral2.val} direction={isOpen ? 'up' : 'down'} size="$icon.20" />
           )}
         </Flex>
       </TouchableArea>
@@ -224,7 +235,9 @@ const ActionSheetBackdropWithContent = memo(function ActionSheetBackdropWithCont
   styles?: ActionSheetDropdownStyleProps & { backdropOpacity?: number }
   isOpen: boolean
   toggleMeasurements: ToggleMeasurements
-  contentProps: ActionSheetDropdownProps
+  // Narrowed deliberately: the spread below lands next to the two props `Presence` reads off the
+  // element, so a wider type could silently override them and undo the native exit opt-out.
+  contentProps: Pick<ActionSheetDropdownProps, 'options'>
   closeOnSelect: boolean
 }): JSX.Element | null {
   /*
@@ -236,7 +249,23 @@ const ActionSheetBackdropWithContent = memo(function ActionSheetBackdropWithCont
   const [shouldRender, setShouldRender] = useState(false)
   useTimeout(() => setShouldRender(true), 0)
 
-  const isSheetOpenMemo = useMemo(() => ({ isOpen }), [isOpen])
+  // OverKeyboardContent's web leg renders `{visible && children}`, so hold the wrapper open for as
+  // long as `Presence` may still have children — through the exit, not just while open. Keyed on
+  // the open lifecycle: the resize listener rewrites measurements while closed, which would
+  // otherwise mount the overlay.
+  const [presenceMounted, setPresenceMounted] = useState(false)
+
+  useEffect(() => {
+    if (isOpen) {
+      setPresenceMounted(true)
+    }
+  }, [isOpen])
+
+  // Sole clearing path for the latch. Both children opt out of the exit phase on native, and
+  // `Presence` still drains them: its instant-lane loop calls `finishExit` per entry, which fires
+  // this once `exiting` empties (Presence.native.tsx:374 -> :256). If that loop ever stops draining
+  // every opted-out entry, the wrapper would stay mounted over an empty `Presence`.
+  const handleExitComplete = useEvent(() => setPresenceMounted(false))
 
   if (!shouldRender) {
     return null
@@ -250,31 +279,42 @@ const ActionSheetBackdropWithContent = memo(function ActionSheetBackdropWithCont
         : zIndexes.popover
 
   return (
-    <Portal zIndex={zIndex}>
-      <AnimatePresence custom={isSheetOpenMemo}>
-        {toggleMeasurements && (
-          <>
-            <OverKeyboardContent visible={isOpen}>
-              <Backdrop handleClose={closeDropdown} opacity={!isWebApp || isTouchable ? styles?.backdropOpacity : 0} />
-              <DropdownContent
-                {...contentProps}
-                alignment={styles?.alignment}
-                dropdownMaxHeight={styles?.dropdownMaxHeight}
-                dropdownMinWidth={styles?.dropdownMinWidth}
-                dropdownGap={styles?.dropdownGap}
-                handleClose={closeDropdown}
-                toggleMeasurements={toggleMeasurements}
-                closeOnSelect={closeOnSelect}
-              />
-            </OverKeyboardContent>
-          </>
-        )}
-      </AnimatePresence>
+    <Portal stackZIndex={zIndex}>
+      <OverKeyboardContent visible={isOpen || presenceMounted}>
+        <Presence getExitProps={dropdownExitProps} onExitComplete={handleExitComplete}>
+          {toggleMeasurements && (
+            <Backdrop
+              key="dropdown-backdrop"
+              position="absolute"
+              animatePresence={OVERLAY_ANIMATE_PRESENCE}
+              handleClose={closeDropdown}
+              opacity={!isWebApp || isTouchable ? styles?.backdropOpacity : 0}
+            />
+          )}
+          {toggleMeasurements && (
+            <DropdownContent
+              key="dropdown-content"
+              {...contentProps}
+              position="absolute"
+              animatePresence={OVERLAY_ANIMATE_PRESENCE}
+              alignment={styles?.alignment}
+              dropdownMaxHeight={styles?.dropdownMaxHeight}
+              dropdownMinWidth={styles?.dropdownMinWidth}
+              dropdownGap={styles?.dropdownGap}
+              handleClose={closeDropdown}
+              toggleMeasurements={toggleMeasurements}
+              closeOnSelect={closeOnSelect}
+            />
+          )}
+        </Presence>
+      </OverKeyboardContent>
     </Portal>
   )
 })
 
-type DropdownContentProps = FlexProps & {
+/** Not `FlexProps & …`: the sole caller passes only the named props, so the old spread onto
+ * `BaseCard.Shadow` was always empty. */
+type DropdownContentProps = {
   options: MenuItemProp[]
   alignment?: 'left' | 'right'
   dropdownMaxHeight?: number
@@ -283,37 +323,35 @@ type DropdownContentProps = FlexProps & {
   toggleMeasurements: LayoutMeasurements & { sticky?: boolean }
   handleClose?: FlexProps['onPress']
   closeOnSelect: boolean
+  className?: string
+  style?: CSSProperties
+  /**
+   * Both read by `Presence` off `element.props`, never used here. `position` gets this
+   * absolutely-positioned content an out-of-flow wrapper that fills the parent, so it resolves
+   * against the same box it would with no wrapper. `animatePresence={false}` drops the exit hold on
+   * native, where an exiting node stays interactive for the whole fade.
+   */
+  position?: 'absolute'
+  animatePresence?: boolean
 }
 
-/**
- * AnimatePresence `custom` prop will update variants *as* the exit animation runs,
- * which otherwise is impossible. We want to make sure people can touch behind the dropdown
- * as its animating closed. With slow animations it can be especially annoying.
- */
-const TouchableWhenOpen = styled(Flex, {
-  variants: {
-    isOpen: {
-      true: {
-        pointerEvents: 'auto',
-      },
-      false: {
-        pointerEvents: 'none',
-      },
-    },
+/** `Presence` sets `data-exiting` on the node it holds and merges exit `className`/`style` into
+ * the clone, so the animated node must be this component's root. */
+const DropdownContent = forwardRef<View, DropdownContentProps>(function DropdownContent(
+  {
+    options,
+    alignment = 'left',
+    dropdownMaxHeight,
+    dropdownMinWidth,
+    dropdownGap,
+    toggleMeasurements,
+    handleClose,
+    closeOnSelect,
+    className,
+    style,
   },
-})
-
-function DropdownContent({
-  options,
-  alignment = 'left',
-  dropdownMaxHeight,
-  dropdownMinWidth,
-  dropdownGap,
-  toggleMeasurements,
-  handleClose,
-  closeOnSelect,
-  ...rest
-}: DropdownContentProps): JSX.Element {
+  ref,
+): JSX.Element {
   const insets = useAppInsets()
   const { fullWidth, fullHeight } = useDeviceDimensions()
 
@@ -359,12 +397,11 @@ function DropdownContent({
     }
   }, [initialScrollY, toggleMeasurements.sticky])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +toggleMeasurements
   useEffect(() => {
     setWindowScrollY(0)
   }, [toggleMeasurements])
 
-  const position = useMemo((): { top?: number; bottom?: number } => {
+  const verticalOffset = useMemo((): { top?: number; bottom?: number } => {
     // top is used to position the dropdown when it is opened below the toggle
     const top = toggleMeasurements.y + toggleMeasurements.height - windowScrollY + spacing.spacing8
     // bottom is used to position the dropdown when it is opened above the toggle
@@ -384,16 +421,16 @@ function DropdownContent({
   }, [])
 
   return (
-    <TouchableWhenOpen
-      animation="fast"
+    <Flex
+      ref={ref}
+      className={cn('pointer-events-auto', PRESENCE_CLASSES, className)}
+      style={{ ...CONTENT_PRESENCE_STYLE, ...style }}
       maxHeight={maxHeight}
       minWidth={dropdownMinWidth ?? DEFAULT_MIN_WIDTH}
       position="absolute"
       testID="dropdown-content"
-      {...position}
+      {...verticalOffset}
       {...containerProps}
-      enterStyle={enterStyle}
-      exitStyle={exitStyle}
     >
       <BaseCard.Shadow
         backgroundColor="$surface1"
@@ -401,7 +438,6 @@ function DropdownContent({
         borderWidth="$spacing1"
         overflow="hidden"
         p="$none"
-        {...rest}
       >
         <Flex row maxHeight={maxHeight}>
           <Animated.ScrollView
@@ -440,36 +476,6 @@ function DropdownContent({
           )}
         </Flex>
       </BaseCard.Shadow>
-    </TouchableWhenOpen>
+    </Flex>
   )
-}
-
-type BackdropProps = {
-  opacity?: number
-  handleClose?: FlexProps['onPress']
-}
-
-const backdropEnterExitStyle = {
-  opacity: 0,
-}
-
-function Backdrop({ handleClose, opacity: opacityProp }: BackdropProps): JSX.Element {
-  const isDarkMode = useIsDarkMode()
-
-  const opacity = opacityProp ?? (isDarkMode ? 0.4 : 0.2)
-
-  return (
-    <TouchableWhenOpen
-      animation="100ms"
-      backgroundColor="$black"
-      enterStyle={backdropEnterExitStyle}
-      exitStyle={backdropEnterExitStyle}
-      flex={1}
-      inset={0}
-      opacity={opacity}
-      position="absolute"
-      testID="dropdown-backdrop"
-      onPress={handleClose}
-    />
-  )
-}
+})

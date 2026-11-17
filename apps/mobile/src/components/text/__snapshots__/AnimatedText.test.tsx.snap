@@ -1,53 +1,23 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`AnimatedText renders without error 1`] = `
-<TextInput
-  allowFontScaling={true}
-  collapsable={false}
-  editable={false}
-  jestAnimatedProps={
-    {
-      "value": {
-        "text": "Rendered",
-      },
-    }
-  }
-  jestAnimatedStyle={
-    {
-      "value": {},
-    }
-  }
-  jestInlineStyle={
-    [
-      {
-        "padding": 0,
-      },
-      {
-        "fontFamily": "Basel Grotesk",
-        "fontSize": 17,
-        "fontWeight": "400",
-        "lineHeight": 22.1,
-      },
-      undefined,
-    ]
-  }
-  maxFontSizeMultiplier={1.4}
-  style={
-    [
-      {
-        "padding": 0,
-      },
-      {
-        "fontFamily": "Basel Grotesk",
-        "fontSize": 17,
-        "fontWeight": "400",
-        "lineHeight": 22.1,
-      },
-      undefined,
-    ]
-  }
-  text="Rendered"
-  underlineColorAndroid="transparent"
-  value="Rendered"
-/>
+exports[`AnimatedText > renders without error 1`] = `
+<DocumentFragment>
+  <input
+    autocapitalize="sentences"
+    autocomplete="on"
+    autocorrect="on"
+    class="css-textinput-11aywtz r-placeholderTextColor-6taxm2 r-padding-t60dpp"
+    dir="auto"
+    readonly=""
+    rows="1"
+    spellcheck="true"
+    style="color: rgb(19, 19, 19); font-family: Basel Grotesk; font-size: 17px; font-weight: 400; line-height: 22px;"
+    value="Rendered"
+    virtualkeyboardpolicy="auto"
+  />
+  <div
+    class="css-view-175oi2r r-bottom-1p0dtai r-left-1d2f490 r-position-u8s1d r-right-zchlnj r-top-ipm5af r-pointerEvents-12vffkv"
+    data-testid="portal-layer"
+  />
+</DocumentFragment>
 `;

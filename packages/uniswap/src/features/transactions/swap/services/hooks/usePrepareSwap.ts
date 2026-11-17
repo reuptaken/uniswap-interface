@@ -1,15 +1,22 @@
+import { Platform, isSVMChain } from '@universe/chains'
+import { useMemo } from 'react'
 import { useUniswapContext } from 'uniswap/src/contexts/UniswapContext'
+import { useAccountsStore } from 'uniswap/src/features/accounts/store/hooks'
 import { AccountType } from 'uniswap/src/features/accounts/types'
-import { isSVMChain } from 'uniswap/src/features/platforms/utils/chains'
 import { useTransactionModalContext } from 'uniswap/src/features/transactions/components/TransactionModal/TransactionModalContext'
 import { useSwapFormWarningStoreActions } from 'uniswap/src/features/transactions/swap/form/stores/swapFormWarningStore/useSwapFormWarningStore'
 import { useNeedsBridgedAssetWarning } from 'uniswap/src/features/transactions/swap/hooks/useNeedsBridgedAssetWarning'
 import { useNeedsBridgingWarning } from 'uniswap/src/features/transactions/swap/hooks/useSwapWarnings/useNeedsBridgingWarning'
 import { useNeedsLowNativeBalanceWarning } from 'uniswap/src/features/transactions/swap/hooks/useSwapWarnings/useNeedsLowNativeBalanceWarning'
 import { usePrefilledNeedsTokenProtectionWarning } from 'uniswap/src/features/transactions/swap/hooks/useSwapWarnings/usePrefilledNeedsTokenProtectionWarning'
+import { getWalletExecutionContext } from 'uniswap/src/features/transactions/swap/plan/planSagaUtils'
+import type { ReviewGateContext } from 'uniswap/src/features/transactions/swap/services/prepareSwapService'
 import { createPrepareSwap } from 'uniswap/src/features/transactions/swap/services/prepareSwapService'
 import type { WarningService } from 'uniswap/src/features/transactions/swap/services/warningService'
-import { useSwapFormStore } from 'uniswap/src/features/transactions/swap/stores/swapFormStore/useSwapFormStore'
+import {
+  useSwapFormStore,
+  useSwapFormStoreDerivedSwapInfo,
+} from 'uniswap/src/features/transactions/swap/stores/swapFormStore/useSwapFormStore'
 import { useWallet } from 'uniswap/src/features/wallet/hooks/useWallet'
 import { AccountDetails } from 'uniswap/src/features/wallet/types/AccountDetails'
 import { logger } from 'utilities/src/logger/logger'
@@ -17,6 +24,21 @@ import { useEvent } from 'utilities/src/react/hooks'
 
 const getIsViewOnlyWallet = (activeAccount?: AccountDetails): boolean => {
   return activeAccount?.accountType === AccountType.Readonly
+}
+
+export function useReviewGateContext(): ReviewGateContext {
+  const chainId = useSwapFormStoreDerivedSwapInfo((s) => s.chainId)
+  const { swapRedirectCallback } = useTransactionModalContext()
+  const wallet = useWallet()
+  const activeAccount = isSVMChain(chainId) ? wallet.svmAccount : wallet.evmAccount
+  const { onConnectWallet } = useUniswapContext()
+
+  return {
+    swapRedirectCallback,
+    isConnected: !!activeAccount,
+    onConnectWallet,
+    isViewOnlyWallet: getIsViewOnlyWallet(activeAccount),
+  }
 }
 
 export function usePrepareSwap(ctx: { warningService: WarningService }): () => void {
@@ -35,11 +57,8 @@ export function usePrepareSwap(ctx: { warningService: WarningService }): () => v
     isMax: s.isMax,
   }))
   const { currencies, exactCurrencyField, chainId } = derivedSwapInfo
-  const { swapRedirectCallback, setScreen } = useTransactionModalContext()
-
-  const wallet = useWallet()
-  const activeAccount = isSVMChain(chainId) ? wallet.svmAccount : wallet.evmAccount
-  const { onConnectWallet } = useUniswapContext()
+  const { setScreen } = useTransactionModalContext()
+  const reviewGateContext = useReviewGateContext()
 
   // needsTokenProtectionWarning is only true in interface, where swap component might be prefilled with a token that has a protection warning
   const { needsTokenProtectionWarning } = usePrefilledNeedsTokenProtectionWarning(derivedSwapInfo, prefilledCurrencies)
@@ -50,13 +69,15 @@ export function usePrepareSwap(ctx: { warningService: WarningService }): () => v
 
   const { needsBridgedAssetWarning } = useNeedsBridgedAssetWarning(derivedSwapInfo, prefilledCurrencies)
 
-  const isViewOnlyWallet = getIsViewOnlyWallet(activeAccount)
+  const caip25Info = useAccountsStore((state) => {
+    return state.getActiveConnector(Platform.EVM)?.session?.caip25Info
+  })
+  const walletExecutionContext = useMemo(() => getWalletExecutionContext(caip25Info), [caip25Info])
 
   return useEvent(
     createPrepareSwap({
       // getAction
-      isConnected: !!activeAccount,
-      isViewOnlyWallet,
+      ...reviewGateContext,
       currencies,
       exactAmountToken,
       exactCurrencyField,
@@ -65,6 +86,8 @@ export function usePrepareSwap(ctx: { warningService: WarningService }): () => v
       needsBridgingWarning,
       needsLowNativeBalanceWarning,
       needsBridgedAssetWarning,
+      trade: derivedSwapInfo.trade.trade ?? undefined,
+      walletExecutionContext,
       // handleEventAction
       handleShowViewOnlyModal,
       handleShowTokenWarningModal,
@@ -73,9 +96,6 @@ export function usePrepareSwap(ctx: { warningService: WarningService }): () => v
       handleShowBridgedAssetModal,
       updateSwapForm,
       setScreen,
-      // shared
-      swapRedirectCallback,
-      onConnectWallet,
       // ctx
       warningService: ctx.warningService,
       logger,

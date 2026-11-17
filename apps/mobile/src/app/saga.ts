@@ -12,10 +12,8 @@ import { telemetrySaga } from 'src/features/telemetry/saga'
 import { restoreMnemonicCompleteWatcher } from 'src/features/wallet/saga'
 import { walletConnectSaga } from 'src/features/walletConnect/saga'
 import { signWcRequestSaga } from 'src/features/walletConnect/signWcRequestSaga'
-import { call, fork, join, spawn } from 'typed-redux-saga'
+import { fork, join, spawn } from 'typed-redux-saga'
 import { waitForRehydration } from 'uniswap/src/utils/saga'
-import { apolloClientRef } from 'wallet/src/data/apollo/usePersistedApolloClient'
-import { deviceLocaleWatcher } from 'wallet/src/features/i18n/deviceLocaleWatcherSaga'
 import { transactionWatcher } from 'wallet/src/features/transactions/watcher/transactionWatcherSaga'
 
 // These sagas are not persisted, so we can run them before rehydration
@@ -32,7 +30,6 @@ const sagas = [
   signWcRequestSaga,
   telemetrySaga,
   walletConnectSaga,
-  deviceLocaleWatcher,
 ]
 
 export function* rootMobileSaga(): SagaIterator {
@@ -44,9 +41,6 @@ export function* rootMobileSaga(): SagaIterator {
   // Fork the rehydration process to run in parallel
   const rehydrationTask = yield* fork(waitForRehydration)
 
-  // Initialize Apollo client in parallel
-  const apolloClient = yield* call(apolloClientRef.onReady)
-
   // Wait for rehydration to complete
   yield* join(rehydrationTask)
 
@@ -55,11 +49,11 @@ export function* rootMobileSaga(): SagaIterator {
     yield* spawn(s)
   }
 
-  // Start transaction watcher with Apollo client
-  yield* spawn(transactionWatcher, { apolloClient })
+  // Start transaction watcher
+  yield* spawn(transactionWatcher)
 
   // Start monitored sagas
   for (const m of Object.values(monitoredSagas)) {
-    yield* spawn(m.wrappedSaga)
+    yield* spawn(m['wrappedSaga'])
   }
 }

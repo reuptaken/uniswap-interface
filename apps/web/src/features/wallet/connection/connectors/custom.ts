@@ -1,14 +1,15 @@
 import { connect } from '@wagmi/core'
-import { CONNECTOR_ICON_OVERRIDE_MAP } from 'components/Web3Provider/constants'
-import { wagmiConfig } from 'components/Web3Provider/wagmiConfig'
-import { uniswapWalletConnect } from 'components/Web3Provider/walletConnect'
-import { ConnectionService } from 'features/wallet/connection/services/IConnectionService'
-import { WalletConnectorMeta } from 'features/wallet/connection/types/WalletConnectorMeta'
-import { useSignInWithPasskey } from 'hooks/useSignInWithPasskey'
 import { useUpdateAtom } from 'jotai/utils'
 import { useMemo } from 'react'
-import { persistHideMobileAppPromoBannerAtom } from 'state/application/atoms'
 import { CONNECTION_PROVIDER_IDS, CONNECTION_PROVIDER_NAMES } from 'uniswap/src/constants/web3'
+import type { Connector } from 'wagmi'
+import { CONNECTOR_ICON_OVERRIDE_MAP } from '~/connection/constants'
+import { wagmiConfig } from '~/connection/wagmiConfig'
+import { uniswapWalletConnect } from '~/connection/walletConnect'
+import { ConnectionService } from '~/features/wallet/connection/services/IConnectionService'
+import { WalletConnectorMeta } from '~/features/wallet/connection/types/WalletConnectorMeta'
+import { useSignInWithPasskey } from '~/hooks/useSignInWithPasskey'
+import { persistHideMobileAppPromoBannerAtom } from '~/state/application/atoms'
 
 const APPLY_CUSTOM_CONNECTOR_META_MAP = {
   [CONNECTION_PROVIDER_IDS.UNISWAP_WALLET_CONNECT_CONNECTOR_ID]: applyUniswapWalletConnectorMeta,
@@ -28,15 +29,18 @@ const APPLY_CUSTOM_CONNECTOR_META_MAP = {
  *
  */
 export function applyCustomConnectorMeta(walletConnectors: WalletConnectorMeta[]): WalletConnectorMeta[] {
-  return Object.values(APPLY_CUSTOM_CONNECTOR_META_MAP)
-    .reduce((acc, applyCustomConnectorMeta) => applyCustomConnectorMeta(acc), walletConnectors)
-    .map((connector) => {
-      const iconOverride = CONNECTOR_ICON_OVERRIDE_MAP[connector.name]
-      if (iconOverride) {
-        return { ...connector, icon: iconOverride }
-      }
-      return connector
-    })
+  return (
+    Object.values(APPLY_CUSTOM_CONNECTOR_META_MAP)
+      // oxlint-disable-next-line no-shadow
+      .reduce((acc, applyCustomConnectorMeta) => applyCustomConnectorMeta(acc), walletConnectors)
+      .map((connector) => {
+        const iconOverride = CONNECTOR_ICON_OVERRIDE_MAP[connector.name]
+        if (iconOverride) {
+          return { ...connector, icon: iconOverride }
+        }
+        return connector
+      })
+  )
 }
 
 // CUSTOM CONNECTOR FUNCTIONS
@@ -44,9 +48,22 @@ export function applyCustomConnectorMeta(walletConnectors: WalletConnectorMeta[]
 // =========================================
 // Uniswap Wallet Connect
 // =========================================
-// Lazy-initialized on connection to prevent socket conflicts.
-// Standard wagmi initialization creates persistent WebSocket connections
-// that can interfere with each other and cause message drops.
+// Reuse the connector registered in wagmiConfig so connect() and reconnect drive the same instance.
+// Fallback lazily sets one up where WC connectors are excluded from the config (unit tests).
+let uniswapWalletConnectConnector: Connector | undefined
+function getUniswapWalletConnectConnector(): Connector {
+  const registered = wagmiConfig.connectors.find(
+    (connector) => connector.id === CONNECTION_PROVIDER_IDS.UNISWAP_WALLET_CONNECT_CONNECTOR_ID,
+  )
+  if (registered) {
+    return registered
+  }
+  if (!uniswapWalletConnectConnector) {
+    uniswapWalletConnectConnector = wagmiConfig._internal.connectors.setup(uniswapWalletConnect())
+  }
+  return uniswapWalletConnectConnector
+}
+
 export function useUniswapMobileConnectionService(): ConnectionService {
   const setPersistHideMobileAppPromoBanner = useUpdateAtom(persistHideMobileAppPromoBannerAtom)
 
@@ -54,11 +71,7 @@ export function useUniswapMobileConnectionService(): ConnectionService {
     () => ({
       connect: async () => {
         setPersistHideMobileAppPromoBanner(true)
-
-        // Initialize Uniswap Wallet on click instead of in wagmi config
-        // to avoid multiple wallet connect sockets being opened
-        // and causing issues with messages getting dropped
-        await connect(wagmiConfig, { connector: uniswapWalletConnect() })
+        await connect(wagmiConfig, { connector: getUniswapWalletConnectConnector() })
         return { connected: true }
       },
     }),

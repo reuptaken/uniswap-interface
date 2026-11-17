@@ -1,20 +1,21 @@
 /**
  * Copied from https://github.com/tradingview/lightweight-charts/blob/master/plugin-examples/src/plugins/rounded-candle-series/renderer.ts
  */
-import { RoundedCandleSeriesOptions } from 'components/Charts/PriceChart/RoundedCandlestickSeries/rounded-candles-series'
-import { roundRect } from 'components/Charts/utils'
-import { positionsLine } from 'components/Charts/VolumeChart/CrosshairHighlightPrimitive'
-import { positionsBox } from 'components/Charts/VolumeChart/utils'
+
 import { BitmapCoordinatesRenderingScope, CanvasRenderingTarget2D } from 'fancy-canvas'
 import {
   CandlestickData,
   ICustomSeriesPaneRenderer,
   PaneRendererCustomData,
+  IRange,
   PriceToCoordinateConverter,
-  Range,
   Time,
   UTCTimestamp,
 } from 'lightweight-charts'
+import type { RoundedCandleSeriesOptions } from '~/components/Charts/PriceChart/RoundedCandlestickSeries/rounded-candles-series'
+import { roundRect } from '~/components/Charts/utils'
+import { positionsLine } from '~/components/Charts/VolumeChart/CrosshairHighlightPrimitive'
+import { positionsBox } from '~/components/Charts/VolumeChart/utils'
 
 interface BarItem {
   openY: number
@@ -25,9 +26,9 @@ interface BarItem {
   isUp: boolean
 }
 
-export class RoundedCandleSeriesRenderer<TData extends CandlestickData<UTCTimestamp>>
-  implements ICustomSeriesPaneRenderer
-{
+export class RoundedCandleSeriesRenderer<
+  TData extends CandlestickData<UTCTimestamp>,
+> implements ICustomSeriesPaneRenderer {
   _data: PaneRendererCustomData<Time, TData> | null = null
   _options: RoundedCandleSeriesOptions | null = null
 
@@ -89,7 +90,7 @@ export class RoundedCandleSeriesRenderer<TData extends CandlestickData<UTCTimest
   }: {
     renderingScope: BitmapCoordinatesRenderingScope
     bars: readonly BarItem[]
-    visibleRange: Range<number>
+    visibleRange: IRange<number>
   }): void {
     if (this._data === null || this._options === null) {
       return
@@ -125,7 +126,7 @@ export class RoundedCandleSeriesRenderer<TData extends CandlestickData<UTCTimest
   }: {
     renderingScope: BitmapCoordinatesRenderingScope
     bars: readonly BarItem[]
-    visibleRange: Range<number>
+    visibleRange: IRange<number>
     radius: number
   }): void {
     if (this._data === null || this._options === null) {

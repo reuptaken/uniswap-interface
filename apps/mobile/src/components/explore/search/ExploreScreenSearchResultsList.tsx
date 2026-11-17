@@ -1,11 +1,9 @@
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
+import type { UniverseChainId } from '@universe/chains'
+import { Flex, flexStyles, spacing, Text, TouchableArea } from '@universe/mycelium'
 import { memo, useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
 import { ESTIMATED_BOTTOM_TABS_HEIGHT } from 'src/app/navigation/tabs/CustomTabBar/constants'
-import { Flex, flexStyles, Text, TouchableArea } from 'ui/src'
-import { spacing } from 'ui/src/theme'
-import type { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { SearchModalNoQueryList } from 'uniswap/src/features/search/SearchModal/SearchModalNoQueryList'
 import { SearchModalResultsList } from 'uniswap/src/features/search/SearchModal/SearchModalResultsList'
 import { MOBILE_SEARCH_TABS, SearchTab } from 'uniswap/src/features/search/SearchModal/types'
@@ -40,7 +38,7 @@ const MobileSearchTab = ({
   )
 }
 
-export const ExploreScreenSearchResultsList = memo(function _ExploreScreenSearchResultsList({
+export const ExploreScreenSearchResultsList = memo(function ExploreScreenSearchResultsListInner({
   searchQuery,
   parsedSearchQuery,
   chainFilter,
@@ -56,23 +54,22 @@ export const ExploreScreenSearchResultsList = memo(function _ExploreScreenSearch
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<SearchTab>(SearchTab.All)
   const insets = useAppInsets()
-  const isBottomTabsEnabled = useFeatureFlag(FeatureFlags.BottomTabs)
 
   const getTabLabel = useCallback(
     // So that the linter errors if someone adds a new tab without updating the switch statement
-    // eslint-disable-next-line consistent-return
+    // oxlint-disable-next-line typescript/consistent-return
     (tab: SearchTab): string => {
       switch (tab) {
         case SearchTab.All:
           return t('common.all')
         case SearchTab.Tokens:
-          return t('common.tokens')
+          return t('common.token.plural')
         case SearchTab.Pools:
           return t('common.pools')
         case SearchTab.Wallets:
           return t('explore.search.section.wallets')
-        case SearchTab.NFTCollections:
-          return t('common.nfts')
+        case SearchTab.Auctions:
+          return t('common.auctions')
       }
     },
     [t],
@@ -80,13 +77,13 @@ export const ExploreScreenSearchResultsList = memo(function _ExploreScreenSearch
 
   const contentContainerStyle = useMemo(
     () => ({
-      paddingBottom: (isBottomTabsEnabled ? ESTIMATED_BOTTOM_TABS_HEIGHT + spacing.spacing32 : 0) + insets.bottom,
+      paddingBottom: ESTIMATED_BOTTOM_TABS_HEIGHT + spacing.spacing32 + insets.bottom,
     }),
-    [insets.bottom, isBottomTabsEnabled],
+    [insets.bottom],
   )
 
   return (
-    <KeyboardAvoidingView behavior="height" style={flexStyles.fill}>
+    <KeyboardAvoidingView behavior="padding" style={flexStyles.fill}>
       <Trace section={SectionName.ExploreSearch}>
         <Flex row px="$spacing20" pt="$spacing16" pb="$spacing8" gap="$spacing16">
           {MOBILE_SEARCH_TABS.map((tab) => (
@@ -101,21 +98,25 @@ export const ExploreScreenSearchResultsList = memo(function _ExploreScreenSearch
         </Flex>
         {searchQuery && searchQuery.length > 0 ? (
           <SearchModalResultsList
+            hideTokenCategoryTag
             chainFilter={chainFilter}
             parsedChainFilter={parsedChainFilter}
             debouncedParsedSearchFilter={debouncedParsedSearchQuery}
             debouncedSearchFilter={debouncedSearchQuery}
             searchFilter={searchQuery}
             activeTab={activeTab}
-            renderedInModal={!isBottomTabsEnabled}
+            renderedInModal={false}
             contentContainerStyle={contentContainerStyle}
+            onViewAll={setActiveTab}
           />
         ) : (
           <SearchModalNoQueryList
+            hideTokenCategoryTag
             chainFilter={chainFilter}
             activeTab={activeTab}
-            renderedInModal={!isBottomTabsEnabled}
+            renderedInModal={false}
             contentContainerStyle={contentContainerStyle}
+            onViewAll={setActiveTab}
           />
         )}
       </Trace>

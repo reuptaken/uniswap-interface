@@ -1,21 +1,24 @@
+import { Flex, FlexLoader, getTokenValue, type FlexLoaderProps, Skeleton } from '@universe/mycelium'
 import React, { memo } from 'react'
 import { TransactionLoader } from 'src/components/loading/parts/TransactionLoader'
-import { WaveLoader } from 'src/components/loading/parts/WaveLoader'
-import { Flex, FlexLoader, FlexLoaderProps, getToken, Skeleton } from 'ui/src'
+import { useChartDimensions } from 'src/components/PriceExplorer/useChartDimensions'
+import { WaveLoader } from 'ui/src'
 
 function Graph(): JSX.Element {
+  const { chartHeight } = useChartDimensions()
+
   return (
     <Skeleton>
-      <WaveLoader />
+      <WaveLoader height={chartHeight} />
     </Skeleton>
   )
 }
 
-const Transaction = memo(function _Transaction({ repeat = 1 }: { repeat?: number }): JSX.Element {
+const Transaction = memo(function TransactionInner({ repeat = 1 }: { repeat?: number }): JSX.Element {
   return (
     <Skeleton>
       <Flex>
-        {/* eslint-disable-next-line max-params */}
+        {/* oxlint-disable-next-line max-params */}
         {new Array(repeat).fill(null).map((_, i, { length }) => (
           <React.Fragment key={i}>
             <TransactionLoader opacity={(length - i) / length} />
@@ -37,18 +40,14 @@ function Box(props: FlexLoaderProps): JSX.Element {
 function Image(): JSX.Element {
   return (
     <Skeleton>
-      <FlexLoader aspectRatio={1} borderRadius={getToken('$none', 'radius')} />
+      <FlexLoader aspectRatio={1} borderRadius={getTokenValue('$none', 'radius')} />
     </Skeleton>
   )
 }
 
-function Favorite({
-  height,
-  contrast,
-  ...props
-}: { height?: number; contrast?: boolean } & FlexLoaderProps): JSX.Element {
+function Favorite({ height, ...props }: { height?: number } & FlexLoaderProps): JSX.Element {
   return (
-    <Skeleton contrast={contrast}>
+    <Skeleton>
       {/* surface3 because these only show up on explore modal which has a blurred bg that makes neutral3 look weird */}
       <FlexLoader
         backgroundColor="$surface3"

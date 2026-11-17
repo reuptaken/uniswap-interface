@@ -1,112 +1,197 @@
-/* eslint-disable max-lines */
-import { BigNumber } from '@ethersproject/bignumber'
-import { Position, PositionStatus, ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
-import { Currency, CurrencyAmount, Percent, Price } from '@uniswap/sdk-core'
-import { GraphQLApi } from '@universe/api'
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { BreadcrumbNavContainer, BreadcrumbNavLink } from 'components/BreadcrumbNav'
-import { WrappedLiquidityPositionRangeChart } from 'components/Charts/LiquidityPositionRangeChart/LiquidityPositionRangeChart'
-import { Dropdown } from 'components/Dropdowns/Dropdown'
-import { BaseQuoteFiatAmount } from 'components/Liquidity/BaseQuoteFiatAmount'
-import { useGetRangeDisplay } from 'components/Liquidity/hooks/useGetRangeDisplay'
-import { useReportPositionHandler } from 'components/Liquidity/hooks/useReportPositionHandler'
-import { LiquidityPositionAmountRows } from 'components/Liquidity/LiquidityPositionAmountRows'
-import { LiquidityPositionInfo } from 'components/Liquidity/LiquidityPositionInfo'
-import { LiquidityPositionStackedBars } from 'components/Liquidity/LiquidityPositionStackedBars'
-import { LoadingRow } from 'components/Liquidity/Loader'
-import { PositionNFT } from 'components/Liquidity/PositionNFT'
-import { PositionPageActionButtons } from 'components/Liquidity/PositionPageActionButtons'
-import type { PositionInfo } from 'components/Liquidity/types'
-import { getBaseAndQuoteCurrencies } from 'components/Liquidity/utils/currency'
-import { parseRestPosition } from 'components/Liquidity/utils/parseFromRest'
-import { LoadingFullscreen, LoadingRows } from 'components/Loader/styled'
-import { LP_INCENTIVES_REWARD_TOKEN } from 'components/LpIncentives/constants'
-import { MouseoverTooltip } from 'components/Tooltip'
-import { useCurrencyInfo } from 'hooks/Tokens'
-import { useAccount } from 'hooks/useAccount'
-import { useV3NFTPositionManagerContract } from 'hooks/useContract'
-import { useSrcColor } from 'hooks/useColor'
-import { useLpIncentivesFormattedEarnings } from 'hooks/useLpIncentivesFormattedEarnings'
-import { usePositionTokenURI } from 'hooks/usePositionTokenURI'
-import NotFound from 'pages/NotFound'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft } from 'react-feather'
+/* oxlint-disable max-lines */
+import '~/pages/Positions/PositionPage.css'
+import { PositionStatus, ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
+import { Currency, CurrencyAmount, Fraction, Percent, Price } from '@uniswap/sdk-core'
+import { areAddressesEqual, EVMUniverseChainId, isEVMChain, UniverseChainId } from '@universe/chains'
+import { isMobileWeb } from '@universe/environment'
+import { Button, Flex, Text, TouchableArea } from '@universe/mycelium'
+import { FlexCompat, type FlexCompatProps } from '@universe/mycelium/flex-compat'
+import { SegmentedControl, type SegmentedControlOption } from '@universe/mycelium/segmented-control-compat'
+import { useDeviceDimensions, useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { Helmet } from 'react-helmet-async/lib/index'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router'
-import { MultichainContextProvider } from 'state/multichain/MultichainContext'
-import { usePendingLPTransactionsChangeListener } from 'state/transactions/hooks'
-import { ClickableTamaguiStyle } from 'theme/components/styles'
-import {
-  Button,
-  Flex,
-  Main,
-  SegmentedControl,
-  SegmentedControlOption,
-  styled,
-  Text,
-  TouchableArea,
-  useSporeColors,
-} from 'ui/src'
+import { AlertTriangleFilled } from 'ui/src/components/icons/AlertTriangleFilled'
+import { ArrowLeft } from 'ui/src/components/icons/ArrowLeft'
 import { ExchangeHorizontal } from 'ui/src/components/icons/ExchangeHorizontal'
 import { Flag } from 'ui/src/components/icons/Flag'
 import { InfoCircleFilled } from 'ui/src/components/icons/InfoCircleFilled'
 import { RotatableChevron } from 'ui/src/components/icons/RotatableChevron'
-import { useDeviceDimensions } from 'ui/src/hooks/useDeviceDimensions'
 import { breakpoints } from 'ui/src/theme/breakpoints'
-import { CurrencyLogo } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
 import { PollingInterval, ZERO_ADDRESS } from 'uniswap/src/constants/misc'
-import { useGetPositionQuery } from 'uniswap/src/data/rest/getPosition'
 import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
 import { useSupportedChainId } from 'uniswap/src/features/chains/hooks/useSupportedChainId'
-import { EVMUniverseChainId, UniverseChainId } from 'uniswap/src/features/chains/types'
-import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
+import { getPrimaryStablecoin } from 'uniswap/src/features/chains/utils'
+import { HistoryDuration } from 'uniswap/src/features/dataApi/types'
+import { useCurrentLocale } from 'uniswap/src/features/language/hooks'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
-import { isEVMChain } from 'uniswap/src/features/platforms/utils/chains'
+import { formatPositionPrice } from 'uniswap/src/features/positions/formatPositionPrice'
+import { useEffectivePositionStatus } from 'uniswap/src/features/positions/hooks/useEffectivePositionStatus'
+import { useGetPositionInfo } from 'uniswap/src/features/positions/hooks/useGetPositionInfo'
+import { useGetRangeDisplay } from 'uniswap/src/features/positions/hooks/useGetRangeDisplay'
+import type { PositionInfo, PositionRewardApr } from 'uniswap/src/features/positions/types'
+import { getExactSharePercent } from 'uniswap/src/features/positions/utils'
 import { InterfacePageName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
-import { useCurrencyInfos } from 'uniswap/src/features/tokens/useCurrencyInfo'
+import { shouldReverseForWaterfall } from 'uniswap/src/features/tokens/waterfallPriority'
 import { useUSDCValue } from 'uniswap/src/features/transactions/hooks/useUSDCPrice'
 import { usePositionVisibilityCheck } from 'uniswap/src/features/visibility/hooks/usePositionVisibilityCheck'
-import { areAddressesEqual } from 'uniswap/src/utils/addresses'
+import { currencyId, currencyIdToAddress } from 'uniswap/src/utils/currencyId'
 import { ExplorerDataType, getExplorerLink } from 'uniswap/src/utils/linking'
-import { buildCurrencyId, currencyId, currencyIdToAddress } from 'uniswap/src/utils/currencyId'
 import { NumberType } from 'utilities/src/format/types'
-import { isMobileWeb } from 'utilities/src/platform'
 import { useEvent } from 'utilities/src/react/hooks'
-import { useChainIdFromUrlParam } from 'utils/chainParams'
+import { BreadcrumbNavContainer, BreadcrumbNavLink } from '~/components/BreadcrumbNav'
+import { Dropdown } from '~/components/Dropdowns/Dropdown'
+import { LoadingFullscreen, LoadingRows } from '~/components/Loader/styled'
+import { MouseoverTooltip, TooltipSize } from '~/components/Tooltip'
+import { BlastShutdownBanner } from '~/features/Liquidity/BlastShutdownBanner'
+import { DexToolsChart, getDexToolsChartUrl } from '~/features/Liquidity/charts/DexToolsChart/DexToolsChart'
+import { WrappedLiquidityPositionRangeChart } from '~/features/Liquidity/charts/LiquidityPositionRangeChart/LiquidityPositionRangeChart'
+import {
+  CANDLE_INTERVALS,
+  type CandleIntervalLabel,
+  DEFAULT_CANDLE_INTERVAL,
+  getCandleInterval,
+  getPoolCandlesUrl,
+} from '~/features/Liquidity/charts/PositionCandlestickChart/poolCandles'
+import { PositionCandlestickChart } from '~/features/Liquidity/charts/PositionCandlestickChart/PositionCandlestickChart'
+import { useEntryPointBreadcrumb } from '~/features/Liquidity/Create/hooks/useEntryPointBreadcrumb'
+import { useLpIncentivesFormattedEarnings } from '~/features/Liquidity/hooks/useLpIncentivesFormattedEarnings'
+import { usePositionMintData } from '~/features/Liquidity/hooks/usePositionMintData'
+import { useReportPositionHandler } from '~/features/Liquidity/hooks/useReportPositionHandler'
+import { LiquidityPositionAmountRows } from '~/features/Liquidity/LiquidityPositionAmountRows'
+import { LiquidityPositionInfo } from '~/features/Liquidity/LiquidityPositionInfo'
+import { LiquidityPositionStackedBars } from '~/features/Liquidity/LiquidityPositionStackedBars'
+import { LoadingRow } from '~/features/Liquidity/Loader'
+import { usePositionRewardEarnings } from '~/features/Liquidity/LPIncentives/hooks/usePositionRewardEarnings'
+import { PoolAprTooltip } from '~/features/Liquidity/LPIncentives/PoolAprTooltip'
+import { RewardAprBadge } from '~/features/Liquidity/LPIncentives/RewardAprBadge'
+import { rewardCurrencyId } from '~/features/Liquidity/LPIncentives/utils'
+import { PositionExternalLinks } from '~/features/Liquidity/PositionExternalLinks'
+import { PositionNFT } from '~/features/Liquidity/PositionNFT'
+import { PositionPageActionButtons } from '~/features/Liquidity/PositionPageActionButtons'
+import { getBaseAndQuoteCurrencies } from '~/features/Liquidity/utils/currency'
+import { useCurrencyInfo } from '~/hooks/Tokens'
+import { useAccount } from '~/hooks/useAccount'
+import { useDynamicMetatags } from '~/pages/metatags'
+import { NotFound } from '~/pages/NotFound'
+import { useLivePositionInfo } from '~/pages/Positions/useLivePositionInfo'
+import { usePositionTokenURI } from '~/pages/Positions/usePositionTokenURI'
+import { MultichainContextProvider } from '~/state/multichain/MultichainContext'
+import { usePendingLPTransactionsChangeListener } from '~/state/transactions/hooks'
+import { ClickableTamaguiStyle } from '~/theme/components/styles'
+import { useChainIdFromUrlParam } from '~/utils/params/chainParams'
+
+type MainView = 'chart' | 'candles' | 'dextools' | 'nft'
+
+const RIGHT_COLUMN_WIDTH = 380
+// Matches the body's $spacing32 between sections, e.g. from the header rule to the first card.
+const COLUMN_GAP = 32
+
+// Scales this page's text down; see PositionPage.css.
+const COMPACT_TEXT_CLASS = 'position-page-compact'
 
 const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'BUSD', 'FRAX', 'LUSD']
 
-const BodyWrapper = styled(Main, {
-  backgroundColor: '$surface1',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '$spacing32',
-  width: '100%',
-  maxWidth: 1200,
-  zIndex: '$default',
-  py: '$spacing24',
-  px: '$spacing40',
+// Pool prices routinely run to 1e-6 and below, so keep enough significant digits to survive `Number()`.
+const SPOT_PRICE_SIGNIFICANT_DIGITS = 12
 
-  $lg: {
-    px: '$padding20',
-  },
+// Wrap a backend-provided fee USD number as a CurrencyAmount so it flows through the same
+// consumers (sum, share %, formatting) as the live-priced values it replaces. Denominated in a
+// single fixed stablecoin (Mainnet USDC) so token0 and token1 fees share one currency — the value
+// is chain-independent USD, and the UNI-rewards fiat value uses the same currency, so `.add()` and
+// the percentage math stay consistent. LP-1616.
+function fiatFeeCurrencyAmount(usd: number | undefined): CurrencyAmount<Currency> | undefined {
+  if (usd === undefined || !Number.isFinite(usd)) {
+    return undefined
+  }
+  const stablecoin = getPrimaryStablecoin(UniverseChainId.Mainnet)
+  return CurrencyAmount.fromRawAmount(stablecoin, Math.round(usd * 10 ** stablecoin.decimals))
+}
+
+const EMPTY_REWARDS: PositionRewardApr[] = []
+
+// `$lg` stays `$lg`: mycelium's `media-lg` is `(max-width: 768px)`; Tailwind's stock `lg:` is the inversion.
+const BodyWrapper = forwardRef<HTMLElement, FlexCompatProps>(function BodyWrapper({ $lg: lg, ...props }, ref) {
+  return (
+    <FlexCompat
+      ref={ref}
+      tag="main"
+      backgroundColor="$surface1"
+      gap="$spacing32"
+      width="100%"
+      maxWidth={1200}
+      zIndex="$default"
+      py="$spacing24"
+      px="$spacing40"
+      // Merge, don't spread: Tamagui deep-merged a caller's object-valued prop into the config's value for the same key.
+      $lg={{ px: '$padding20', ...lg }}
+      $md={{ px: '$none' }}
+      {...props}
+    />
+  )
 })
 
-function parseTokenId(tokenId: string | undefined): BigNumber | undefined {
+function parseTokenId(tokenId: string | undefined): bigint | undefined {
   if (!tokenId) {
     return undefined
   }
   try {
-    return BigNumber.from(tokenId)
+    return BigInt(tokenId)
   } catch {
     return undefined
   }
 }
 
+type FiatAmount = Maybe<CurrencyAmount<Currency>>
+
+function quoteOrNull(
+  price: Price<Currency, Currency> | undefined,
+  amount: CurrencyAmount<Currency>,
+): CurrencyAmount<Currency> | null {
+  try {
+    return price?.quote(amount) ?? null
+  } catch {
+    return null
+  }
+}
+
+// Both sides are priced in the pair's own stablecoin so the two results always share a currency; callers `.add()` them.
+function withStablecoinFallback({
+  amount0,
+  amount1,
+  fiat0,
+  fiat1,
+  currency0,
+  currency1,
+  token0Price,
+  token1Price,
+}: {
+  amount0?: CurrencyAmount<Currency>
+  amount1?: CurrencyAmount<Currency>
+  fiat0: FiatAmount
+  fiat1: FiatAmount
+  currency0: Currency
+  currency1: Currency
+  token0Price?: Price<Currency, Currency>
+  token1Price?: Price<Currency, Currency>
+}): [FiatAmount, FiatAmount] {
+  if ((fiat0 && fiat1) || !amount0 || !amount1) {
+    return [fiat0, fiat1]
+  }
+  if (STABLECOIN_SYMBOLS.includes(currency0.symbol ?? '')) {
+    return [amount0, quoteOrNull(token1Price, amount1)]
+  }
+  if (STABLECOIN_SYMBOLS.includes(currency1.symbol ?? '')) {
+    return [quoteOrNull(token0Price, amount0), amount1]
+  }
+  return [fiat0, fiat1]
+}
+
 function parseDisplayedNumber(s: string): number {
-  return parseFloat(s.replace(/[^0-9.\-]/g, ''))
+  return parseFloat(s.replace(/[^0-9.-]/g, ''))
 }
 
 function useFlashColor(displayedValue: string | undefined): string | undefined {
@@ -118,13 +203,13 @@ function useFlashColor(displayedValue: string | undefined): string | undefined {
     prevValueRef.current = displayedValue
 
     if (prev === undefined || displayedValue === undefined || prev === displayedValue) {
-      return
+      return undefined
     }
 
     const prevNum = parseDisplayedNumber(prev)
     const currNum = parseDisplayedNumber(displayedValue)
     if (Number.isNaN(prevNum) || Number.isNaN(currNum) || prevNum === currNum) {
-      return
+      return undefined
     }
 
     setFlashColor(currNum > prevNum ? '$statusSuccess' : '$statusCritical')
@@ -135,237 +220,7 @@ function useFlashColor(displayedValue: string | undefined): string | undefined {
   return flashColor
 }
 
-interface PositionEvent {
-  type: 'mint' | 'increase' | 'decrease' | 'collect' | 'decrease_collect' | 'burn'
-  timestamp: number
-  txHash: string
-  amount0: BigNumber
-  amount1: BigNumber
-}
-
-interface MintData {
-  timestamp: number | undefined
-  totalDeposited0: BigNumber | undefined
-  totalDeposited1: BigNumber | undefined
-  totalCollected0: BigNumber | undefined
-  totalCollected1: BigNumber | undefined
-  events: PositionEvent[]
-}
-
-function useMintData(
-  chainId: EVMUniverseChainId | undefined,
-  tokenId: string | undefined,
-  version: ProtocolVersion | undefined,
-): MintData {
-  const [data, setData] = useState<MintData>({
-    timestamp: undefined,
-    totalDeposited0: undefined,
-    totalDeposited1: undefined,
-    totalCollected0: undefined,
-    totalCollected1: undefined,
-    events: [],
-  })
-  const contract = useV3NFTPositionManagerContract(false, chainId)
-  const fetchedRef = useRef(false)
-
-  useEffect(() => {
-    if (!contract || !tokenId || version !== ProtocolVersion.V3 || fetchedRef.current) {
-      return
-    }
-
-    fetchedRef.current = true
-    let cancelled = false
-    const tokenIdBN = BigNumber.from(tokenId)
-
-    const fetchData = async () => {
-      try {
-        const [mintTransfers, burnTransfers, increaseEvents, decreaseEvents, collectEvents] = await Promise.all([
-          contract.queryFilter(contract.filters.Transfer(ZERO_ADDRESS, null, tokenIdBN)),
-          contract.queryFilter(contract.filters.Transfer(null, ZERO_ADDRESS, tokenIdBN)),
-          contract.queryFilter(contract.filters.IncreaseLiquidity(tokenIdBN, null, null, null)),
-          contract.queryFilter(contract.filters.DecreaseLiquidity(tokenIdBN, null, null, null)),
-          contract.queryFilter(contract.filters.Collect(tokenIdBN, null, null, null)),
-        ])
-
-        if (cancelled) {
-          return
-        }
-
-        // Collect all raw events with block numbers
-        const rawEvents: Array<{
-          type: PositionEvent['type']
-          blockNumber: number
-          txHash: string
-          amount0: BigNumber
-          amount1: BigNumber
-        }> = []
-
-        for (const ev of mintTransfers) {
-          rawEvents.push({
-            type: 'mint',
-            blockNumber: ev.blockNumber,
-            txHash: ev.transactionHash,
-            amount0: BigNumber.from(0),
-            amount1: BigNumber.from(0),
-          })
-        }
-        for (const ev of burnTransfers) {
-          rawEvents.push({
-            type: 'burn',
-            blockNumber: ev.blockNumber,
-            txHash: ev.transactionHash,
-            amount0: BigNumber.from(0),
-            amount1: BigNumber.from(0),
-          })
-        }
-        for (const ev of increaseEvents) {
-          rawEvents.push({
-            type: 'increase',
-            blockNumber: ev.blockNumber,
-            txHash: ev.transactionHash,
-            amount0: ev.args.amount0,
-            amount1: ev.args.amount1,
-          })
-        }
-        for (const ev of decreaseEvents) {
-          rawEvents.push({
-            type: 'decrease',
-            blockNumber: ev.blockNumber,
-            txHash: ev.transactionHash,
-            amount0: ev.args.amount0,
-            amount1: ev.args.amount1,
-          })
-        }
-        for (const ev of collectEvents) {
-          rawEvents.push({
-            type: 'collect',
-            blockNumber: ev.blockNumber,
-            txHash: ev.transactionHash,
-            amount0: ev.args.amount0,
-            amount1: ev.args.amount1,
-          })
-        }
-
-        if (cancelled) {
-          return
-        }
-
-        // Deduplicate block numbers and fetch timestamps
-        const uniqueBlocks = [...new Set(rawEvents.map((e) => e.blockNumber))]
-        const blockTimestamps = new Map<number, number>()
-        const blockPromises = uniqueBlocks.map(async (bn) => {
-          const block = await contract.provider.getBlock(bn)
-          blockTimestamps.set(bn, block.timestamp)
-        })
-        await Promise.all(blockPromises)
-
-        if (cancelled) {
-          return
-        }
-
-        // Build sorted event list
-        const events: PositionEvent[] = rawEvents
-          .map((raw) => ({
-            type: raw.type,
-            timestamp: blockTimestamps.get(raw.blockNumber) ?? 0,
-            txHash: raw.txHash,
-            amount0: raw.amount0,
-            amount1: raw.amount1,
-          }))
-          .sort((a, b) => a.timestamp - b.timestamp || a.type.localeCompare(b.type))
-
-        // Merge related events in the same tx:
-        // 1. Mint + IncreaseLiquidity → show as mint with amounts
-        // 2. DecreaseLiquidity + Collect → show as "decrease_collect" with combined amounts
-        const mintTxHashes = new Set(events.filter((e) => e.type === 'mint').map((e) => e.txHash))
-        const decreaseTxHashes = new Set(events.filter((e) => e.type === 'decrease').map((e) => e.txHash))
-        const consumedTxTypes = new Set<string>() // "txHash:type" entries already merged
-        const mergedEvents: PositionEvent[] = []
-
-        for (const ev of events) {
-          const key = `${ev.txHash}:${ev.type}`
-          if (consumedTxTypes.has(key)) {
-            continue
-          }
-
-          if (ev.type === 'mint') {
-            const matchingIncrease = events.find((e) => e.type === 'increase' && e.txHash === ev.txHash)
-            if (matchingIncrease) {
-              consumedTxTypes.add(`${ev.txHash}:increase`)
-            }
-            mergedEvents.push({
-              ...ev,
-              amount0: matchingIncrease?.amount0 ?? BigNumber.from(0),
-              amount1: matchingIncrease?.amount1 ?? BigNumber.from(0),
-            })
-          } else if (ev.type === 'increase' && mintTxHashes.has(ev.txHash)) {
-            // Skip — already merged into the mint event
-            continue
-          } else if (ev.type === 'decrease') {
-            // Check if there's a Collect in the same tx → merge
-            const matchingCollect = events.find((e) => e.type === 'collect' && e.txHash === ev.txHash)
-            if (matchingCollect) {
-              consumedTxTypes.add(`${ev.txHash}:collect`)
-              mergedEvents.push({
-                type: 'decrease_collect',
-                timestamp: ev.timestamp,
-                txHash: ev.txHash,
-                amount0: matchingCollect.amount0,
-                amount1: matchingCollect.amount1,
-              })
-            } else {
-              mergedEvents.push(ev)
-            }
-          } else if (ev.type === 'collect' && decreaseTxHashes.has(ev.txHash)) {
-            // Skip — already merged into the decrease_collect event
-            continue
-          } else {
-            mergedEvents.push(ev)
-          }
-        }
-
-        // Compute sums
-        let dep0 = BigNumber.from(0)
-        let dep1 = BigNumber.from(0)
-        for (const ev of increaseEvents) {
-          dep0 = dep0.add(ev.args.amount0)
-          dep1 = dep1.add(ev.args.amount1)
-        }
-
-        let col0 = BigNumber.from(0)
-        let col1 = BigNumber.from(0)
-        for (const ev of collectEvents) {
-          col0 = col0.add(ev.args.amount0)
-          col1 = col1.add(ev.args.amount1)
-        }
-
-        const ts = mergedEvents.length > 0 ? mergedEvents[0].timestamp : undefined
-
-        if (!cancelled) {
-          setData({
-            timestamp: ts,
-            totalDeposited0: dep0,
-            totalDeposited1: dep1,
-            totalCollected0: col0,
-            totalCollected1: col1,
-            events: mergedEvents,
-          })
-        }
-      } catch {
-        // silently fail — RPC may not support historical log queries
-      }
-    }
-
-    fetchData()
-    return () => {
-      cancelled = true
-    }
-  }, [contract, tokenId, version])
-
-  return data
-}
-
-export default function PositionPageWrapper() {
+export function PositionPageWrapper() {
   const chainId = useChainIdFromUrlParam()
 
   if (chainId && !isEVMChain(chainId)) {
@@ -379,18 +234,25 @@ export default function PositionPageWrapper() {
   )
 }
 
+export default PositionPageWrapper
+
+// oxlint-disable-next-line complexity
 function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) {
   const { tokenId: tokenIdFromUrl } = useParams<{ tokenId: string }>()
   const tokenId = parseTokenId(tokenIdFromUrl)
   const chainInfo = chainId ? getChainInfo(chainId) : undefined
   const account = useAccount()
   const supportedAccountChainId = useSupportedChainId(account.chainId)
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
+  const breadcrumb = useEntryPointBreadcrumb()
+  // tokenIds are only unique per position manager; the flag routes the read to the PermissionedPositionManager
+  const isPermissionedFromUrl = useMemo(() => new URLSearchParams(search).get('permissioned') === 'true', [search])
   const {
-    data,
+    positionInfo: servedPositionInfo,
     isLoading: positionLoading,
     refetch,
-  } = useGetPositionQuery({
+    dataUpdatedAt: positionUpdatedAt,
+  } = useGetPositionInfo({
     owner: account.address ?? ZERO_ADDRESS,
     protocolVersion: pathname.includes('v3')
       ? ProtocolVersion.V3
@@ -399,9 +261,9 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
         : ProtocolVersion.UNSPECIFIED,
     tokenId: tokenIdFromUrl,
     chainId: chainId ?? supportedAccountChainId,
+    permissioned: isPermissionedFromUrl,
   })
-  const position = data?.position
-  const positionInfo = useMemo(() => parseRestPosition(position), [position])
+  const { positionInfo, poolUpdatedAt, poolError } = useLivePositionInfo(servedPositionInfo)
   const metadata = usePositionTokenURI({ tokenId, chainId, version: positionInfo?.version })
   const {
     timestamp: mintTimestamp,
@@ -409,12 +271,10 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     totalDeposited1,
     totalCollected0,
     totalCollected1,
+    totalWithdrawn0,
+    totalWithdrawn1,
     events: positionEvents,
-  } = useMintData(
-    chainId,
-    tokenIdFromUrl,
-    positionInfo?.version,
-  )
+  } = usePositionMintData({ chainId, tokenId: tokenIdFromUrl, version: positionInfo?.version })
   usePendingLPTransactionsChangeListener(refetch)
 
   useEffect(() => {
@@ -424,16 +284,47 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     return () => clearInterval(interval)
   }, [refetch])
 
-  const isLpIncentivesEnabled = useFeatureFlag(FeatureFlags.LpIncentives)
-
   const navigate = useNavigate()
   const { t } = useTranslation()
 
+  const metatagProperties = useMemo(() => {
+    const token0Symbol = positionInfo?.currency0Amount.currency.symbol
+    const token1Symbol = positionInfo?.currency1Amount.currency.symbol
+    if (!token0Symbol || !token1Symbol || !chainInfo?.urlParam || !tokenIdFromUrl) {
+      return { title: 'Position on Uniswap', url: window.location.href }
+    }
+    const poolName = `${token0Symbol}/${token1Symbol}`
+    const version = pathname.includes('v3') ? 'v3' : 'v4'
+    return {
+      title: `${poolName} on Uniswap`,
+      url: window.location.href,
+      image: `${window.location.origin}/api/image/positions/${version}/${chainInfo.urlParam}/${tokenIdFromUrl}`,
+    }
+  }, [
+    positionInfo?.currency0Amount.currency.symbol,
+    positionInfo?.currency1Amount.currency.symbol,
+    pathname,
+    chainInfo?.urlParam,
+    tokenIdFromUrl,
+  ])
+  const metatags = useDynamicMetatags(metatagProperties)
+
   const { currency0Amount, currency1Amount, status, fee0Amount, fee1Amount } = positionInfo ?? {}
+  // Prefer the backend's per-token fee USD (priced with the same token prices it used for the
+  // total `uncollectedFeesUsd`) so the fee breakdown here matches the positions-list total. Only
+  // the liquidity-service path serves these; fall back to live pricing on the data-api path.
+  // Re-pricing with a live oracle is what made this page disagree with the list (LP-1616).
+  const liveFiatFeeValue0 = useUSDCValue(fee0Amount, PollingInterval.Slow)
+  const liveFiatFeeValue1 = useUSDCValue(fee1Amount, PollingInterval.Slow)
+  const backendFiatFeeValue0 = fiatFeeCurrencyAmount(positionInfo?.token0UncollectedFeesUsd)
+  const backendFiatFeeValue1 = fiatFeeCurrencyAmount(positionInfo?.token1UncollectedFeesUsd)
+  // All-or-nothing so fee0 and fee1 never mix currencies (backend USD vs the live oracle's
+  // per-chain stablecoin), which would break the .add() and share-percentage math downstream.
+  const useBackendFees = backendFiatFeeValue0 !== undefined && backendFiatFeeValue1 !== undefined
+  const fiatFeeValue0Raw = useBackendFees ? backendFiatFeeValue0 : liveFiatFeeValue0
+  const fiatFeeValue1Raw = useBackendFees ? backendFiatFeeValue1 : liveFiatFeeValue1
   const fiatValue0Raw = useUSDCValue(currency0Amount, PollingInterval.Slow)
   const fiatValue1Raw = useUSDCValue(currency1Amount, PollingInterval.Slow)
-  const fiatFeeValue0Raw = useUSDCValue(fee0Amount, PollingInterval.Slow)
-  const fiatFeeValue1Raw = useUSDCValue(fee1Amount, PollingInterval.Slow)
 
   const depositedCurrency0Amount = useMemo(
     () =>
@@ -501,9 +392,35 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     navigateToPositions: true,
   })
 
-  const [priceInverted, setPriceInverted] = useState(false)
+  // Waterfall priority picks the default quote asset (same as the pool details page). The user's flip is
+  // stored relative to that default rather than as the absolute value, since positionInfo arrives after mount.
+  const waterfallDefault = Boolean(
+    currency0Amount && currency1Amount && shouldReverseForWaterfall(currency0Amount.currency, currency1Amount.currency),
+  )
+  const [userFlipped, setUserFlipped] = useState(false)
+  const togglePriceInverted = useEvent(() => setUserFlipped((flipped) => !flipped))
+  const priceInverted = waterfallDefault !== userFlipped
 
-  const { maxPrice, minPrice, tokenASymbol, tokenBSymbol, isFullRange } = useGetRangeDisplay({
+  const { formatNumberOrString } = useLocalizationContext()
+  const { isPoolPriceStale, isPoolOutOfSync, marketPrice } = useEffectivePositionStatus(positionInfo)
+  const stalePriceWarning = useMemo(() => {
+    // A stale badge always carries a sibling-pool market price — the status override is gated on
+    // one in useEffectivePositionStatus — so the marketPrice check only narrows the type
+    if (!isPoolPriceStale || !marketPrice) {
+      return undefined
+    }
+
+    // Quote the market price in the same orientation as the headline price toggle
+    const displayMarketPrice = priceInverted ? marketPrice.invert() : marketPrice
+    return {
+      marketPrice: `1 ${displayMarketPrice.baseCurrency.symbol} = ${formatNumberOrString({
+        value: displayMarketPrice.toSignificant(6),
+        type: NumberType.TokenTx,
+      })} ${displayMarketPrice.quoteCurrency.symbol}`,
+    }
+  }, [isPoolPriceStale, marketPrice, priceInverted, formatNumberOrString])
+
+  const { maxPrice, minPrice, isFullRange } = useGetRangeDisplay({
     priceOrdering,
     tickSpacing: positionInfo?.tickSpacing,
     tickLower: positionInfo?.tickLower,
@@ -516,36 +433,34 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     priceInverted,
   )
 
-  const [selectedHistoryDuration, setSelectedHistoryDuration] = useState<GraphQLApi.HistoryDuration>(
-    GraphQLApi.HistoryDuration.Month,
-  )
+  const [selectedHistoryDuration, setSelectedHistoryDuration] = useState<HistoryDuration>(HistoryDuration.Month)
   const [timePeriodDropdownOpen, setTimePeriodDropdownOpen] = useState(false)
   const [mainViewDropdownOpen, setMainViewDropdownOpen] = useState(false)
   const timePeriodOptions = useMemo(() => {
-    const options: Array<SegmentedControlOption<GraphQLApi.HistoryDuration> & { verboseDisplay: JSX.Element }> = [
+    const options: Array<SegmentedControlOption<HistoryDuration> & { verboseDisplay: JSX.Element }> = [
       [
-        GraphQLApi.HistoryDuration.Day,
+        HistoryDuration.Day,
         t('token.priceExplorer.timeRangeLabel.day'),
         t('token.priceExplorer.timeRangeLabel.day.verbose'),
       ],
       [
-        GraphQLApi.HistoryDuration.Week,
+        HistoryDuration.Week,
         t('token.priceExplorer.timeRangeLabel.week'),
         t('token.priceExplorer.timeRangeLabel.week.verbose'),
       ],
       [
-        GraphQLApi.HistoryDuration.Month,
+        HistoryDuration.Month,
         t('token.priceExplorer.timeRangeLabel.month'),
         t('token.priceExplorer.timeRangeLabel.month.verbose'),
       ],
       [
-        GraphQLApi.HistoryDuration.Year,
+        HistoryDuration.Year,
         t('token.priceExplorer.timeRangeLabel.year'),
         t('token.priceExplorer.timeRangeLabel.year.verbose'),
       ],
-      [GraphQLApi.HistoryDuration.Max, t('token.priceExplorer.timeRangeLabel.all')],
+      [HistoryDuration.Max, t('token.priceExplorer.timeRangeLabel.all')],
     ].map((timePeriod) => ({
-      value: timePeriod[0] as GraphQLApi.HistoryDuration,
+      value: timePeriod[0] as HistoryDuration,
       display: <Text variant="buttonLabel3">{timePeriod[1]}</Text>,
       verboseDisplay: <Text variant="buttonLabel3">{timePeriod[2] ?? timePeriod[1]}</Text>,
     }))
@@ -555,33 +470,69 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     }
   }, [selectedHistoryDuration, t])
 
-  const [mainView, setMainView] = useState<'chart' | 'nft'>('chart')
+  const [mainView, setMainView] = useState<MainView>('candles')
+  const isDarkMode = useIsDarkMode()
+  const dexToolsChartUrl = positionInfo
+    ? getDexToolsChartUrl({
+        chainId: positionInfo.chainId,
+        version: positionInfo.version,
+        poolAddress: positionInfo.poolId,
+        darkMode: isDarkMode,
+      })
+    : undefined
+  // Candles are priced in the same direction as the headline price: the displayed base token, in the other token.
+  const candlesBaseToken = priceInverted ? currency1Amount?.currency : currency0Amount?.currency
+  const [candleIntervalLabel, setCandleIntervalLabel] = useState<CandleIntervalLabel>(DEFAULT_CANDLE_INTERVAL)
+  const candleInterval = getCandleInterval(candleIntervalLabel)
+  const candleIntervalOptions = useMemo(
+    () =>
+      CANDLE_INTERVALS.map(({ label }) => ({
+        value: label,
+        display: <Text variant="buttonLabel3">{label}</Text>,
+      })),
+    [],
+  )
+  const candlesUrl =
+    positionInfo?.version === ProtocolVersion.V3 && candlesBaseToken
+      ? getPoolCandlesUrl({
+          chainId: positionInfo.chainId,
+          poolAddress: positionInfo.poolId,
+          pricedTokenAddress: candlesBaseToken.wrapped.address,
+          interval: candleInterval,
+        })
+      : undefined
+  // The line chart is no longer offered, but still stands in where candles aren't available (V4, unsupported chains).
+  const shownView: MainView = mainView === 'candles' && !candlesUrl ? 'chart' : mainView
   const mainViewOptions = useMemo(() => {
-    return [
-      {
-        value: 'chart',
-        display: <Text variant="buttonLabel3">{t('common.chart')}</Text>,
-      },
-      {
-        value: 'nft',
-        display: <Text variant="buttonLabel3">{t('common.nft')}</Text>,
-      },
-    ] as const
-  }, [t])
+    const options: { value: MainView; display: JSX.Element }[] = []
+    if (candlesUrl) {
+      options.push({ value: 'candles', display: <Text variant="buttonLabel3">Candles</Text> })
+    }
+    if (dexToolsChartUrl) {
+      options.push({ value: 'dextools', display: <Text variant="buttonLabel3">DEXTools</Text> })
+    }
+    options.push({ value: 'nft', display: <Text variant="buttonLabel3">{t('common.nft')}</Text> })
+    return options
+  }, [t, dexToolsChartUrl, candlesUrl])
 
   const { fullWidth: screenWidth } = useDeviceDimensions()
+  const [contentRowWidth, setContentRowWidth] = useState<number | undefined>(undefined)
   const chartWidth = useMemo(() => {
     // The chart requires an exact numeric width to render correctly.
     // On mobile, we use the full width of the screen minus the padding.
     if (screenWidth && screenWidth < breakpoints.lg) {
       return screenWidth - 64
     }
+    // Side by side, the chart takes all of the row but the right column and a gap matching the page's section spacing.
+    if (contentRowWidth) {
+      return Math.floor(contentRowWidth - RIGHT_COLUMN_WIDTH - COLUMN_GAP)
+    }
     // On desktop, we use a max width of 620px and shrink the width as the screen gets smaller.
     if (screenWidth && screenWidth < breakpoints.xxl) {
       return Math.min((screenWidth - 32) / 2, 620)
     }
     return 620
-  }, [screenWidth])
+  }, [screenWidth, contentRowWidth])
 
   const onMigrate = useEvent(() => {
     navigate(`/migrate/v3/${chainInfo?.urlParam}/${tokenIdFromUrl}`)
@@ -589,7 +540,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
 
   if (positionLoading) {
     return (
-      <BodyWrapper>
+      <BodyWrapper className={COMPACT_TEXT_CLASS}>
         <LoadingRows>
           <LoadingRow />
           <LoadingRow />
@@ -607,7 +558,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     )
   }
 
-  if (!position || !positionInfo || !currency0Amount || !currency1Amount || !baseCurrency || !quoteCurrency) {
+  if (!positionInfo || !currency0Amount || !currency1Amount || !baseCurrency || !quoteCurrency) {
     return (
       <NotFound
         title={<Text variant="heading2">{t('position.notFound')}</Text>}
@@ -620,8 +571,8 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
         }
         actionButton={
           <Flex row centered>
-            <Button width="fit-content" variant="branded" onPress={() => navigate('/positions')}>
-              {t('common.backToPositions')}
+            <Button width="fit-content" variant="branded" onPress={() => navigate(breadcrumb.to)}>
+              {breadcrumb.label}
             </Button>
           </Flex>
         }
@@ -629,128 +580,144 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     )
   }
 
-  const token0Price = positionInfo.version !== ProtocolVersion.V2 ? positionInfo.poolOrPair?.token0Price : undefined
-  const token1Price = positionInfo.version !== ProtocolVersion.V2 ? positionInfo.poolOrPair?.token1Price : undefined
-
-  const token0IsStable = STABLECOIN_SYMBOLS.includes(currency0Amount.currency.symbol ?? '')
-  const token1IsStable = STABLECOIN_SYMBOLS.includes(currency1Amount.currency.symbol ?? '')
-
-  // Use API-derived fiat values when available, otherwise fall back to pool price
-  // if one side of the pair is a stablecoin (treating 1 stablecoin = 1 USD).
-  const fiatValue0 = (() => {
-    if (fiatValue0Raw) return fiatValue0Raw
-    if (token0IsStable) return currency0Amount
-    if (token1IsStable && token0Price) {
-      try { return token0Price.quote(currency0Amount) } catch { return null }
+  const candleRange = (() => {
+    const { priceLower, priceUpper } = priceOrdering
+    if (!priceLower) {
+      return undefined
     }
-    return null
+    const lower = Number(priceLower.toSignificant(12))
+    const upper = Number(priceUpper.toSignificant(12))
+    if (!(lower > 0) || !(upper > 0)) {
+      return undefined
+    }
+    return priceInverted ? { lower: 1 / upper, upper: 1 / lower } : { lower, upper }
   })()
 
-  const fiatValue1 = (() => {
-    if (fiatValue1Raw) return fiatValue1Raw
-    if (token1IsStable) return currency1Amount
-    if (token0IsStable && token1Price) {
-      try { return token1Price.quote(currency1Amount) } catch { return null }
-    }
-    return null
-  })()
+  // While the pool is out of sync, substitute the most liquid sibling pool's price when one exists
+  // (marketPrice); without a trustworthy substitute, keep the pool's own price and only warn
+  const token0Price =
+    positionInfo.version !== ProtocolVersion.V2 ? (marketPrice ?? positionInfo.poolOrPair?.token0Price) : undefined
+  const token1Price =
+    positionInfo.version !== ProtocolVersion.V2
+      ? (marketPrice?.invert() ?? positionInfo.poolOrPair?.token1Price)
+      : undefined
 
-  const fiatFeeValue0 = (() => {
-    if (fiatFeeValue0Raw) return fiatFeeValue0Raw
-    if (!fee0Amount) return null
-    if (token0IsStable) return fee0Amount
-    if (token1IsStable && token0Price) {
-      try { return token0Price.quote(fee0Amount) } catch { return null }
-    }
-    return null
-  })()
+  // Live spot price from the pool's active tick, oriented to match the chart's `priceInverted` display.
+  const currentSpotPrice = priceInverted ? token1Price : token0Price
+  const currentChartPrice = currentSpotPrice
+    ? Number(currentSpotPrice.toSignificant(SPOT_PRICE_SIGNIFICANT_DIGITS))
+    : undefined
+  // Range bounds relative to the displayed market price, in the same price direction.
+  const rangeDeltas =
+    candleRange && currentChartPrice
+      ? {
+          min: (candleRange.lower / currentChartPrice - 1) * 100,
+          max: (candleRange.upper / currentChartPrice - 1) * 100,
+        }
+      : undefined
+  // The pool's own live price (never the sibling-pool substitute), which drives the candlestick chart's current candle.
+  const livePoolPrice =
+    positionInfo.version !== ProtocolVersion.V2 && positionInfo.poolOrPair
+      ? Number(
+          (priceInverted ? positionInfo.poolOrPair.token1Price : positionInfo.poolOrPair.token0Price).toSignificant(
+            SPOT_PRICE_SIGNIFICANT_DIGITS,
+          ),
+        )
+      : undefined
 
-  const fiatFeeValue1 = (() => {
-    if (fiatFeeValue1Raw) return fiatFeeValue1Raw
-    if (!fee1Amount) return null
-    if (token1IsStable) return fee1Amount
-    if (token0IsStable && token1Price) {
-      try { return token1Price.quote(fee1Amount) } catch { return null }
-    }
-    return null
-  })()
+  const stablePricing = {
+    token0Price,
+    token1Price,
+    currency0: currency0Amount.currency,
+    currency1: currency1Amount.currency,
+  }
+  const [fiatValue0, fiatValue1] = withStablecoinFallback({
+    ...stablePricing,
+    amount0: currency0Amount,
+    amount1: currency1Amount,
+    fiat0: fiatValue0Raw,
+    fiat1: fiatValue1Raw,
+  })
+  const [fiatFeeValue0, fiatFeeValue1] = withStablecoinFallback({
+    ...stablePricing,
+    amount0: fee0Amount,
+    amount1: fee1Amount,
+    fiat0: fiatFeeValue0Raw,
+    fiat1: fiatFeeValue1Raw,
+  })
+  const [depositedFiatValue0, depositedFiatValue1] = withStablecoinFallback({
+    ...stablePricing,
+    amount0: depositedCurrency0Amount,
+    amount1: depositedCurrency1Amount,
+    fiat0: depositedFiat0,
+    fiat1: depositedFiat1,
+  })
+  const [collectedFiatValue0, collectedFiatValue1] = withStablecoinFallback({
+    ...stablePricing,
+    amount0: collectedCurrency0Amount,
+    amount1: collectedCurrency1Amount,
+    fiat0: collectedFiat0,
+    fiat1: collectedFiat1,
+  })
 
-  const depositedFiatValue0 = (() => {
-    if (depositedFiat0) return depositedFiat0
-    if (!depositedCurrency0Amount) return null
-    if (token0IsStable) return depositedCurrency0Amount
-    if (token1IsStable && token0Price) {
-      try { return token0Price.quote(depositedCurrency0Amount) } catch { return null }
-    }
-    return null
-  })()
-
-  const depositedFiatValue1 = (() => {
-    if (depositedFiat1) return depositedFiat1
-    if (!depositedCurrency1Amount) return null
-    if (token1IsStable) return depositedCurrency1Amount
-    if (token0IsStable && token1Price) {
-      try { return token1Price.quote(depositedCurrency1Amount) } catch { return null }
-    }
-    return null
-  })()
-
-  const collectedFiatValue0 = (() => {
-    if (collectedFiat0) return collectedFiat0
-    if (!collectedCurrency0Amount) return null
-    if (token0IsStable) return collectedCurrency0Amount
-    if (token1IsStable && token0Price) {
-      try { return token0Price.quote(collectedCurrency0Amount) } catch { return null }
-    }
-    return null
-  })()
-
-  const collectedFiatValue1 = (() => {
-    if (collectedFiat1) return collectedFiat1
-    if (!collectedCurrency1Amount) return null
-    if (token1IsStable) return collectedCurrency1Amount
-    if (token0IsStable && token1Price) {
-      try { return token1Price.quote(collectedCurrency1Amount) } catch { return null }
-    }
-    return null
-  })()
+  const collectedFeesUsd = sumIfDefined(
+    collectedFeesShareUsd({
+      collectedUsd: usdOrZero(collectedFiatValue0, totalCollected0),
+      collectedRaw: totalCollected0,
+      withdrawnRaw: totalWithdrawn0,
+    }),
+    collectedFeesShareUsd({
+      collectedUsd: usdOrZero(collectedFiatValue1, totalCollected1),
+      collectedRaw: totalCollected1,
+      withdrawnRaw: totalWithdrawn1,
+    }),
+  )
 
   const { profitLoss, realizedApr, feesApr } = (() => {
+    const deposited0 = usdOrZero(depositedFiatValue0, totalDeposited0)
+    const deposited1 = usdOrZero(depositedFiatValue1, totalDeposited1)
+    const collected0 = usdOrZero(collectedFiatValue0, totalCollected0)
+    const collected1 = usdOrZero(collectedFiatValue1, totalCollected1)
+    const value0 = toUsdValue(fiatValue0)
+    const value1 = toUsdValue(fiatValue1)
+    const feeValue0 = usdOrZero(fiatFeeValue0, fee0Amount ? BigInt(fee0Amount.quotient.toString()) : undefined)
+    const feeValue1 = usdOrZero(fiatFeeValue1, fee1Amount ? BigInt(fee1Amount.quotient.toString()) : undefined)
+
     if (
       !mintTimestamp ||
-      !fiatValue0 ||
-      !fiatValue1 ||
-      !fiatFeeValue0 ||
-      !fiatFeeValue1 ||
-      !depositedFiatValue0 ||
-      !depositedFiatValue1 ||
-      !collectedFiatValue0 ||
-      !collectedFiatValue1
+      value0 === undefined ||
+      value1 === undefined ||
+      feeValue0 === undefined ||
+      feeValue1 === undefined ||
+      deposited0 === undefined ||
+      deposited1 === undefined ||
+      collected0 === undefined ||
+      collected1 === undefined
     ) {
       return { profitLoss: undefined, realizedApr: undefined, feesApr: undefined }
     }
 
-    const currentValueUsd =
-      parseFloat(fiatValue0.toExact()) + parseFloat(fiatValue1.toExact()) +
-      parseFloat(fiatFeeValue0.toExact()) + parseFloat(fiatFeeValue1.toExact())
-    const totalDepositedUsd = parseFloat(depositedFiatValue0.toExact()) + parseFloat(depositedFiatValue1.toExact())
-    const totalCollectedUsd = parseFloat(collectedFiatValue0.toExact()) + parseFloat(collectedFiatValue1.toExact())
-    const uncollectedFeesUsd = parseFloat(fiatFeeValue0.toExact()) + parseFloat(fiatFeeValue1.toExact())
+    const uncollectedFeesUsd = feeValue0 + feeValue1
+    const currentValueUsd = value0 + value1 + uncollectedFeesUsd
+    const totalDepositedUsd = deposited0 + deposited1
+    const totalCollectedUsd = collected0 + collected1
 
     const pl = currentValueUsd + totalCollectedUsd - totalDepositedUsd
 
     const ageSeconds = Date.now() / 1000 - mintTimestamp
-    if (totalDepositedUsd === 0 || ageSeconds < 86400) {
+    if (totalDepositedUsd === 0 || ageSeconds <= 0) {
       return { profitLoss: pl, realizedApr: undefined, feesApr: undefined }
     }
 
     const annualizer = (365 * 24 * 3600) / ageSeconds
     const totalReturn = (currentValueUsd + totalCollectedUsd - totalDepositedUsd) / totalDepositedUsd
-    const feesReturn = (totalCollectedUsd + uncollectedFeesUsd) / totalDepositedUsd
     return {
       profitLoss: pl,
       realizedApr: totalReturn * annualizer * 100,
-      feesApr: feesReturn * annualizer * 100,
+      feesApr:
+        collectedFeesUsd === undefined
+          ? undefined
+          : ((collectedFeesUsd + uncollectedFeesUsd) / totalDepositedUsd) * annualizer * 100,
     }
   })()
 
@@ -758,6 +725,8 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     addressInput1: { address: positionInfo.owner, chainId: positionInfo.chainId },
     addressInput2: { address: account.address, chainId: supportedAccountChainId ?? positionInfo.chainId },
   })
+
+  const rewards = positionInfo.rewards ?? EMPTY_REWARDS
 
   return (
     <Trace
@@ -775,55 +744,85 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
       <Helmet>
         <title>
           {t(`liquidityPool.positions.page.title`, {
-            quoteSymbol: currency1Amount.currency.symbol,
-            baseSymbol: currency0Amount.currency.symbol,
+            quoteSymbol: currency1Amount.currency.symbol ?? t('common.token'),
+            baseSymbol: currency0Amount.currency.symbol ?? t('common.token'),
           })}
         </title>
+        {metatags.map((tag, index) => (
+          <meta key={index} {...tag} />
+        ))}
       </Helmet>
-      <BodyWrapper mb={100}>
+      <BodyWrapper mb={100} className={COMPACT_TEXT_CLASS}>
         <Flex gap="$gap20">
           <BreadcrumbNavContainer aria-label="breadcrumb-nav">
-            <BreadcrumbNavLink style={{ gap: '8px' }} to="/positions">
-              <ArrowLeft size={14} /> <Trans i18nKey="pool.positions.title" />
+            <BreadcrumbNavLink style={{ gap: '8px' }} to={breadcrumb.to}>
+              <ArrowLeft size="$icon.16" /> {breadcrumb.label}
             </BreadcrumbNavLink>
           </BreadcrumbNavContainer>
+          {positionInfo.chainId === UniverseChainId.Blast && <BlastShutdownBanner />}
           <Flex
             row
-            $lg={{ row: false, alignItems: 'flex-start', gap: '$gap16' }}
+            // The actions collapse into a compact '…' below $lg, so the header keeps its single-row
+            // layout (position info left, actions right) like the pool detail page.
+            $lg={{ alignItems: 'flex-start', gap: '$gap16' }}
             justifyContent="space-between"
             alignItems="center"
             borderBottomWidth={1}
             borderColor="$surface3"
             pb="$padding16"
           >
-            <LiquidityPositionInfo
-              positionInfo={positionInfo}
-              linkToPool
-              includeNetwork
-              includeLpIncentives={isLpIncentivesEnabled}
-            />
+            <Flex flex={1} minWidth={0}>
+              <LiquidityPositionInfo
+                positionInfo={positionInfo}
+                linkToPool
+                includeNetwork
+                stackedLogo
+                stalePriceWarning={stalePriceWarning}
+                titleAccessory={
+                  <Flex row gap="$gap8" alignItems="center">
+                    <TouchableArea onPress={togglePriceInverted}>
+                      <ExchangeHorizontal size="$icon.16" />
+                    </TouchableArea>
+                    <PositionExternalLinks position={positionInfo} />
+                    {isPoolOutOfSync && (
+                      <MouseoverTooltip
+                        text={
+                          marketPrice
+                            ? t('position.currentPrice.poolOutOfSync.tooltip')
+                            : t('position.currentPrice.poolOutOfSync.tooltip.noMarketPrice')
+                        }
+                        placement="top"
+                      >
+                        <AlertTriangleFilled color="$statusWarning" size="$icon.16" />
+                      </MouseoverTooltip>
+                    )}
+                  </Flex>
+                }
+              />
+            </Flex>
             <PositionPageActionButtons isOwner={isOwner} positionInfo={positionInfo} onMigrate={onMigrate} />
           </Flex>
         </Flex>
-        <Flex row justifyContent="space-between" pt="$padding20" $lg={{ row: false, gap: '$gap24' }}>
+        <Flex
+          row
+          justifyContent="space-between"
+          $lg={{ row: false, gap: '$gap24' }}
+          onLayout={(event) => setContentRowWidth(event.nativeEvent.layout.width)}
+        >
           <Flex gap="$gap12" width={chartWidth}>
-            <Flex row gap="$gap8" alignItems="center">
-              <BaseQuoteFiatAmount
-                price={priceInverted ? token1Price : token0Price}
-                base={priceInverted ? currency1Amount.currency : currency0Amount.currency}
-                quote={priceInverted ? currency0Amount.currency : currency1Amount.currency}
-                variant="heading3"
-              />
-              <TouchableArea
-                onPress={() => {
-                  setPriceInverted((prev) => !prev)
-                }}
-              >
-                <ExchangeHorizontal size="$icon.16" />
-              </TouchableArea>
-            </Flex>
+            <PriceRangeSection
+              maxPrice={maxPrice}
+              minPrice={minPrice}
+              minPriceDelta={rangeDeltas?.min}
+              maxPriceDelta={rangeDeltas?.max}
+              minTick={priceInverted ? positionInfo.tickUpper : positionInfo.tickLower}
+              maxTick={priceInverted ? positionInfo.tickLower : positionInfo.tickUpper}
+              isFullRange={isFullRange}
+              token0CurrentPrice={token0Price}
+              token1CurrentPrice={token1Price}
+              priceInverted={priceInverted}
+            />
             <Flex
-              animation="fast"
               height="auto"
               width="100%"
               $lg={{ width: '100%' }}
@@ -831,7 +830,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
               borderColor="$surface3"
               pb="$padding12"
             >
-              {mainView === 'chart' ? (
+              {shownView === 'chart' ? (
                 <WrappedLiquidityPositionRangeChart
                   version={positionInfo.version}
                   quoteCurrency={quoteCurrency}
@@ -861,7 +860,22 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                   showLiquidityBars
                   showChartBorder
                   crosshairEnabled={false}
+                  currentPrice={currentChartPrice}
                 />
+              ) : shownView === 'candles' && candlesUrl ? (
+                <PositionCandlestickChart
+                  candlesUrl={candlesUrl}
+                  candleSeconds={candleInterval.seconds}
+                  width={chartWidth}
+                  height={440}
+                  startTime={mintTimestamp ?? positionInfo.createdAt}
+                  priceLower={candleRange?.lower}
+                  priceUpper={candleRange?.upper}
+                  inRange={positionInfo.status === PositionStatus.IN_RANGE}
+                  livePrice={livePoolPrice}
+                />
+              ) : shownView === 'dextools' && dexToolsChartUrl ? (
+                <DexToolsChart url={dexToolsChartUrl} width={chartWidth} height={440} />
               ) : (
                 <Flex
                   width="100%"
@@ -894,11 +908,11 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                       pl="$padding12"
                       borderColor="$surface3"
                       borderWidth="$spacing1"
-                      gap="$gap6"
+                      gap="$spacing6"
                       {...ClickableTamaguiStyle}
                     >
                       {mainViewOptions.find((p) => p.value === mainView)?.display}
-                      <RotatableChevron direction="down" height={16} width={16} color="$neutral2" />
+                      <RotatableChevron direction="down" size="$icon.16" color="$neutral2" />
                     </Flex>
                   }
                   buttonStyle={{
@@ -935,12 +949,21 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                 <SegmentedControl
                   options={mainViewOptions}
                   selectedOption={mainView}
-                  onSelectOption={(option: 'chart' | 'nft') => {
+                  onSelectOption={(option: MainView) => {
                     setMainView(option)
                   }}
                 />
               )}
-              {mainView === 'chart' &&
+              {shownView === 'candles' && (
+                <SegmentedControl
+                  options={candleIntervalOptions}
+                  selectedOption={candleIntervalLabel}
+                  onSelectOption={(option: CandleIntervalLabel) => {
+                    setCandleIntervalLabel(option)
+                  }}
+                />
+              )}
+              {shownView === 'chart' &&
                 (isMobileWeb ? (
                   <Dropdown
                     containerStyle={{ width: 'auto' }}
@@ -954,11 +977,11 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                         pl="$padding12"
                         borderColor="$surface3"
                         borderWidth="$spacing1"
-                        gap="$gap6"
+                        gap="$spacing6"
                         {...ClickableTamaguiStyle}
                       >
                         {timePeriodOptions.options.find((p) => p.value === timePeriodOptions.selected)?.display}
-                        <RotatableChevron direction="down" height={16} width={16} color="$neutral2" />
+                        <RotatableChevron direction="down" size="$icon.16" color="$neutral2" />
                       </Flex>
                     }
                     buttonStyle={{
@@ -996,25 +1019,14 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                   <SegmentedControl
                     options={timePeriodOptions.options}
                     selectedOption={timePeriodOptions.selected}
-                    onSelectOption={(option: GraphQLApi.HistoryDuration) => {
+                    onSelectOption={(option: HistoryDuration) => {
                       setSelectedHistoryDuration(option)
                     }}
                   />
                 ))}
             </Flex>
             <Flex mt="$spacing24" gap="$spacing16">
-              <PriceRangeSection
-                maxPrice={maxPrice}
-                minPrice={minPrice}
-                tokenASymbol={tokenASymbol}
-                tokenBSymbol={tokenBSymbol}
-                isFullRange={isFullRange}
-                token0CurrentPrice={token0Price}
-                token1CurrentPrice={token1Price}
-                priceInverted={priceInverted}
-                setPriceInverted={setPriceInverted}
-              />
-              {positionEvents.length > 0 && currency0Amount && currency1Amount && chainId && (
+              {positionEvents.length > 0 && chainId && (
                 <Flex gap="$spacing12" mt="$spacing12">
                   <Text variant="body2" color="$neutral2" fontWeight="600">
                     Position history
@@ -1077,12 +1089,12 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                           break
                       }
 
-                      const hasAmounts = !ev.amount0.isZero() || !ev.amount1.isZero()
+                      const hasAmounts = ev.amount0 !== 0n || ev.amount1 !== 0n
                       const amountParts: string[] = []
-                      if (!ev.amount0.isZero()) {
+                      if (ev.amount0 !== 0n) {
                         amountParts.push(`${amt0} ${sym0}`)
                       }
-                      if (!ev.amount1.isZero()) {
+                      if (ev.amount1 !== 0n) {
                         amountParts.push(`${amt1} ${sym1}`)
                       }
 
@@ -1091,7 +1103,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                           <Text variant="body3" style={{ minWidth: 22 }}>
                             {emoji}
                           </Text>
-                          <Text variant="body3" color="$neutral3" style={{ lineHeight: 22 }}>
+                          <Text variant="body3" color="$neutral3" style={{ lineHeight: '22px' }}>
                             <Text variant="body3" color="$neutral2" fontWeight="500">
                               {label}
                             </Text>
@@ -1121,7 +1133,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
           </Flex>
           <Flex gap="$spacing20">
             <TotalValueSection
-              position={position}
+              status={positionInfo.status}
               currency0Amount={currency0Amount}
               currency1Amount={currency1Amount}
               fee0Amount={fee0Amount}
@@ -1135,7 +1147,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
               feesApr={feesApr}
             />
             <PositionSection
-              position={position}
+              status={positionInfo.status}
               currency0Amount={currency0Amount}
               currency1Amount={currency1Amount}
               fiatValue0={fiatValue0}
@@ -1143,54 +1155,99 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
             />
             <EarningsSection
               positionInfo={positionInfo}
+              collectedFeesUsd={collectedFeesUsd}
               currency0Amount={currency0Amount}
               currency1Amount={currency1Amount}
-              fiatValue0={fiatValue0}
-              fiatValue1={fiatValue1}
               fiatFeeValue0={fiatFeeValue0}
               fiatFeeValue1={fiatFeeValue1}
               fee0Amount={fee0Amount}
               fee1Amount={fee1Amount}
             />
-            {isLpIncentivesEnabled &&
-              positionInfo.version === ProtocolVersion.V4 &&
-              Boolean(positionInfo.boostedApr) && (
-                <APRSection
-                  poolApr={positionInfo.apr}
-                  lpIncentiveRewardApr={positionInfo.boostedApr}
-                  totalApr={positionInfo.totalApr}
-                />
-              )}
-            <Flex row justifyContent="space-between">
-              <Text variant="body3" color="$neutral3">
-                {t('reporting.pool.details.title')}
-              </Text>
-              <TouchableArea row gap="$gap4" alignItems="center" onPress={reportPositionHandler}>
-                <Flag size="$icon.16" color="$statusCritical" />
-                <Text variant="body3" color="$statusCritical">
-                  {t('nft.reportSpam')}
+            {rewards.length > 0 && (
+              <APRSection
+                poolApr={positionInfo.apr}
+                totalApr={positionInfo.totalApr}
+                apr1d={positionInfo.apr1d}
+                apr7d={positionInfo.apr7d}
+                apr30d={positionInfo.apr30d}
+                rewards={rewards}
+              />
+            )}
+            {!positionInfo.isHidden && (
+              <Flex row justifyContent="space-between">
+                <Text variant="body3" color="$neutral3">
+                  {t('reporting.pool.details.title')}
                 </Text>
-              </TouchableArea>
-            </Flex>
+                <TouchableArea row gap="$gap4" alignItems="center" onPress={reportPositionHandler}>
+                  <Flag size="$icon.16" color="$statusCritical" />
+                  <Text variant="body3" color="$statusCritical">
+                    {t('nft.reportSpam')}
+                  </Text>
+                </TouchableArea>
+              </Flex>
+            )}
           </Flex>
         </Flex>
+        <RefreshStatusBar poolUpdatedAt={poolUpdatedAt} poolError={poolError} positionUpdatedAt={positionUpdatedAt} />
       </BodyWrapper>
     </Trace>
   )
 }
 
-const SectionContainer = ({ children }: { children: React.ReactNode }) => {
+function formatRefreshTime(updatedAt: number | undefined, now: number): string {
+  if (!updatedAt) {
+    return 'never'
+  }
+  const secondsAgo = Math.max(0, Math.round((now - updatedAt) / 1000))
+  return `${new Date(updatedAt).toLocaleTimeString()} (${secondsAgo}s ago)`
+}
+
+const RefreshStatusBar = ({
+  poolUpdatedAt,
+  poolError,
+  positionUpdatedAt,
+}: {
+  poolUpdatedAt?: number
+  poolError?: string
+  positionUpdatedAt?: number
+}) => {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <Flex row gap="$gap16" flexWrap="wrap" testID="position-refresh-status">
+      <Text variant="body3" color="$neutral2">
+        Pool price (on-chain): {formatRefreshTime(poolUpdatedAt, now)}
+      </Text>
+      <Text variant="body3" color="$neutral2">
+        Position data (backend): {formatRefreshTime(positionUpdatedAt, now)}
+      </Text>
+      {poolError && (
+        <Text variant="body3" color="$statusCritical">
+          Pool read: {poolError}
+        </Text>
+      )}
+    </Flex>
+  )
+}
+
+const SectionContainer = ({ children, testID }: { children: React.ReactNode; testID?: string }) => {
   return (
     <Flex
       p="$spacing20"
       backgroundColor="$surface2"
-      width={380}
+      width={RIGHT_COLUMN_WIDTH}
       $lg={{ width: '100%' }}
       borderRadius="$rounded16"
       gap="$spacing24"
       $platform-web={{
         height: 'min-content',
       }}
+      testID={testID}
     >
       {children}
     </Flex>
@@ -1198,7 +1255,7 @@ const SectionContainer = ({ children }: { children: React.ReactNode }) => {
 }
 
 const TotalValueSection = ({
-  position,
+  status,
   currency0Amount,
   currency1Amount,
   fee0Amount,
@@ -1211,7 +1268,7 @@ const TotalValueSection = ({
   realizedApr,
   feesApr,
 }: {
-  position: Position
+  status?: PositionStatus
   currency0Amount: CurrencyAmount<Currency>
   currency1Amount: CurrencyAmount<Currency>
   fee0Amount?: CurrencyAmount<Currency>
@@ -1226,32 +1283,25 @@ const TotalValueSection = ({
 }) => {
   const { convertFiatAmountFormatted, formatPercent, formatCurrencyAmount } = useLocalizationContext()
   const { t } = useTranslation()
-  const colors = useSporeColors()
   const currencyInfo0 = useCurrencyInfo(currency0Amount.currency)
   const currencyInfo1 = useCurrencyInfo(currency1Amount.currency)
-  const token0Color = useSrcColor({
-    src: currencyInfo0?.logoUrl ?? undefined,
-    currencyName: currencyInfo0?.currency.name,
-    backgroundColor: colors.surface2.val,
-  }).tokenColor
-  const token1Color = useSrcColor({
-    src: currencyInfo1?.logoUrl ?? undefined,
-    currencyName: currencyInfo1?.currency.name,
-    backgroundColor: colors.surface2.val,
-  }).tokenColor
 
   const totalFiat0 = useMemo(() => {
     if (!fiatValue0) {
       return undefined
     }
-    return fiatFeeValue0 ? parseFloat(fiatValue0.toExact()) + parseFloat(fiatFeeValue0.toExact()) : parseFloat(fiatValue0.toExact())
+    return fiatFeeValue0
+      ? parseFloat(fiatValue0.toExact()) + parseFloat(fiatFeeValue0.toExact())
+      : parseFloat(fiatValue0.toExact())
   }, [fiatValue0, fiatFeeValue0])
 
   const totalFiat1 = useMemo(() => {
     if (!fiatValue1) {
       return undefined
     }
-    return fiatFeeValue1 ? parseFloat(fiatValue1.toExact()) + parseFloat(fiatFeeValue1.toExact()) : parseFloat(fiatValue1.toExact())
+    return fiatFeeValue1
+      ? parseFloat(fiatValue1.toExact()) + parseFloat(fiatFeeValue1.toExact())
+      : parseFloat(fiatValue1.toExact())
   }, [fiatValue1, fiatFeeValue1])
 
   const totalValueExact = useMemo(() => {
@@ -1262,7 +1312,10 @@ const TotalValueSection = ({
   }, [totalFiat0, totalFiat1])
 
   const formattedTotalValue = useMemo(
-    () => (totalValueExact !== undefined ? convertFiatAmountFormatted(totalValueExact, NumberType.FiatTokenPrice) : undefined),
+    () =>
+      totalValueExact !== undefined
+        ? convertFiatAmountFormatted(totalValueExact, NumberType.FiatTokenPrice)
+        : undefined,
     [totalValueExact, convertFiatAmountFormatted],
   )
   const totalValueFlashColor = useFlashColor(formattedTotalValue)
@@ -1300,8 +1353,6 @@ const TotalValueSection = ({
       totalFiat1 === undefined ||
       totalValueExact === undefined ||
       totalValueExact === 0 ||
-      !token0Color ||
-      !token1Color ||
       !currencyInfo0 ||
       !currencyInfo1
     ) {
@@ -1312,19 +1363,11 @@ const TotalValueSection = ({
     const bips1 = 10000 - bips0
 
     return [
-      { value: new Percent(bips0, 10000), color: token0Color, currencyInfo: currencyInfo0 },
-      { value: new Percent(bips1, 10000), color: token1Color, currencyInfo: currencyInfo1 },
+      { id: currencyInfo0.currencyId, value: new Percent(bips0, 10000), currencyInfo: currencyInfo0 },
+      { id: currencyInfo1.currencyId, value: new Percent(bips1, 10000), currencyInfo: currencyInfo1 },
     ]
-  }, [totalFiat0, totalFiat1, totalValueExact, token0Color, token1Color, currencyInfo0, currencyInfo1])
+  }, [totalFiat0, totalFiat1, totalValueExact, currencyInfo0, currencyInfo1])
 
-  const totalRowFiat0 = useMemo(
-    () => (fiatValue0 && fiatFeeValue0 ? fiatValue0.add(fiatFeeValue0) : fiatValue0),
-    [fiatValue0, fiatFeeValue0],
-  )
-  const totalRowFiat1 = useMemo(
-    () => (fiatValue1 && fiatFeeValue1 ? fiatValue1.add(fiatFeeValue1) : fiatValue1),
-    [fiatValue1, fiatFeeValue1],
-  )
   const formattedTotalRow0 = useMemo(
     () => formatCurrencyAmount({ value: totalAmount0, type: NumberType.TokenNonTx }),
     [totalAmount0, formatCurrencyAmount],
@@ -1345,17 +1388,26 @@ const TotalValueSection = ({
       {
         currencyInfo: currencyInfo0,
         currencyAmount: totalAmount0,
-        fiatValue: totalRowFiat0,
+        usdValue: totalFiat0,
         flashColor: totalRow0FlashColor,
       },
       {
         currencyInfo: currencyInfo1,
         currencyAmount: totalAmount1,
-        fiatValue: totalRowFiat1,
+        usdValue: totalFiat1,
         flashColor: totalRow1FlashColor,
       },
     ]
-  }, [currencyInfo0, currencyInfo1, totalAmount0, totalAmount1, totalRowFiat0, totalRowFiat1, totalRow0FlashColor, totalRow1FlashColor, totalFiat0, totalFiat1])
+  }, [
+    currencyInfo0,
+    currencyInfo1,
+    totalAmount0,
+    totalAmount1,
+    totalRow0FlashColor,
+    totalRow1FlashColor,
+    totalFiat0,
+    totalFiat1,
+  ])
 
   return (
     <SectionContainer>
@@ -1363,7 +1415,7 @@ const TotalValueSection = ({
         <Text color="$neutral2" variant="body2">
           {t('common.totalValue')}
         </Text>
-        {position.status === PositionStatus.CLOSED ? (
+        {status === PositionStatus.CLOSED ? (
           <Text variant="heading2" $lg={{ variant: 'heading3' }}>
             {convertFiatAmountFormatted(0, NumberType.FiatTokenPrice)}
           </Text>
@@ -1389,7 +1441,8 @@ const TotalValueSection = ({
                   P/L
                 </Text>
                 <Text variant="body2" color={plFlashColor ?? '$neutral1'}>
-                  {profitLoss !== undefined && profitLoss >= 0 ? '+' : ''}{formattedPL}
+                  {profitLoss !== undefined && profitLoss >= 0 ? '+' : ''}
+                  {formattedPL}
                 </Text>
               </Flex>
             )}
@@ -1427,13 +1480,13 @@ const TotalValueSection = ({
 }
 
 const PositionSection = ({
-  position,
+  status,
   currency0Amount,
   currency1Amount,
   fiatValue0,
   fiatValue1,
 }: {
-  position: Position
+  status?: PositionStatus
   currency0Amount: CurrencyAmount<Currency>
   currency1Amount: CurrencyAmount<Currency>
   fiatValue0: Maybe<CurrencyAmount<Currency>>
@@ -1441,45 +1494,33 @@ const PositionSection = ({
 }) => {
   const { convertFiatAmountFormatted, formatCurrencyAmount: formatCurrencyAmountPos } = useLocalizationContext()
   const { t } = useTranslation()
-  const colors = useSporeColors()
   const currencyInfo0 = useCurrencyInfo(currency0Amount.currency)
   const currencyInfo1 = useCurrencyInfo(currency1Amount.currency)
-  const token0Color = useSrcColor({
-    src: currencyInfo0?.logoUrl ?? undefined,
-    currencyName: currencyInfo0?.currency.name,
-    backgroundColor: colors.surface2.val,
-  }).tokenColor
-  const token1Color = useSrcColor({
-    src: currencyInfo1?.logoUrl ?? undefined,
-    currencyName: currencyInfo1?.currency.name,
-    backgroundColor: colors.surface2.val,
-  }).tokenColor
   const totalFiatValue = fiatValue0?.add(fiatValue1 ?? CurrencyAmount.fromRawAmount(fiatValue0.currency, 0))
   const formattedTotal = useMemo(
-    () => (fiatValue0 && fiatValue1 ? convertFiatAmountFormatted(fiatValue0.add(fiatValue1).toExact(), NumberType.FiatTokenPrice) : undefined),
+    () =>
+      fiatValue0 && fiatValue1
+        ? convertFiatAmountFormatted(fiatValue0.add(fiatValue1).toExact(), NumberType.FiatTokenPrice)
+        : undefined,
     [fiatValue0, fiatValue1, convertFiatAmountFormatted],
   )
   const positionFlashColor = useFlashColor(formattedTotal)
   const bars = useMemo(() => {
     const percent0 =
-      totalFiatValue?.greaterThan(0) && fiatValue0
-        ? new Percent(fiatValue0.quotient, totalFiatValue.quotient)
-        : undefined
+      totalFiatValue?.greaterThan(0) && fiatValue0 ? getExactSharePercent(fiatValue0, totalFiatValue) : undefined
 
     const percent1 =
-      totalFiatValue?.greaterThan(0) && fiatValue1
-        ? new Percent(fiatValue1.quotient, totalFiatValue.quotient)
-        : undefined
+      totalFiatValue?.greaterThan(0) && fiatValue1 ? getExactSharePercent(fiatValue1, totalFiatValue) : undefined
 
-    if (!percent0 || !percent1 || !token0Color || !token1Color || !currencyInfo0 || !currencyInfo1) {
+    if (!percent0 || !percent1 || !currencyInfo0 || !currencyInfo1) {
       return []
     }
 
     return [
-      { value: percent0, color: token0Color, currencyInfo: currencyInfo0 },
-      { value: percent1, color: token1Color, currencyInfo: currencyInfo1 },
+      { id: currencyInfo0.currencyId, value: percent0, currencyInfo: currencyInfo0 },
+      { id: currencyInfo1.currencyId, value: percent1, currencyInfo: currencyInfo1 },
     ]
-  }, [currencyInfo0, currencyInfo1, fiatValue0, fiatValue1, token0Color, token1Color, totalFiatValue])
+  }, [currencyInfo0, currencyInfo1, fiatValue0, fiatValue1, totalFiatValue])
 
   const formattedPosRow0 = useMemo(
     () => formatCurrencyAmountPos({ value: currency0Amount, type: NumberType.TokenNonTx }),
@@ -1501,25 +1542,34 @@ const PositionSection = ({
       {
         currencyInfo: currencyInfo0,
         currencyAmount: currency0Amount,
-        fiatValue: fiatValue0,
+        usdValue: toUsdValue(fiatValue0),
         flashColor: posRow0FlashColor,
       },
       {
         currencyInfo: currencyInfo1,
         currencyAmount: currency1Amount,
-        fiatValue: fiatValue1,
+        usdValue: toUsdValue(fiatValue1),
         flashColor: posRow1FlashColor,
       },
     ]
-  }, [currencyInfo0, currencyInfo1, currency0Amount, currency1Amount, fiatValue0, fiatValue1, posRow0FlashColor, posRow1FlashColor])
+  }, [
+    currencyInfo0,
+    currencyInfo1,
+    currency0Amount,
+    currency1Amount,
+    fiatValue0,
+    fiatValue1,
+    posRow0FlashColor,
+    posRow1FlashColor,
+  ])
 
   return (
     <SectionContainer>
       <Flex gap="$gap8">
         <Text color="$neutral2" variant="body2">
-          <Trans i18nKey="pool.position" />
+          {t('pool.position')}
         </Text>
-        {position.status === PositionStatus.CLOSED ? (
+        {status === PositionStatus.CLOSED ? (
           <Text variant="heading2" $lg={{ variant: 'heading3' }}>
             {convertFiatAmountFormatted(0, NumberType.FiatTokenPrice)}
           </Text>
@@ -1554,21 +1604,26 @@ const PositionSection = ({
 
 const APRSection = ({
   poolApr,
-  lpIncentiveRewardApr,
   totalApr,
+  apr1d,
+  apr7d,
+  apr30d,
+  rewards,
 }: {
   poolApr?: number
-  lpIncentiveRewardApr?: number
   totalApr?: number
+  apr1d?: number
+  apr7d?: number
+  apr30d?: number
+  /** The pool's live LP-incentive campaigns, one entry per reward token. */
+  rewards: PositionRewardApr[]
 }) => {
-  const { address, chainId, symbol } = LP_INCENTIVES_REWARD_TOKEN
-  const currencyInfo = useCurrencyInfo(address, chainId)
   const { t } = useTranslation()
   const { formatPercent } = useLocalizationContext()
+  const hasTimeframeAprs = apr1d !== undefined || apr7d !== undefined || apr30d !== undefined
 
   // Format APR values
   const displayPoolApr = poolApr ? formatPercent(poolApr) : '-'
-  const displayRewardApr = lpIncentiveRewardApr ? formatPercent(lpIncentiveRewardApr) : '-'
   const displayTotalApr = totalApr ? formatPercent(totalApr) : '-'
 
   return (
@@ -1581,31 +1636,104 @@ const APRSection = ({
           {displayTotalApr}
         </Text>
         <Flex row justifyContent="space-between">
-          <Text color="$neutral2" variant="body3">
-            {t('pool.aprText')}
-          </Text>
+          <MouseoverTooltip
+            disabled={!hasTimeframeAprs}
+            padding={0}
+            text={
+              <PoolAprTooltip
+                currency0Info={undefined}
+                currency1Info={undefined}
+                apr1d={apr1d}
+                apr7d={apr7d}
+                apr30d={apr30d}
+              />
+            }
+            size={TooltipSize.Small}
+            placement="top"
+          >
+            <Flex row gap="$gap4" alignItems="center">
+              <Text color="$neutral2" variant="body3">
+                {t('pool.apr.24h')}
+              </Text>
+              {hasTimeframeAprs && <InfoCircleFilled color="$neutral2" size="$icon.12" />}
+            </Flex>
+          </MouseoverTooltip>
           <Text color="$neutral1" variant="body3">
             {displayPoolApr}
           </Text>
         </Flex>
-        <Flex row justifyContent="space-between">
-          <Text color="$neutral2" variant="body3">
-            {t('pool.rewardAPR')}
-          </Text>
-          <Flex row gap="$spacing6" alignItems="center">
-            <CurrencyLogo currencyInfo={currencyInfo} size={16} />
-            <Text color="$accent1" variant="body3">
-              {displayRewardApr} {symbol}
+        {/* One row per reward token: the boost is per-denomination, and the count follows the
+            pool's campaigns rather than anything about the position. */}
+        {rewards.map((reward) => (
+          <Flex key={rewardCurrencyId(reward.token)} row justifyContent="space-between" gap="$gap8">
+            <Text color="$neutral2" variant="body3">
+              {t('pool.apr.reward')}
             </Text>
+            <RewardAprBadge rewards={[reward]} hideBackground label="symbol" flexShrink={0} />
           </Flex>
-        </Flex>
+        ))}
       </Flex>
     </SectionContainer>
   )
 }
 
+/**
+ * A fiat `CurrencyAmount` reduced to the plain USD figure the earnings surfaces work in. Client-side
+ * quotes land in whichever stablecoin priced them, and their decimals differ by chain, so the
+ * amounts are compared and summed as USD rather than as quotients of mismatched scales.
+ */
+function toUsdValue(fiatValue: Maybe<CurrencyAmount<Currency>>): number | undefined {
+  return fiatValue ? Number(fiatValue.toExact()) : undefined
+}
+
+// Pricing a zero amount yields nothing, but a token that was never collected is a known $0 rather than unpriced.
+function usdOrZero(fiatValue: Maybe<CurrencyAmount<Currency>>, rawAmount: bigint | undefined): number | undefined {
+  return rawAmount === 0n ? 0 : toUsdValue(fiatValue)
+}
+
+// Collect pays out withdrawn principal too; only the part beyond what DecreaseLiquidity released is fees.
+function collectedFeesShareUsd({
+  collectedUsd,
+  collectedRaw,
+  withdrawnRaw,
+}: {
+  collectedUsd: number | undefined
+  collectedRaw: bigint | undefined
+  withdrawnRaw: bigint | undefined
+}): number | undefined {
+  if (collectedUsd === undefined || collectedRaw === undefined || withdrawnRaw === undefined) {
+    return undefined
+  }
+  if (collectedRaw === 0n) {
+    return 0
+  }
+  const feesRaw = collectedRaw > withdrawnRaw ? collectedRaw - withdrawnRaw : 0n
+  return (collectedUsd * Number(feesRaw)) / Number(collectedRaw)
+}
+
+function sumIfDefined(a: number | undefined, b: number | undefined): number | undefined {
+  return a === undefined || b === undefined ? undefined : a + b
+}
+
+// `Fraction` takes integers, so USD figures are scaled to sub-cent precision before becoming a ratio.
+const EARNINGS_SHARE_SCALE = 1e6
+
+/** A USD figure's share of the earnings total, or undefined when there's no share to draw. */
+function toEarningsShare(value: number | undefined, total: number | undefined): Percent | undefined {
+  if (!value || !total || value <= 0) {
+    return undefined
+  }
+  // Rounding a sub-microdollar total to zero is what getExactSharePercent's non-positive guard is
+  // for — it returns undefined rather than building a Percent that throws on the first toFixed.
+  return getExactSharePercent(
+    new Fraction(Math.round(value * EARNINGS_SHARE_SCALE), EARNINGS_SHARE_SCALE),
+    new Fraction(Math.round(total * EARNINGS_SHARE_SCALE), EARNINGS_SHARE_SCALE),
+  )
+}
+
 const EarningsSection = ({
   positionInfo,
+  collectedFeesUsd,
   currency0Amount,
   currency1Amount,
   fiatFeeValue0,
@@ -1614,10 +1742,10 @@ const EarningsSection = ({
   fee1Amount,
 }: {
   positionInfo: PositionInfo
+  /** Fees already collected over the position's life, in USD; undefined until its history loads. */
+  collectedFeesUsd?: number
   currency0Amount: CurrencyAmount<Currency>
   currency1Amount: CurrencyAmount<Currency>
-  fiatValue0: Maybe<CurrencyAmount<Currency>>
-  fiatValue1: Maybe<CurrencyAmount<Currency>>
   fiatFeeValue0: Maybe<CurrencyAmount<Currency>>
   fiatFeeValue1: Maybe<CurrencyAmount<Currency>>
   fee0Amount?: CurrencyAmount<Currency>
@@ -1625,94 +1753,58 @@ const EarningsSection = ({
 }) => {
   const { convertFiatAmountFormatted, formatCurrencyAmount: formatCurrencyAmountEarn } = useLocalizationContext()
   const { t } = useTranslation()
-  const colors = useSporeColors()
-  const isLpIncentivesEnabled = useFeatureFlag(FeatureFlags.LpIncentives)
 
-  const { uniLpRewardsCurrencyAmount, uniLpRewardsFiatValue, totalEarningsFiatValue, hasRewards, hasFees } =
-    useLpIncentivesFormattedEarnings({
-      liquidityPosition: positionInfo,
-      fiatFeeValue0,
-      fiatFeeValue1,
-    })
+  const { rewardBalances, totalEarningsUsd, hasRewards, hasFees } = useLpIncentivesFormattedEarnings({
+    liquidityPosition: positionInfo,
+    fiatFeeValue0,
+    fiatFeeValue1,
+  })
 
+  const isClosed = positionInfo.status === PositionStatus.CLOSED
+  // A closed position has nothing accrued; what it earned is what was collected.
+  const accruedUsd = isClosed ? 0 : totalEarningsUsd
+  const earnedUsd = accruedUsd === undefined ? undefined : accruedUsd + (collectedFeesUsd ?? 0)
   const formattedEarnings = useMemo(
-    () => (totalEarningsFiatValue ? convertFiatAmountFormatted(totalEarningsFiatValue.toExact(), NumberType.FiatRewards) : undefined),
-    [totalEarningsFiatValue, convertFiatAmountFormatted],
+    () => (earnedUsd !== undefined ? convertFiatAmountFormatted(earnedUsd, NumberType.FiatRewards) : undefined),
+    [earnedUsd, convertFiatAmountFormatted],
   )
   const earningsFlashColor = useFlashColor(formattedEarnings)
 
-  // TODO(WEB-4920): skip GraphQL call once backend provides image URLs
-  const [currencyInfo0, currencyInfo1, rewardCurrencyInfo] = useCurrencyInfos([
-    currencyId(currency0Amount.currency),
-    currencyId(currency1Amount.currency),
-    buildCurrencyId(UniverseChainId.Mainnet, LP_INCENTIVES_REWARD_TOKEN.address),
-  ])
+  // TODO(WEB-4920): skip the token lookup once the backend provides image URLs.
+  // Singular hook, twice, rather than the batched plural one: only this hook falls back to the
+  // local common-base list, so a pool in ETH/USDT/USDC/DAI/WBTC/WETH still resolves its tokens
+  // when the token gateway throttles the lookup. The plural hook is the network response alone,
+  // and an empty one dropped both fee segments and the whole Fees breakdown while the reward rows
+  // (which build their own CurrencyInfo) stayed — see PositionEarnings.e2e.test.ts. PositionSection
+  // above resolves the same two currencies this way, so these calls dedupe with its.
+  const currencyInfo0 = useCurrencyInfo(currency0Amount.currency)
+  const currencyInfo1 = useCurrencyInfo(currency1Amount.currency)
 
-  const token0Color = useSrcColor({
-    src: currencyInfo0?.logoUrl ?? undefined,
-    currencyName: currencyInfo0?.currency.name,
-    backgroundColor: colors.surface2.val,
-  }).tokenColor
-  const token1Color = useSrcColor({
-    src: currencyInfo1?.logoUrl ?? undefined,
-    currencyName: currencyInfo1?.currency.name,
-    backgroundColor: colors.surface2.val,
-  }).tokenColor
-  const rewardTokenColor = useSrcColor({
-    src: rewardCurrencyInfo?.logoUrl ?? undefined,
-    currencyName: rewardCurrencyInfo?.currency.name,
-    backgroundColor: colors.surface2.val,
-  }).tokenColor
+  const rewardEarnings = usePositionRewardEarnings(rewardBalances)
 
   const bars = useMemo(() => {
-    const percent0 =
-      totalEarningsFiatValue?.greaterThan(0) && fiatFeeValue0
-        ? new Percent(fiatFeeValue0.quotient, totalEarningsFiatValue.quotient)
-        : undefined
-
-    const percent1 =
-      totalEarningsFiatValue?.greaterThan(0) && fiatFeeValue1
-        ? new Percent(fiatFeeValue1.quotient, totalEarningsFiatValue.quotient)
-        : undefined
-
-    if (!percent0 || !percent1 || !token0Color || !token1Color || !currencyInfo0 || !currencyInfo1) {
-      return []
-    }
-
-    const rewards =
-      isLpIncentivesEnabled &&
-      rewardTokenColor &&
-      uniLpRewardsFiatValue?.greaterThan(0) &&
-      totalEarningsFiatValue?.greaterThan(0) &&
-      hasRewards
-        ? [
-            {
-              value: new Percent(uniLpRewardsFiatValue.quotient, totalEarningsFiatValue.quotient),
-              color: rewardTokenColor,
-              currencyInfo: rewardCurrencyInfo as CurrencyInfo,
-            },
-          ]
-        : []
-
-    return [
-      { value: percent0, color: token0Color, currencyInfo: currencyInfo0 },
-      { value: percent1, color: token1Color, currencyInfo: currencyInfo1 },
-      ...rewards,
+    // Each side contributes a segment only if it has a share to draw. Gating the whole bar on both
+    // fee shares would drop every reward segment along with them, which is what a position with
+    // rewards and freshly-collected fees hits.
+    const feeShares = [
+      { role: 'fee', value: toEarningsShare(toUsdValue(fiatFeeValue0), totalEarningsUsd), currencyInfo: currencyInfo0 },
+      { role: 'fee', value: toEarningsShare(toUsdValue(fiatFeeValue1), totalEarningsUsd), currencyInfo: currencyInfo1 },
     ]
-  }, [
-    totalEarningsFiatValue,
-    fiatFeeValue0,
-    fiatFeeValue1,
-    token0Color,
-    token1Color,
-    currencyInfo0,
-    currencyInfo1,
-    isLpIncentivesEnabled,
-    rewardTokenColor,
-    uniLpRewardsFiatValue,
-    hasRewards,
-    rewardCurrencyInfo,
-  ])
+
+    // One segment per reward denomination. An unpriced reward has no share of the USD total to
+    // draw, so it appears in the rows below but not in the bar.
+    const rewardShares = rewardEarnings.map((earning) => ({
+      role: 'reward',
+      value: toEarningsShare(earning.usdValue, totalEarningsUsd),
+      currencyInfo: earning.currencyInfo,
+    }))
+
+    // Keyed by role as well as token: a pool incentivized in one of its own tokens earns fees and
+    // rewards in the same currency, and the two are distinct segments.
+    return [...feeShares, ...rewardShares].flatMap(({ role, value, currencyInfo }) =>
+      value && currencyInfo ? [{ id: `${role}-${currencyInfo.currencyId}`, value, currencyInfo }] : [],
+    )
+  }, [totalEarningsUsd, fiatFeeValue0, fiatFeeValue1, currencyInfo0, currencyInfo1, rewardEarnings])
 
   const formattedFeeRow0 = useMemo(
     () => (fee0Amount ? formatCurrencyAmountEarn({ value: fee0Amount, type: NumberType.TokenNonTx }) : undefined),
@@ -1734,45 +1826,43 @@ const EarningsSection = ({
       {
         currencyInfo: currencyInfo0,
         currencyAmount: fee0Amount,
-        fiatValue: fiatFeeValue0,
+        usdValue: toUsdValue(fiatFeeValue0),
         flashColor: feeRow0FlashColor,
       },
       {
         currencyInfo: currencyInfo1,
         currencyAmount: fee1Amount,
-        fiatValue: fiatFeeValue1,
+        usdValue: toUsdValue(fiatFeeValue1),
         flashColor: feeRow1FlashColor,
       },
     ]
-  }, [currencyInfo0, currencyInfo1, fee0Amount, fee1Amount, fiatFeeValue0, fiatFeeValue1, feeRow0FlashColor, feeRow1FlashColor])
-
-  const rewardRows = useMemo(() => {
-    if (!isLpIncentivesEnabled || !rewardCurrencyInfo || !hasRewards) {
-      return []
-    }
-
-    return [
-      {
-        currencyInfo: rewardCurrencyInfo,
-        currencyAmount: uniLpRewardsCurrencyAmount || CurrencyAmount.fromRawAmount(rewardCurrencyInfo.currency, 0),
-        fiatValue: uniLpRewardsFiatValue,
-      },
-    ]
-  }, [isLpIncentivesEnabled, rewardCurrencyInfo, uniLpRewardsCurrencyAmount, uniLpRewardsFiatValue, hasRewards])
+  }, [
+    currencyInfo0,
+    currencyInfo1,
+    fee0Amount,
+    fee1Amount,
+    fiatFeeValue0,
+    fiatFeeValue1,
+    feeRow0FlashColor,
+    feeRow1FlashColor,
+  ])
 
   return (
-    <SectionContainer>
+    <SectionContainer testID={TestID.PositionEarningsSection}>
       <Flex gap="$gap8">
         <Text color="$neutral2" variant="body2">
-          {isLpIncentivesEnabled && hasRewards ? t('pool.earnings') : t('common.feesEarned')}
+          {hasRewards ? t('pool.earnings') : t('common.feesEarned')}
         </Text>
-        {positionInfo.status === PositionStatus.CLOSED ? (
-          <Text variant="heading2">{convertFiatAmountFormatted(0, NumberType.FiatRewards)}</Text>
+        {isClosed ? (
+          <>
+            <Text variant="heading2">{formattedEarnings}</Text>
+            <CollectedFeesNote collectedFeesUsd={collectedFeesUsd} />
+          </>
         ) : (
           <>
-            <Text variant="heading2" mb="$spacing12" color={earningsFlashColor ?? '$neutral1'}>
-              {totalEarningsFiatValue ? (
-                convertFiatAmountFormatted(totalEarningsFiatValue.toExact(), NumberType.FiatRewards)
+            <Text variant="heading2" color={earningsFlashColor ?? '$neutral1'}>
+              {formattedEarnings !== undefined ? (
+                formattedEarnings
               ) : (
                 <MouseoverTooltip text={t('pool.positions.usdValueUnavailable.tooltip')} placement="right">
                   <Flex alignItems="center" row gap="$gap8">
@@ -1784,36 +1874,34 @@ const EarningsSection = ({
                 </MouseoverTooltip>
               )}
             </Text>
+            <CollectedFeesNote collectedFeesUsd={collectedFeesUsd} />
+            <Flex mb="$spacing12" />
             {bars.length > 0 && (
               <Flex mb="$spacing24">
                 <LiquidityPositionStackedBars bars={bars} />
               </Flex>
             )}
 
-            {isLpIncentivesEnabled ? (
+            {hasRewards && rewardEarnings.length > 0 && (
               <>
-                {hasRewards && rewardRows.length > 0 && (
-                  <>
-                    <Text color="$neutral2" variant="body2" mb="$spacing12">
-                      {t('pool.rewards')}
-                    </Text>
-                    <LiquidityPositionAmountRows rows={rewardRows} />
-                  </>
-                )}
-                {hasFees && feeRows.length > 0 && (
-                  <>
-                    <Text color="$neutral2" variant="body2" mb="$spacing12" mt={hasRewards ? '$spacing24' : '$none'}>
-                      {t('common.fees')}
-                    </Text>
-                    <LiquidityPositionAmountRows rows={feeRows} />
-                  </>
-                )}
+                <Text color="$neutral2" variant="body2" mb="$spacing12">
+                  {t('pool.rewards')}
+                </Text>
+                <LiquidityPositionAmountRows rows={rewardEarnings} />
               </>
-            ) : (
-              feeRows.length > 0 && <LiquidityPositionAmountRows rows={feeRows} />
+            )}
+            {hasFees && feeRows.length > 0 && (
+              <>
+                <Text color="$neutral2" variant="body2" mb="$spacing12" mt={hasRewards ? '$spacing24' : '$none'}>
+                  Fees accrued
+                </Text>
+                <LiquidityPositionAmountRows rows={feeRows} />
+              </>
             )}
 
-            {(!totalEarningsFiatValue || totalEarningsFiatValue.equalTo(0)) && (
+            {/* Rewards the backend couldn't price leave the total undefined while the rows above
+                still show real earned amounts — "no earnings yet" under them would contradict them. */}
+            {!totalEarningsUsd && !hasRewards && (
               <Text variant="body3" color="$neutral3">
                 {t('pool.earnings.empty')}
               </Text>
@@ -1825,44 +1913,66 @@ const EarningsSection = ({
   )
 }
 
+const CollectedFeesNote = ({ collectedFeesUsd }: { collectedFeesUsd?: number }) => {
+  const { convertFiatAmountFormatted } = useLocalizationContext()
+  if (!collectedFeesUsd) {
+    return null
+  }
+  return (
+    <Text variant="body3" color="$neutral2">
+      (including {convertFiatAmountFormatted(collectedFeesUsd, NumberType.FiatRewards)} collected)
+    </Text>
+  )
+}
+
 const PriceDisplay = ({
   labelText,
   price,
-  tokenASymbol,
-  tokenBSymbol,
   priceColor,
-  setPriceInverted,
+  subText,
+  tooltip,
 }: {
   labelText: string
-  price: string | React.ReactNode
-  tokenASymbol?: string
-  tokenBSymbol?: string
+  price: string
   priceColor?: string
-  setPriceInverted: (value: React.SetStateAction<boolean>) => void
+  subText?: string
+  tooltip?: string
 }) => {
+  const priceText = (
+    <Text
+      variant="subheading1"
+      color={priceColor}
+      ellipsizeMode="middle"
+      numberOfLines={1}
+      title={tooltip ? undefined : price}
+    >
+      {price}
+    </Text>
+  )
   return (
-    <Flex gap="$gap4">
-      <Text variant="subheading2" color="$neutral2">
+    <Flex
+      gap="$gap4"
+      flex={1}
+      maxWidth="60%"
+      minWidth={0}
+      overflow="hidden"
+      $sm={{ maxWidth: '100%', flexBasis: 'auto' }}
+    >
+      <Text variant="subheading2" color="$neutral2" numberOfLines={1}>
         {labelText}
       </Text>
-      <Text variant="subheading1" color={priceColor}>{price}</Text>
-      <Flex group row>
-        <Flex row gap="$gap8" alignItems="center">
-          <Text variant="body4" color="$neutral2">
-            {tokenASymbol} = 1 {tokenBSymbol}
-          </Text>
-          <TouchableArea
-            animation={null}
-            $group-hover={{ opacity: 1 }}
-            opacity={0}
-            onPress={() => {
-              setPriceInverted((prev: boolean) => !prev)
-            }}
-          >
-            <ExchangeHorizontal color="$neutral2" size="$icon.16" />
-          </TouchableArea>
-        </Flex>
-      </Flex>
+      {tooltip ? (
+        <MouseoverTooltip text={tooltip} placement="top">
+          {priceText}
+        </MouseoverTooltip>
+      ) : (
+        priceText
+      )}
+      {subText !== undefined && (
+        <Text variant="body4" color="$neutral2" numberOfLines={1}>
+          {subText}
+        </Text>
+      )}
     </Flex>
   )
 }
@@ -1870,32 +1980,40 @@ const PriceDisplay = ({
 const PriceRangeSection = ({
   maxPrice,
   minPrice,
-  tokenASymbol,
-  tokenBSymbol,
+  minPriceDelta,
+  maxPriceDelta,
+  minTick,
+  maxTick,
   token0CurrentPrice,
   token1CurrentPrice,
   isFullRange,
   priceInverted,
-  setPriceInverted,
 }: {
   maxPrice: string
   minPrice: string
-  tokenASymbol?: string
-  tokenBSymbol?: string
+  /** How far each bound is from the market price, in percent of it; signed. */
+  minPriceDelta?: number
+  maxPriceDelta?: number
+  /** The ticks behind the displayed bounds; when prices are flipped the lower bound comes from the upper tick. */
+  minTick?: number
+  maxTick?: number
   isFullRange?: boolean
   token0CurrentPrice?: Price<Currency, Currency>
   token1CurrentPrice?: Price<Currency, Currency>
   priceInverted?: boolean
-  setPriceInverted: React.Dispatch<React.SetStateAction<boolean>>
 }) => {
   const { t } = useTranslation()
-  const { formatNumberOrString } = useLocalizationContext()
+  const { formatNumberOrString, formatPercent } = useLocalizationContext()
+  const formatDelta = (delta: number | undefined): string | undefined =>
+    delta === undefined ? undefined : `${delta >= 0 ? '+' : '−'}${formatPercent(Math.abs(delta))}`
+  const locale = useCurrentLocale()
   const formattedMarketPrice = useMemo(() => {
-    return formatNumberOrString({
+    return formatPositionPrice({
       value: (priceInverted ? token1CurrentPrice : token0CurrentPrice)?.toSignificant(),
-      type: NumberType.TokenTx,
+      locale,
+      formatNumberOrString,
     })
-  }, [priceInverted, token0CurrentPrice, token1CurrentPrice, formatNumberOrString])
+  }, [priceInverted, token0CurrentPrice, token1CurrentPrice, locale, formatNumberOrString])
   const marketPriceFlashColor = useFlashColor(formattedMarketPrice)
 
   if (isFullRange) {
@@ -1904,33 +2022,32 @@ const PriceRangeSection = ({
 
   return (
     <Flex gap="$spacing24">
-      <Text variant="heading3" color="$neutral1">
-        Price Range
-      </Text>
-      <Flex row justifyContent="space-between">
+      <Flex row justifyContent="space-between" gap="$gap16" $sm={{ row: false, gap: '$gap20' }}>
+        <Flex justifyContent="center" minWidth={0} width="33.333%" flexShrink={0} $sm={{ width: '100%' }}>
+          <Text
+            variant="heading1"
+            color={marketPriceFlashColor ?? '$neutral1'}
+            numberOfLines={1}
+            title={formattedMarketPrice}
+          >
+            {formattedMarketPrice}
+          </Text>
+        </Flex>
+
+        <Flex width={1} alignSelf="stretch" backgroundColor="$surface3" $sm={{ width: '100%', height: 1 }} />
+
         <PriceDisplay
           labelText={t('pool.minPrice')}
           price={minPrice}
-          tokenASymbol={tokenASymbol}
-          tokenBSymbol={tokenBSymbol}
-          setPriceInverted={setPriceInverted}
+          subText={formatDelta(minPriceDelta)}
+          tooltip={minTick === undefined ? undefined : `Tick ${minTick}`}
         />
 
         <PriceDisplay
           labelText={t('pool.maxPrice')}
           price={maxPrice}
-          tokenASymbol={tokenASymbol}
-          tokenBSymbol={tokenBSymbol}
-          setPriceInverted={setPriceInverted}
-        />
-
-        <PriceDisplay
-          labelText={t('common.marketPrice')}
-          price={formattedMarketPrice}
-          priceColor={marketPriceFlashColor}
-          tokenASymbol={tokenASymbol}
-          tokenBSymbol={tokenBSymbol}
-          setPriceInverted={setPriceInverted}
+          subText={formatDelta(maxPriceDelta)}
+          tooltip={maxTick === undefined ? undefined : `Tick ${maxTick}`}
         />
       </Flex>
     </Flex>

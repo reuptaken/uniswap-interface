@@ -1,7 +1,8 @@
 import { ADDRESS_ZERO } from '@uniswap/v3-sdk'
+import { Flex, Text } from '@universe/mycelium'
+import { LinkHorizontalAlt } from '@universe/mycelium/icons/LinkHorizontalAlt'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text, useSporeColors } from 'ui/src'
-import { LinkHorizontalAlt } from 'ui/src/components/icons/LinkHorizontalAlt'
 import { WarningSeverity } from 'uniswap/src/components/modals/WarningModal/types'
 import { WarningModal } from 'uniswap/src/components/modals/WarningModal/WarningModal'
 import { Pill } from 'uniswap/src/components/pill/Pill'
@@ -10,7 +11,7 @@ import { UNITAG_SUFFIX, UNITAG_SUFFIX_NO_LEADING_DOT } from 'uniswap/src/feature
 import { getYourNameString } from 'uniswap/src/features/unitags/utils'
 import { shortenAddress } from 'utilities/src/addresses'
 
-const FIXED_INFO_PILL_WIDTH = 128
+const MIN_INFO_PILL_WIDTH = 128
 
 export const UnitagInfoModal = ({
   isOpen,
@@ -34,7 +35,7 @@ export const UnitagInfoModal = ({
       rejectText={t('common.button.close')}
       severity={WarningSeverity.None}
       icon={
-        <Flex centered row gap="$spacing4">
+        <Flex centered row flexWrap="wrap" gap="$spacing4">
           <Pill
             customBackgroundColor={colors.surface1.val}
             foregroundColor={colors.neutral2.val}
@@ -44,7 +45,7 @@ export const UnitagInfoModal = ({
             shadowOpacity={0.4}
             shadowRadius="$spacing4"
             textVariant="buttonLabel3"
-            width={FIXED_INFO_PILL_WIDTH}
+            minWidth={MIN_INFO_PILL_WIDTH}
           />
           <Flex p="$spacing2" shadowColor="$accent1" shadowOpacity={1} shadowRadius="$spacing16">
             <LinkHorizontalAlt color="$neutral3" size="$icon.24" />

@@ -1,13 +1,12 @@
-import { datadogRum } from '@datadog/browser-rum'
+import { useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
 import { useEffect } from 'react'
-import { useIsDarkMode } from 'ui/src'
 import { DisplayNameType } from 'uniswap/src/features/accounts/types'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
 import { useAppFiatCurrencyInfo } from 'uniswap/src/features/fiatCurrency/hooks'
 import { useCurrentLanguage } from 'uniswap/src/features/language/hooks'
 import { useHideSmallBalancesSetting, useHideSpamTokensSetting } from 'uniswap/src/features/settings/hooks'
 import { ExtensionUserPropertyName, setUserProperty } from 'uniswap/src/features/telemetry/user'
-// biome-ignore lint/style/noRestrictedImports: Direct analytics import required for user property tracking
+// oxlint-disable-next-line no-restricted-imports -- Direct analytics import required for user property tracking
 import { analytics } from 'utilities/src/telemetry/analytics/analytics'
 import { useGatingUserPropertyUsernames } from 'wallet/src/features/gating/userPropertyHooks'
 import {
@@ -17,7 +16,7 @@ import {
   useViewOnlyAccounts,
 } from 'wallet/src/features/wallet/hooks'
 
-/** Component that tracks UserProperties during the lifetime of the app */
+/** Amplitude user properties for the lifetime of the app. Datadog fields live in `DatadogContextUpdater`. */
 export function TraceUserProperties(): null {
   const isDarkMode = useIsDarkMode()
   const viewOnlyAccounts = useViewOnlyAccounts()
@@ -31,12 +30,6 @@ export function TraceUserProperties(): null {
   const displayName = useDisplayName(activeAccount?.address)
 
   useGatingUserPropertyUsernames()
-
-  // Set user properties for datadog
-
-  useEffect(() => {
-    datadogRum.setUserProperty(ExtensionUserPropertyName.ActiveWalletAddress, activeAccount?.address)
-  }, [activeAccount?.address])
 
   // Set user properties for amplitude
 

@@ -1,17 +1,17 @@
-import { expect, getTest } from 'playwright/fixtures'
-import { stubTradingApiEndpoint } from 'playwright/fixtures/tradingApi'
-import { Mocks } from 'playwright/mocks/mocks'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
+import { V1_TRADING_API_PATHS } from '@universe/api'
+import { TestID } from '@universe/test'
+import { expect, getTest } from '~/playwright/fixtures'
+import { stubTradingApiEndpoint } from '~/playwright/fixtures/tradingApi'
+import { Mocks } from '~/playwright/mocks/mocks'
 
 const test = getTest()
 
 test.describe(
   'Buy Crypto Form',
   {
-    tag: '@team:apps-growth',
+    tag: '@team:apps-swap',
     annotation: [
-      { type: 'DD_TAGS[team]', description: 'apps-growth' },
+      { type: 'DD_TAGS[team]', description: 'apps-swap' },
       { type: 'DD_TAGS[test.type]', description: 'web-e2e' },
     ],
   },
@@ -31,15 +31,17 @@ test.describe(
         })
       }
 
-      await stubTradingApiEndpoint({ page, endpoint: uniswapUrls.tradingApiPaths.quote })
+      await stubTradingApiEndpoint({ page, endpoint: V1_TRADING_API_PATHS.quote })
       await page.goto('/buy')
 
       // Wait for wallet to be connected
       await page.getByTestId(TestID.Web3StatusConnected).waitFor()
 
       await page.getByTestId(TestID.ChooseInputToken).click()
-      // eslint-disable-next-line
-      await page.getByTestId('for-currency-list-wrapper').getByText('Ethereum').click()
+      // Rows are keyed by the provider's currency code: selecting by visible name is ambiguous, since
+      // "Ethereum" is a substring of the WETH row's name ("Wrapped Ethereum").
+      await page.getByTestId(`${TestID.FiatOnRampCurrencyRowPrefix}supported-ETH`).click()
+      await expect(page.getByTestId(TestID.ChooseInputToken).getByText('ETH', { exact: true })).toBeVisible()
     })
 
     test('quick amount select', async ({ page }) => {
@@ -57,8 +59,8 @@ test.describe(
 
     test('change input token', async ({ page }) => {
       await page.getByTestId(TestID.ChooseInputToken).click()
-      // eslint-disable-next-line
-      await page.getByTestId('for-currency-list-wrapper').getByText('DAI').nth(1).click()
+      await page.getByTestId(`${TestID.FiatOnRampCurrencyRowPrefix}supported-DAI`).click()
+      await expect(page.getByTestId(TestID.ChooseInputToken).getByText('DAI', { exact: true })).toBeVisible()
       await page.getByTestId(TestID.BuyFormAmountInput).fill('123')
       await page.getByRole('button', { name: 'Continue' }).click()
       await expect(page.getByTestId(TestID.BuyFormChooseProvider)).toBeVisible()

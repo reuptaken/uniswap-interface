@@ -1,11 +1,11 @@
-import { TokenData } from 'pages/Portfolio/Tokens/hooks/useTransformTokenTableData'
-import { TokensContextMenuWrapper } from 'pages/Portfolio/Tokens/Table/TokensContextMenuWrapper'
-import { memo } from 'react'
-import { Flex, useIsTouchDevice } from 'ui/src'
-import { MoreHorizontal } from 'ui/src/components/icons/MoreHorizontal'
+import { Flex, useIsTouchDevice } from '@universe/mycelium'
+import { TestID } from '@universe/test'
+import { memo, useContext } from 'react'
+import { ContextMenuTriggerButton } from 'uniswap/src/components/menus/ContextMenuTriggerButton'
 import { ContextMenuTriggerMode } from 'uniswap/src/components/menus/types'
-
-const ICON_BUTTON_SIZE = 28
+import { IssuerTableRowHoverContext } from 'uniswap/src/features/expandableAsset/IssuerTableRowHoverContext'
+import { TokenData } from '~/pages/Portfolio/Tokens/hooks/useTransformTokenTableData'
+import { TokensContextMenuWrapper } from '~/pages/Portfolio/Tokens/Table/TokensContextMenuWrapper'
 
 interface ContextMenuButtonProps {
   tokenData: TokenData
@@ -13,29 +13,25 @@ interface ContextMenuButtonProps {
 
 export const ContextMenuButton = memo(function ContextMenuButton({ tokenData }: ContextMenuButtonProps) {
   const isTouchDevice = useIsTouchDevice()
+  const issuerRowHovered = useContext(IssuerTableRowHoverContext)
+  const useIssuerRowHover = issuerRowHovered !== undefined
+  const isVisible = isTouchDevice || (useIssuerRowHover ? issuerRowHovered : false)
 
   return (
     <TokensContextMenuWrapper tokenData={tokenData} triggerMode={ContextMenuTriggerMode.Primary}>
       <Flex
         aria-label="View transaction details"
-        opacity={isTouchDevice ? 1 : 0}
+        testID={TestID.TokenTableRowContextMenuButton}
+        opacity={isVisible ? 1 : 0}
         transition="opacity 0.2s ease"
         centered
-        $group-hover={{ opacity: 1 }}
-        $group-focus={{ opacity: 1 }}
+        {...(!useIssuerRowHover && !isTouchDevice
+          ? { '$group-hover': { opacity: 1 }, '$group-focus': { opacity: 1 } }
+          : {})}
         mr="$spacing8"
         ml="$spacing4"
       >
-        <Flex
-          height={ICON_BUTTON_SIZE}
-          width={ICON_BUTTON_SIZE}
-          borderRadius="$rounded12"
-          hoverStyle={{ backgroundColor: '$surface3' }}
-          centered
-          animation="fast"
-        >
-          <MoreHorizontal size="$icon.16" color="$neutral2" />
-        </Flex>
+        <ContextMenuTriggerButton />
       </Flex>
     </TokensContextMenuWrapper>
   )

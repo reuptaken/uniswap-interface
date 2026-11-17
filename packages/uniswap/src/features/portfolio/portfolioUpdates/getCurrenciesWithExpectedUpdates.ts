@@ -1,10 +1,17 @@
-import { normalizeCurrencyIdForMapLookup, normalizeTokenAddressForCache } from 'uniswap/src/data/cache'
+import { normalizeTokenAddressForCache } from '@universe/chains'
 import { TransactionDetails, TransactionType } from 'uniswap/src/features/transactions/types/transactionDetails'
+import { isPlanTransactionDetails } from 'uniswap/src/features/transactions/types/utils'
 import { CurrencyId } from 'uniswap/src/types/currency'
+import { normalizeCurrencyIdForMapLookup } from 'uniswap/src/utils/currencyId'
 import { buildCurrencyId, buildNativeCurrencyId, buildWrappedNativeCurrencyId } from 'uniswap/src/utils/currencyId'
 import { logger } from 'utilities/src/logger/logger'
 
-// based on transaction data, determine which currencies we expect to see a balance update on
+/**
+ * Based on the transaction data, determine which currencies we expect to see a balance update on
+ *
+ * @param transaction - The transaction to check
+ * @returns A set of currency ids that we expect to see a balance update on
+ */
 export function getCurrenciesWithExpectedUpdates(transaction: TransactionDetails): Set<CurrencyId> | undefined {
   const currenciesWithBalToUpdate: Set<CurrencyId> = new Set()
   const txChainId = transaction.chainId
@@ -12,21 +19,52 @@ export function getCurrenciesWithExpectedUpdates(transaction: TransactionDetails
   // All txs besides FOR at least use gas so check for update of gas token
   currenciesWithBalToUpdate.add(buildNativeCurrencyId(txChainId))
 
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // oxlint-disable-next-line typescript/no-unnecessary-condition
   switch (transaction.typeInfo?.type) {
     case TransactionType.Swap:
     case TransactionType.Bridge:
       currenciesWithBalToUpdate.add(normalizeCurrencyIdForMapLookup(transaction.typeInfo.inputCurrencyId))
       currenciesWithBalToUpdate.add(normalizeCurrencyIdForMapLookup(transaction.typeInfo.outputCurrencyId))
       break
+    case TransactionType.Plan:
+      // oxlint-disable-next-line no-lone-blocks -- suppressed
+      {
+        for (const step of transaction.typeInfo.stepDetails) {
+          if (isPlanTransactionDetails(step)) {
+            logger.warn(
+              'getCurrenciesWithExpectedUpdates.ts',
+              'getCurrenciesWithExpectedUpdates',
+              'Nested plan detected. This should never happen. Skipping update of currencies.',
+              {
+                step,
+              },
+              { tags: { file: 'getCurrenciesWithExpectedUpdates', function: 'getCurrenciesWithExpectedUpdates' } },
+            )
+            break
+          }
+          const stepCurrencies = getCurrenciesWithExpectedUpdates(step)
+          if (stepCurrencies) {
+            for (const currencyId of stepCurrencies) {
+              currenciesWithBalToUpdate.add(currencyId)
+            }
+          }
+        }
+      }
+      break
     case TransactionType.Send:
+    case TransactionType.Deposit:
+    case TransactionType.Withdraw:
       currenciesWithBalToUpdate.add(
         buildCurrencyId(txChainId, normalizeTokenAddressForCache(transaction.typeInfo.tokenAddress)),
       )
       break
-    case TransactionType.Wrap:
-      currenciesWithBalToUpdate.add(buildWrappedNativeCurrencyId(txChainId))
+    case TransactionType.Wrap: {
+      const wrappedId = buildWrappedNativeCurrencyId(txChainId)
+      if (wrappedId) {
+        currenciesWithBalToUpdate.add(wrappedId)
+      }
       break
+    }
     case TransactionType.OnRampPurchase:
     case TransactionType.OnRampTransfer:
     case TransactionType.OffRampSale:
@@ -34,13 +72,16 @@ export function getCurrenciesWithExpectedUpdates(transaction: TransactionDetails
         buildCurrencyId(txChainId, normalizeTokenAddressForCache(transaction.typeInfo.destinationTokenAddress)),
       )
       break
+    case TransactionType.UniswapXCancel:
+      // Nonce invalidation moves no assets; gas (native currency) refetch is already added above
+      break
     default:
       logger.info(
         'getCurrenciesWithExpectedUpdates.ts',
         'getCurrenciesWithExpectedUpdates',
         'Unhandled transaction type',
         {
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          // oxlint-disable-next-line typescript/no-unnecessary-condition
           type: transaction.typeInfo?.type,
           info: JSON.stringify(transaction.typeInfo),
         },

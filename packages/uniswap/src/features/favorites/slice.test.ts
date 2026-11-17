@@ -1,4 +1,4 @@
-import { createStore, Store } from '@reduxjs/toolkit'
+import { configureStore, Store } from '@reduxjs/toolkit'
 import {
   addFavoriteToken,
   FavoritesState,
@@ -10,13 +10,16 @@ describe(favoritesReducer, () => {
   let store: Store<FavoritesState>
 
   beforeAll(() => {
-    jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   })
 
   beforeEach(() => {
-    store = createStore(favoritesReducer, {
-      tokens: [],
-      watchedAddresses: [],
+    store = configureStore({
+      reducer: favoritesReducer,
+      preloadedState: {
+        tokens: [],
+        watchedAddresses: [],
+      },
     })
   })
 

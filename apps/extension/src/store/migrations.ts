@@ -1,17 +1,20 @@
-/* biome-ignore-all lint/suspicious/noExplicitAny: Migration functions handle arbitrary state shapes from different versions */
-/* eslint-disable @typescript-eslint/explicit-function-return-type */
-
 import {
+  clearPendingDappRequests,
   migratePendingDappRequestsToRecord,
   migrateUnknownBackupAccountsToMaybeManualBackup,
   removeDappInfoToChromeLocalStorage,
+  removePersistedApolloCache,
+  setLanguageToNavigatorLanguage,
 } from 'src/store/extensionMigrations'
 import {
   addActivityVisibility,
   addDismissedBridgedAndCompatibleWarnings,
+  addEnableCustomGasFeeEntry,
+  markPoolsBalanceCoachmarkEligible,
   migrateDismissedTokenWarnings,
   migrateSearchHistory,
   removeThaiBahtFromFiatCurrency,
+  removeUniswapWrapped2025BehaviorHistory,
   unchecksumDismissedTokenWarningKeys,
 } from 'uniswap/src/state/uniswapMigrations'
 import {
@@ -71,6 +74,12 @@ export const migrations = {
   28: addDismissedBridgedAndCompatibleWarnings,
   29: addActivityVisibility,
   30: migrateDismissedTokenWarnings,
+  31: setLanguageToNavigatorLanguage,
+  32: addEnableCustomGasFeeEntry,
+  33: removeUniswapWrapped2025BehaviorHistory,
+  34: markPoolsBalanceCoachmarkEligible,
+  35: removePersistedApolloCache,
+  36: clearPendingDappRequests,
 }
 
-export const EXTENSION_STATE_VERSION = 30
+export const EXTENSION_STATE_VERSION = 36

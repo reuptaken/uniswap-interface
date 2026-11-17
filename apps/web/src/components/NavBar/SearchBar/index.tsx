@@ -1,48 +1,42 @@
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { NavIcon } from 'components/NavBar/NavIcon'
-import { SearchModal } from 'components/NavBar/SearchBar/SearchModal'
-import { useIsSearchBarVisible } from 'components/NavBar/SearchBar/useIsSearchBarVisible'
-import { useModalState } from 'hooks/useModalState'
-import { deprecatedStyled } from 'lib/styled-components'
-import { Search } from 'react-feather'
+import { Flex, Text, TouchableArea } from '@universe/mycelium'
+import { Search } from '@universe/mycelium/icons/Search'
+import { styled } from '@universe/mycelium/styled'
+import { TestID } from '@universe/test'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text, TouchableArea, useSporeColors } from 'ui/src'
 import { ElementName, InterfaceEventName, ModalName, SectionName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 import { KeyAction } from 'utilities/src/device/keyboard/types'
 import { useKeyDown } from 'utilities/src/device/keyboard/useKeyDown'
 import { useTrace } from 'utilities/src/telemetry/trace/TraceContext'
+import { NavIcon } from '~/components/NavBar/NavIcon'
+import { SearchModal } from '~/components/NavBar/SearchBar/SearchModal'
+import { useIsSearchBarVisible } from '~/components/NavBar/SearchBar/useIsSearchBarVisible'
+import { useModalState } from '~/hooks/useModalState'
+import { EllipsisTamaguiStyle } from '~/theme/components/styles'
 
-const NAV_SEARCH_MIN_WIDTH = '340px'
+const NAV_SEARCH_MIN_WIDTH = '320px'
 
-const KeyShortcut = deprecatedStyled.div`
-  background-color: ${({ theme }) => theme.surface3};
-  color: ${({ theme }) => theme.neutral2};
-  padding: 0px 8px;
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 535;
-  line-height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.6;
-  backdrop-filter: blur(60px);
-`
+const KeyShortcut = styled('div', {
+  platform: 'web',
+  base: 'bg-surface3 text-neutral2 [padding:0px_8px] w-[20px] h-[20px] rounded-[4px] text-[12px] font-[535] [line-height:16px] flex items-center justify-center opacity-60 backdrop-blur-[60px]',
+})
 
-const SearchIcon = deprecatedStyled.div`
-  width: 20px;
-  height: 20px;
-`
+const SearchIcon = styled('div', {
+  platform: 'web',
+  base: 'w-[20px] h-[20px]',
+})
+
+// The shared Search glyph bakes in fillOpacity 0.63; on mobile the nav icon matches the hamburger's full opacity.
+const NavSearchIcon = styled('div', {
+  platform: 'web',
+  base: 'w-[20px] h-[20px] media-md:[&_path]:[fill-opacity:1]',
+})
 
 export const SearchBar = () => {
-  const poolSearchEnabled = useFeatureFlag(FeatureFlags.PoolSearch)
+  const { t } = useTranslation()
   const isNavSearchInputVisible = useIsSearchBarVisible()
-
-  const colors = useSporeColors()
-  const { t } = useTranslation() // subscribe to locale changes
+  const isAuctionSearchEnabled = useFeatureFlag(FeatureFlags.AuctionSearch)
 
   const {
     isOpen: isModalOpen,
@@ -69,17 +63,17 @@ export const SearchBar = () => {
 
   const trace = useTrace({ section: SectionName.NavbarSearch })
 
-  const placeholderText = poolSearchEnabled ? t('search.input.placeholder') : t('tokens.selector.search.placeholder')
+  const placeholderText = t('search.input.placeholder.header')
 
   return (
     <Trace section={SectionName.NavbarSearch}>
-      <SearchModal />
+      <SearchModal isAuctionSearchEnabled={isAuctionSearchEnabled} />
       {isNavSearchInputVisible ? (
-        <TouchableArea onPress={openSearchModal} data-testid="nav-search-input" width={NAV_SEARCH_MIN_WIDTH}>
+        <TouchableArea onPress={openSearchModal} testID="nav-search-input" width={NAV_SEARCH_MIN_WIDTH}>
           <Flex
             row
             backgroundColor="$surface2"
-            borderWidth={1}
+            borderWidth="$spacing1"
             borderColor="$surface3"
             py="$spacing8"
             px="$spacing16"
@@ -91,9 +85,9 @@ export const SearchBar = () => {
               backgroundColor: '$surface1Hovered',
             }}
           >
-            <Flex row gap="$spacing12">
-              <SearchIcon data-cy="nav-search-icon">
-                <Search width="20px" height="20px" color={colors.neutral2.val} />
+            <Flex shrink row gap="$spacing12">
+              <SearchIcon data-testid={TestID.NavSearchIcon}>
+                <Search size="$icon.20" color="$neutral2" />
               </SearchIcon>
               <Trace
                 logFocus
@@ -101,7 +95,7 @@ export const SearchBar = () => {
                 element={ElementName.NavbarSearchInput}
                 properties={{ ...trace }}
               >
-                <Text fontWeight="$book" color="$neutral2" textAlign="left">
+                <Text fontWeight="$book" color="$neutral2" textAlign="left" {...EllipsisTamaguiStyle}>
                   {placeholderText}
                 </Text>
               </Trace>
@@ -111,9 +105,9 @@ export const SearchBar = () => {
         </TouchableArea>
       ) : (
         <NavIcon onClick={openSearchModal} label={placeholderText}>
-          <SearchIcon data-cy="nav-search-icon">
-            <Search width="20px" height="20px" color={colors.neutral2.val} />
-          </SearchIcon>
+          <NavSearchIcon data-testid={TestID.NavSearchIcon}>
+            <Search size="$icon.20" color="$neutral2" />
+          </NavSearchIcon>
         </NavIcon>
       )}
     </Trace>

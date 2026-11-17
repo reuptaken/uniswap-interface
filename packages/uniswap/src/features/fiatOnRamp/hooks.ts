@@ -1,13 +1,13 @@
-import { SerializedError } from '@reduxjs/toolkit'
-import { FetchBaseQueryError, skipToken } from '@reduxjs/toolkit/query/react'
+import { skipToken } from '@tanstack/react-query'
 import { Currency } from '@uniswap/sdk-core'
-import { TradingApi } from '@universe/api'
+import type { FORQuote, FORSupportedFiatCurrency, FORSupportedToken } from '@universe/api'
+import { RampDirection, TradingApi } from '@universe/api'
+import { UniverseChainId, Platform } from '@universe/chains'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getCountry } from 'react-native-localize'
 import { useDispatch } from 'react-redux'
-import { useCurrencies } from 'uniswap/src/components/TokenSelector/hooks/useCurrencies'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import { useActiveAddress } from 'uniswap/src/features/accounts/store/hooks'
 import { toSupportedChainId } from 'uniswap/src/features/chains/utils'
 import { FiatCurrency } from 'uniswap/src/features/fiatCurrency/constants'
 import { useAppFiatCurrencyInfo, useFiatCurrencyInfo } from 'uniswap/src/features/fiatCurrency/hooks'
@@ -16,15 +16,8 @@ import {
   useFiatOnRampAggregatorGetCountryQuery,
   useFiatOnRampAggregatorSupportedFiatCurrenciesQuery,
   useFiatOnRampAggregatorSupportedTokensQuery,
-} from 'uniswap/src/features/fiatOnRamp/api'
-import {
-  FiatCurrencyInfo,
-  FiatOnRampCurrency,
-  FORQuote,
-  FORSupportedFiatCurrency,
-  FORSupportedToken,
-  RampDirection,
-} from 'uniswap/src/features/fiatOnRamp/types'
+} from 'uniswap/src/features/fiatOnRamp/hooks/useFiatOnRampQueries'
+import { FiatCurrencyInfo, FiatOnRampCurrency } from 'uniswap/src/features/fiatOnRamp/types'
 import {
   createOnRampTransactionId,
   isFiatOnRampApiError,
@@ -33,6 +26,7 @@ import {
 } from 'uniswap/src/features/fiatOnRamp/utils'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
 import { ValueType } from 'uniswap/src/features/tokens/getCurrencyAmount'
+import { useMultichainCurrencyInfosWithoutBridgedNatives } from 'uniswap/src/features/tokens/useMultichainCurrencyInfos'
 import { addTransaction } from 'uniswap/src/features/transactions/slice'
 import {
   TransactionDetails,
@@ -40,7 +34,6 @@ import {
   TransactionStatus,
   TransactionType,
 } from 'uniswap/src/features/transactions/types/transactionDetails'
-import { useWallet } from 'uniswap/src/features/wallet/hooks/useWallet'
 import { getFormattedCurrencyAmount } from 'uniswap/src/utils/currency'
 import { areCurrencyIdsEqual, buildCurrencyId, buildNativeCurrencyId } from 'uniswap/src/utils/currencyId'
 import { NumberType } from 'utilities/src/format/types'
@@ -138,6 +131,7 @@ export function useMeldFiatCurrencySupportInfo({
   const appFiatCurrencySupported =
     !supportedFiatCurrencies ||
     supportedFiatCurrencies.fiatCurrencies.some(
+      // oxlint-disable-next-line universe-custom/no-tolowercase-address-currencyid -- fiat currency code, not an address
       (currency): boolean => appFiatCurrencyCode === currency.fiatCurrencyCode.toLowerCase(),
     )
   const meldSupportedFiatCurrency = appFiatCurrencySupported ? appFiatCurrencyInfo : fallbackCurrencyInfo
@@ -180,7 +174,7 @@ export function useFiatOnRampSupportedTokens({
     error: supportedTokensError,
     refetch: refetchSupportedTokens,
   } = useFiatOnRampAggregatorSupportedTokensQuery(
-    { fiatCurrency: sourceCurrencyCode, countryCode, rampDirection },
+    { fiatCurrency: sourceCurrencyCode, countryCode, rampDirection: rampDirection ?? RampDirection.ON_RAMP },
     { skip },
   )
 
@@ -196,12 +190,13 @@ export function useFiatOnRampSupportedTokens({
     [supportedTokensResponse],
   )
 
+  const currencyIds = useMemo(() => Object.keys(supportedTokensById), [supportedTokensById])
   const {
     data: currencies,
     error: currenciesError,
-    loading: currenciesLoading,
+    isLoading: currenciesLoading,
     refetch: refetchCurrencies,
-  } = useCurrencies(Object.keys(supportedTokensById))
+  } = useMultichainCurrencyInfosWithoutBridgedNatives(currencyIds)
 
   const list = useMemo(
     () =>
@@ -217,12 +212,15 @@ export function useFiatOnRampSupportedTokens({
   const loading = supportedTokensLoading || currenciesLoading
   const error = Boolean(supportedTokensError || currenciesError)
   const refetch = async (): Promise<void> => {
+    const promises: Promise<unknown>[] = []
     if (supportedTokensError) {
-      await refetchSupportedTokens()
+      promises.push(refetchSupportedTokens())
     }
     if (currenciesError) {
-      refetchCurrencies?.()
+      promises.push(refetchCurrencies())
     }
+
+    await Promise.all(promises)
   }
 
   return { list, loading, error, refetch }
@@ -249,24 +247,24 @@ export function useFiatOnRampQuotes({
   balanceError?: boolean
 }): {
   loading: boolean
-  error?: FetchBaseQueryError | SerializedError
+  error?: Error
   quotes: FORQuote[] | undefined
 } {
   const debouncedBaseCurrencyAmount = useDebounce(baseCurrencyAmount, SHORT_DELAY)
-  const walletAddress = useWallet().evmAccount?.address
+  const evmAddress = useActiveAddress(Platform.EVM)
 
   const {
-    currentData: quotesResponse,
+    data: quotesResponse,
     isFetching: quotesFetching,
     error: quotesError,
   } = useFiatOnRampAggregatorCryptoQuoteQuery(
     baseCurrencyAmount && countryCode && quoteCurrencyCode && baseCurrencyCode && !balanceError
       ? {
           sourceAmount: baseCurrencyAmount,
-          sourceCurrencyCode: rampDirection === RampDirection.OFFRAMP ? quoteCurrencyCode : baseCurrencyCode,
-          destinationCurrencyCode: rampDirection === RampDirection.OFFRAMP ? baseCurrencyCode : quoteCurrencyCode,
+          sourceCurrencyCode: rampDirection === RampDirection.OFF_RAMP ? quoteCurrencyCode : baseCurrencyCode,
+          destinationCurrencyCode: rampDirection === RampDirection.OFF_RAMP ? baseCurrencyCode : quoteCurrencyCode,
           countryCode,
-          walletAddress: walletAddress ?? undefined,
+          walletAddress: evmAddress ?? undefined,
           state: countryState,
           rampDirection,
         }
@@ -279,7 +277,7 @@ export function useFiatOnRampQuotes({
   const loading = quotesFetching || debouncedBaseCurrencyAmount !== baseCurrencyAmount
 
   // if user is entering base amount -> ignore previous errors
-  const error = debouncedBaseCurrencyAmount !== baseCurrencyAmount ? undefined : quotesError
+  const error = debouncedBaseCurrencyAmount !== baseCurrencyAmount ? undefined : (quotesError ?? undefined)
 
   return {
     loading,
@@ -349,25 +347,20 @@ export function useIsSupportedFiatOnRampCurrency(
   skip: boolean = false,
 ): { currency: FiatOnRampCurrency | undefined; isLoading: boolean } {
   const fallbackCountryCode = getCountry()
-  const { currentData: ipCountryData, isLoading: isCountryLoading } = useFiatOnRampAggregatorGetCountryQuery(
-    undefined,
-    { skip },
-  )
+  const { data: ipCountryData, isPending: isCountryLoading } = useFiatOnRampAggregatorGetCountryQuery(undefined, {
+    skip,
+  })
   const { meldSupportedFiatCurrency } = useMeldFiatCurrencySupportInfo({
     countryCode: ipCountryData?.countryCode ?? fallbackCountryCode,
     skip,
   })
-  const {
-    list: supportedTokensList,
-    loading: supportedTokensLoading,
-    error: supportedTokensError,
-  } = useFiatOnRampSupportedTokens({
+  const { list: supportedTokensList, loading: supportedTokensLoading } = useFiatOnRampSupportedTokens({
     sourceCurrencyCode: meldSupportedFiatCurrency.code,
     countryCode: ipCountryData?.countryCode ?? fallbackCountryCode,
     skip,
   })
 
-  const isLoading = isCountryLoading || supportedTokensLoading || supportedTokensError
+  const isLoading = isCountryLoading || supportedTokensLoading
 
   if (isLoading) {
     return { currency: undefined, isLoading }

@@ -1,25 +1,37 @@
-import { memo, useCallback } from 'react'
-import { Flex, FlexProps, Text, TextProps, TouchableArea } from 'ui/src'
-import useIsKeyboardOpen from 'uniswap/src/hooks/useIsKeyboardOpen'
+import { isWebApp, isWebPlatform } from '@universe/environment'
+import {
+  Flex,
+  type FlexCompatProps as FlexProps,
+  type ModifierPressProps,
+  Text,
+  type TextCompatProps as TextProps,
+} from '@universe/mycelium'
+import { memo, ReactNode, useCallback } from 'react'
+import { useIsRowFocused } from 'uniswap/src/components/lists/focusedRowStore'
+import { OptionItemPressableArea } from 'uniswap/src/components/lists/items/OptionItemPressableArea'
 import { dismissNativeKeyboard } from 'utilities/src/device/keyboard/dismissNativeKeyboard'
 import { KeyAction } from 'utilities/src/device/keyboard/types'
+import { useIsKeyboardOpen } from 'utilities/src/device/keyboard/useIsKeyboardOpen'
 import { useKeyDown } from 'utilities/src/device/keyboard/useKeyDown'
-import { isWebApp, isWebPlatform } from 'utilities/src/platform'
-import { noop } from 'utilities/src/react/noop'
 
 // Props for manually managing the focused row index of a list
-// i.e. via keyboard ArrowUp/ArrowDown navigation
+// i.e. via keyboard ArrowUp/ArrowDown navigation. Whether this row is the focused one is read with
+// `useIsRowFocused(rowIndex)`, so only the rows gaining and losing focus re-render.
 export interface FocusedRowControl {
   rowIndex: number // this item's row index
-  focusedRowIndex: number | undefined // index of the list's focused row
   setFocusedRowIndex: (index: number | undefined) => void
 }
 
-export interface OptionItemProps {
+export interface OptionItemProps extends ModifierPressProps {
   image: JSX.Element
   title: string | JSX.Element
   subtitle?: JSX.Element
   rightElement?: JSX.Element
+  /** Persistent category pill (e.g. "Stocks") rendered before `rightElement`, independent of hover. */
+  categoryTag?: ReactNode
+  /** Rendered immediately after the title on the same baseline (e.g. a dimmed RWA issuer label). When present,
+   *  the title shrinks/ellipsizes and the suffix holds its width. Absent → title renders exactly as before. */
+  titleSuffix?: ReactNode
   badge?: JSX.Element
   titleProps?: TextProps
   onPress: () => void
@@ -34,11 +46,13 @@ export interface OptionItemProps {
   focusedRowControl?: FocusedRowControl
 }
 
-function _OptionItem({
+function OptionItemInner({
   image,
   title,
   subtitle,
   rightElement,
+  categoryTag,
+  titleSuffix,
   badge,
   titleProps,
   onPress,
@@ -47,6 +61,8 @@ function _OptionItem({
   testID,
   modalInfo,
   focusedRowControl,
+  modifierPressHref,
+  onModifierPress,
 }: OptionItemProps): JSX.Element {
   const isKeyboardOpen = useIsKeyboardOpen()
 
@@ -75,14 +91,16 @@ function _OptionItem({
   }, [modalShouldShow, modal, isKeyboardOpen, modalSetIsOpen, onPress])
 
   // Custom keyboard list nav behavior using arrow + enter keys
-  const { focusedRowIndex, rowIndex, setFocusedRowIndex } = focusedRowControl ?? {}
+  const { rowIndex, setFocusedRowIndex } = focusedRowControl ?? {}
   const keyboardNavEnabled = isWebPlatform && focusedRowControl && setFocusedRowIndex
-  const isFocused = focusedRowIndex !== undefined && focusedRowIndex === rowIndex
+  const isFocused = useIsRowFocused(rowIndex)
+  // Only the focused row listens: a listener per mounted row cost a document subscription each and
+  // re-subscribed on every focus change.
   useKeyDown({
     keys: ['Enter'],
     keyAction: KeyAction.UP,
-    disabled: !keyboardNavEnabled,
-    callback: isFocused ? onPressOption : noop,
+    disabled: !keyboardNavEnabled || !isFocused,
+    callback: onPressOption,
     shouldTriggerInInput: true,
   })
   const focusedStyleProps: FlexProps = keyboardNavEnabled
@@ -99,13 +117,12 @@ function _OptionItem({
 
   return (
     <>
-      <TouchableArea
-        animation="300ms"
-        opacity={disabled ? 0.5 : 1}
-        width="100%"
-        px="$spacing12"
+      <OptionItemPressableArea
+        disabled={disabled}
+        modifierPressHref={modifierPressHref}
         onPress={onPressOption}
         onLongPress={onLongPress}
+        onModifierPress={onModifierPress}
       >
         <Flex
           row
@@ -124,7 +141,27 @@ function _OptionItem({
             {image}
             <Flex shrink>
               <Flex row alignItems="center" gap="$spacing8">
-                {typeof title === 'string' ? (
+                {titleSuffix ? (
+                  <Flex row shrink alignItems="baseline" gap="$spacing4" minWidth={0}>
+                    {typeof title === 'string' ? (
+                      <Text
+                        color="$neutral1"
+                        variant="body1"
+                        whiteSpace="nowrap"
+                        overflow="hidden"
+                        textOverflow="ellipsis"
+                        numberOfLines={1}
+                        flexShrink={1}
+                        {...titleProps}
+                      >
+                        {title}
+                      </Text>
+                    ) : (
+                      title
+                    )}
+                    {titleSuffix}
+                  </Flex>
+                ) : typeof title === 'string' ? (
                   <Text
                     color="$neutral1"
                     variant="body1"
@@ -132,6 +169,7 @@ function _OptionItem({
                     overflow="hidden"
                     textOverflow="ellipsis"
                     numberOfLines={1}
+                    flexShrink={1}
                     {...titleProps}
                   >
                     {title}
@@ -145,17 +183,18 @@ function _OptionItem({
             </Flex>
           </Flex>
 
-          {rightElement && (
-            <Flex grow alignItems="flex-end" justifyContent="center">
+          {(categoryTag || rightElement) && (
+            <Flex row grow alignItems="center" justifyContent="flex-end" gap="$spacing8">
+              {categoryTag}
               {rightElement}
             </Flex>
           )}
         </Flex>
-      </TouchableArea>
+      </OptionItemPressableArea>
 
       {modal}
     </>
   )
 }
 
-export const OptionItem = memo(_OptionItem)
+export const OptionItem = memo(OptionItemInner)

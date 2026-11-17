@@ -1,15 +1,14 @@
-import { WalletAlertBadge } from 'components/Badge/WalletAlertBadge'
-import { Toast } from 'components/Popups/Toast'
-import { useAccount } from 'hooks/useAccount'
-import { useModalState } from 'hooks/useModalState'
+import { Flex, spacing } from '@universe/mycelium'
 import React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex } from 'ui/src'
-import { spacing } from 'ui/src/theme'
 import { InterfaceEventName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 import { useEvent } from 'utilities/src/react/hooks'
+import { WalletAlertBadge } from '~/components/Badge/WalletAlertBadge'
+import { Toast } from '~/components/Popups/Toast'
+import { useAccount } from '~/hooks/useAccount'
+import { useModalState } from '~/hooks/useModalState'
 
 export const MismatchToastItem = React.memo((props: { onDismiss: () => void }): JSX.Element => {
   const { t } = useTranslation()

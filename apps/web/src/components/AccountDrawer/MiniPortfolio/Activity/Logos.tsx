@@ -1,35 +1,15 @@
-import { LoaderV3 } from 'components/Icons/LoadingSpinner'
-import { css, deprecatedStyled } from 'lib/styled-components'
-import { FadePresence, FadePresenceAnimationType } from 'theme/components/FadePresence'
-import { useSporeColors } from 'ui/src'
+import { Flex, useSporeColors } from '@universe/mycelium'
+import { styled, type StyledComponent } from '@universe/mycelium/styled'
+import { FadePresence, FadePresenceAnimationType } from '~/theme/components/FadePresence'
 
-export const LogoContainer = deprecatedStyled.div`
-  height: 64px;
-  width: 64px;
-  position: relative;
-  display: flex;
-  justify-content: center;
-  border-radius: 50%;
-  overflow: visible;
-`
+const LOGO_CONTAINER_VARIANTS = {} as const
 
-const LoadingIndicator = deprecatedStyled(LoaderV3)`
-  stroke: ${({ theme }) => theme.neutral3};
-  fill: ${({ theme }) => theme.neutral3};
-  width: calc(100% + 8px);
-  height: calc(100% + 8px);
-  top: -4px;
-  left: -4px;
-  position: absolute;
-`
-
-export function LoadingIndicatorOverlay() {
-  return (
-    <FadePresence>
-      <LoadingIndicator />
-    </FadePresence>
-  )
-}
+// Empty variants table + explicit annotation: the inferred styled() type isn't
+// portable under declaration emit (TS2883). 64px = iconSizes.icon64.
+export const LogoContainer: StyledComponent<typeof Flex, typeof LOGO_CONTAINER_VARIANTS> = styled(Flex, {
+  variants: LOGO_CONTAINER_VARIANTS,
+  base: 'justify-center w-[64px] h-[64px] rounded-[999999px] overflow-visible relative',
+})
 
 export function ConfirmedIcon({ className }: { className?: string }) {
   const colors = useSporeColors()
@@ -74,16 +54,3 @@ export function SubmittedIcon({ className }: { className?: string }) {
     </FadePresence>
   )
 }
-
-const IconCss = css`
-  height: 64px;
-  width: 64px;
-`
-
-export const AnimatedEntranceConfirmationIcon = deprecatedStyled(ConfirmedIcon)`
-  ${IconCss}
-`
-
-export const AnimatedEntranceSubmittedIcon = deprecatedStyled(SubmittedIcon)`
-  ${IconCss}
-`

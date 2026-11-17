@@ -1,71 +1,42 @@
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { HelpModal } from 'components/HelpModal/HelpModal'
-import { MenuItem, MenuSection, MenuSectionTitle, useMenuContent } from 'components/NavBar/CompanyMenu/Content'
-import { LegalAndPrivacyMenu } from 'components/NavBar/LegalAndPrivacyMenu'
-import { NavDropdown } from 'components/NavBar/NavDropdown'
-import { useTabsVisible } from 'components/NavBar/ScreenSizes'
-import { useTabsContent } from 'components/NavBar/Tabs/TabsContent'
-import { Socials } from 'pages/Landing/sections/Footer'
-import { useMemo } from 'react'
+import { Anchor, clickableStyle, cn, Flex, type FlexCompatProps, Separator, Text } from '@universe/mycelium'
+import { TestID } from '@universe/test'
+import { forwardRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
-import { ExternalLink } from 'theme/components/Links'
-import { ClickableTamaguiStyle } from 'theme/components/styles'
-import { Anchor, Flex, Separator, styled, Text } from 'ui/src'
-import { TextVariantTokens } from 'ui/src/theme'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
+import Trace from 'uniswap/src/features/telemetry/Trace'
+import { HelpModal } from '~/components/HelpModal/HelpModal'
+import { MenuItem, MenuSection, MenuSectionTitle, useMenuContent } from '~/components/NavBar/CompanyMenu/Content'
+import { MenuLink } from '~/components/NavBar/CompanyMenu/MenuLink'
+import { LegalAndPrivacyMenu } from '~/components/NavBar/LegalAndPrivacyMenu'
+import { NavDropdown } from '~/components/NavBar/NavDropdown'
+import { useTabsVisible } from '~/components/NavBar/ScreenSizes'
+import { useTabsContent } from '~/components/NavBar/Tabs/TabsContent'
+import { Socials } from '~/pages/Landing/sections/Footer'
 
-const Container = styled(Flex, {
-  width: '400px',
-  p: '$gap16',
-  userSelect: 'none',
-  height: 'unset',
-  borderRadius: '$rounded12',
-  backgroundColor: '$surface2',
-  boxShadow: '$shadow.1',
+// `width`/`height` are omitted, not just avoided below: `{...props}` spreads last, so a caller
+// passing either would reintroduce the inherited-`--c-w` bug the className works around.
+type ContainerProps = Omit<FlexCompatProps, 'width' | 'height'>
+
+const Container = forwardRef<HTMLDivElement, ContainerProps>(function Container({ className, ...props }, ref) {
+  return (
+    <Flex
+      ref={ref}
+      // Migration scaffolding: size via source classes, not the `width`/`height` props. Those
+      // props compile to `var(--c-w)`/`var(--c-h)` backed by INHERITED custom properties, so a
+      // `width="400px"` prop here publishes `--c-w: 400px` to the whole subtree — and the
+      // descendant Expand's `width="unset"` resolves `width: var(--c-w)` to that 400px instead of
+      // auto, overflowing its own parent and shoving Legal & Privacy onto the social icons.
+      // `h-auto` is what the legacy `height: 'unset'` computed to. Restore the plain props once
+      // INFRA-3925 fixes the keyword lane.
+      className={cn('w-[400px] h-auto', className)}
+      p="$gap16"
+      userSelect="none"
+      borderRadius="$rounded12"
+      backgroundColor="$surface2"
+      {...props}
+    />
+  )
 })
 
-const LinkStyle = {
-  textDecoration: 'none',
-  height: 'unset',
-  padding: 0,
-}
-
-const LinkTextStyle = {
-  color: '$neutral1',
-  hoverStyle: {
-    opacity: 0.6,
-  },
-}
-
-export function MenuLink({
-  label,
-  href,
-  internal,
-  closeMenu,
-  textVariant = 'body3',
-  icon,
-}: MenuItem & { textVariant?: TextVariantTokens }) {
-  return internal ? (
-    <Link to={href} onClick={closeMenu} style={LinkStyle}>
-      <Flex row gap="$gap8">
-        {icon}
-        <Text variant={textVariant} {...LinkTextStyle}>
-          {label}
-        </Text>
-      </Flex>
-    </Link>
-  ) : (
-    <ExternalLink href={href} onClick={closeMenu} style={{ ...LinkStyle, stroke: 'unset' }}>
-      <Flex row gap="$gap8">
-        {icon}
-        <Text variant={textVariant} {...LinkTextStyle}>
-          {label}
-        </Text>
-      </Flex>
-    </ExternalLink>
-  )
-}
 function Section({ title, items, closeMenu }: MenuSection) {
   return (
     <Flex gap="$spacing8" flex={1} data-testid={`menu-section-${title}`}>
@@ -80,6 +51,7 @@ function Section({ title, items, closeMenu }: MenuSection) {
           internal={item.internal}
           overflow={item.overflow}
           closeMenu={closeMenu}
+          elementName={item.elementName}
         />
       ))}
     </Flex>
@@ -95,26 +67,27 @@ function ProductSection({ items }: { items: MenuItem[] }) {
       </Text>
       <Flex row gap="$gap16" flexWrap="wrap">
         {items.map((item, index) => (
-          <Anchor
-            href={item.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            {...ClickableTamaguiStyle}
-            key={`${item.label}_${index}}`}
-            aria-label={item.label}
-          >
-            <Flex row gap="$gap8" minWidth={168}>
-              <Flex p="$padding6" borderRadius="$rounded8" backgroundColor="$accent2">
-                {item.icon}
+          <Trace logPress element={item.elementName} key={`${item.label}_${index}}`}>
+            <Anchor
+              href={item.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              {...clickableStyle}
+              aria-label={item.label}
+            >
+              <Flex row gap="$gap8" minWidth={168}>
+                <Flex p="$padding6" borderRadius="$rounded8" backgroundColor="$accent2">
+                  {item.icon}
+                </Flex>
+                <Flex>
+                  <Text variant="body3">{item.label}</Text>
+                  <Text fontSize={10} lineHeight={14} color="$neutral2">
+                    {item.body}
+                  </Text>
+                </Flex>
               </Flex>
-              <Flex>
-                <Text variant="body3">{item.label}</Text>
-                <Text fontSize={10} lineHeight={14} color="$neutral2">
-                  {item.body}
-                </Text>
-              </Flex>
-            </Flex>
-          </Anchor>
+            </Anchor>
+          </Trace>
         ))}
       </Flex>
     </Flex>
@@ -123,7 +96,6 @@ function ProductSection({ items }: { items: MenuItem[] }) {
 
 export function MenuDropdown({ close }: { close?: () => void }) {
   const { t } = useTranslation()
-  const isConversionTrackingEnabled = useFeatureFlag(FeatureFlags.ConversionTracking)
   const menuContent = useMenuContent({
     keys: [MenuSectionTitle.Protocol, MenuSectionTitle.Company],
   })
@@ -139,6 +111,7 @@ export function MenuDropdown({ close }: { close?: () => void }) {
         href: tab.href,
         internal: true,
         overflow: false,
+        elementName: tab.elementName,
       }
     })
   }, [tabs])
@@ -168,11 +141,9 @@ export function MenuDropdown({ close }: { close?: () => void }) {
             alignItems="center"
             $xl={{ flexDirection: 'column', gap: '$spacing16', alignItems: 'flex-start' }}
           >
-            {isConversionTrackingEnabled && (
-              <Flex flex={1}>
-                <LegalAndPrivacyMenu closeMenu={close} />
-              </Flex>
-            )}
+            <Flex flex={1} width="100%">
+              <LegalAndPrivacyMenu closeMenu={close} singleRowLinks />
+            </Flex>
             <Flex row alignSelf="flex-end" alignItems="center" justifyContent="space-between" $xl={{ width: '100%' }}>
               <Flex display="none" $xl={{ display: 'flex' }}>
                 <HelpModal showOnXL />

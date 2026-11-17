@@ -4,8 +4,8 @@ import { SAMPLE_SEED_ADDRESS_1 } from 'uniswap/src/test/fixtures'
 import { render } from 'uniswap/src/test/test-utils'
 
 const mockWalletAddress = (): Address => SAMPLE_SEED_ADDRESS_1
-jest.mock('uniswap/src/features/wallet/hooks/useWallet', () => ({
-  useWallet: jest.fn().mockReturnValue({
+vi.mock('uniswap/src/features/wallet/hooks/useWallet', () => ({
+  useWallet: vi.fn().mockReturnValue({
     evmAccount: { address: mockWalletAddress },
   }),
 }))
@@ -40,18 +40,25 @@ const mockTransaction = {
   },
 } as TransactionDetails
 
-// Mock the ImageUri component
-jest.mock('uniswap/src/components/nfts/images/ImageUri', () => ({
-  ImageUri: jest.fn(() => null),
+// Mock the UniversalImage component. It is exported from BOTH the barrel and the
+// `/universal-image` subpath, and vitest keys a mock to the resolved module — so
+// mocking one leaves the other rendering the real component. Nothing in this tree
+// reaches the subpath today; both are mocked so that stays true when something does.
+vi.mock('@universe/mycelium', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@universe/mycelium')>()),
+  UniversalImage: vi.fn(() => null),
+}))
+
+vi.mock('@universe/mycelium/universal-image', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@universe/mycelium/universal-image')>()),
+  UniversalImage: vi.fn(() => null),
 }))
 
 describe('NftTransactionDetails Component', () => {
   it('renders NftTransactionDetails without error', () => {
-    const onClose = jest.fn()
+    const onClose = vi.fn()
 
-    const tree = render(
-      <NftTransactionDetails transactionDetails={mockTransaction} typeInfo={nftTypeInfo} onClose={onClose} />,
-    )
+    const tree = render(<NftTransactionDetails typeInfo={nftTypeInfo} />)
 
     expect(tree).toMatchSnapshot()
   })

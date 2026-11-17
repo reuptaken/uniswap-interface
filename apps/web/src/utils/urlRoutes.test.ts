@@ -1,5 +1,5 @@
 import { InterfacePageName } from 'uniswap/src/features/telemetry/constants'
-import { getCanonicalUrl, getCurrentPageFromLocation } from 'utils/urlRoutes'
+import { getCanonicalUrl, getCurrentPageFromLocation } from '~/utils/urlRoutes'
 
 describe('getCurrentPageFromLocation', () => {
   it('should return LANDING_PAGE when location pathname is "/"', () => {
@@ -23,6 +23,11 @@ describe('getCurrentPageFromLocation', () => {
   it('should return POOL_DETAILS_PAGE when location pathname starts with "/explore/pools/0x"', () => {
     const result = getCurrentPageFromLocation('/explore/pools/optimism/0x456')
     expect(result).toBe(InterfacePageName.PoolDetailsPage)
+  })
+
+  it('should return CATEGORY_DETAILS_PAGE when location pathname starts with "/explore/category/"', () => {
+    const result = getCurrentPageFromLocation('/explore/category/defi')
+    expect(result).toBe(InterfacePageName.CategoryDetailsPage)
   })
 
   it('should return EXPLORE_PAGE when location pathname starts with "/explore" but does not match detail-page routes', () => {
@@ -51,26 +56,6 @@ describe('getCurrentPageFromLocation', () => {
     expect(result).toBe(InterfacePageName.TokensPage)
   })
 
-  it('should return NFT_PROFILE_PAGE when location pathname starts with "/nfts/profile"', () => {
-    const result = getCurrentPageFromLocation('/nfts/profile/def')
-    expect(result).toBe(InterfacePageName.NftProfilePage)
-  })
-
-  it('should return NFT_DETAILS_PAGE when location pathname starts with "/nfts/asset"', () => {
-    const result = getCurrentPageFromLocation('/nfts/asset/ghi')
-    expect(result).toBe(InterfacePageName.NftDetailsPage)
-  })
-
-  it('should return NFT_COLLECTION_PAGE when location pathname starts with "/nfts/collection"', () => {
-    const result = getCurrentPageFromLocation('/nfts/collection/jkl')
-    expect(result).toBe(InterfacePageName.NftCollectionPage)
-  })
-
-  it('should return NFT_EXPLORE_PAGE when location pathname starts with "/nfts"', () => {
-    const result = getCurrentPageFromLocation('/nfts/mno')
-    expect(result).toBe(InterfacePageName.NftExplorePage)
-  })
-
   it('should return undefined for unknown location pathnames', () => {
     const result = getCurrentPageFromLocation('/unknown')
     expect(result).toBeUndefined()
@@ -86,5 +71,15 @@ describe('getCanonicalUrl', () => {
   it('should return the base URL without trailing slash', () => {
     const result = getCanonicalUrl('/swap/123/')
     expect(result).toBe('http://localhost:3000/swap/123')
+  })
+
+  it('should preserve explicit multichain token details canonical state', () => {
+    const result = getCanonicalUrl('/explore/tokens/ethereum/0xabc', '?chain=multichain&foo=bar')
+    expect(result).toBe('http://localhost:3000/explore/tokens/ethereum/0xabc?chain=multichain')
+  })
+
+  it('should omit non-multichain search params from canonical URL', () => {
+    const result = getCanonicalUrl('/explore/tokens/ethereum/0xabc', '?chain=base&foo=bar')
+    expect(result).toBe('http://localhost:3000/explore/tokens/ethereum/0xabc')
   })
 })

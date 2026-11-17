@@ -1,6 +1,6 @@
+import { UniverseChainId } from '@universe/chains'
 import { useMemo } from 'react'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { toSupportedChainId } from 'uniswap/src/features/chains/utils'
 import { useWalletDelegationContext } from 'wallet/src/features/smartWallet/WalletDelegationProvider'
 
@@ -27,6 +27,7 @@ export function useSmartWalletChains(): UniverseChainId[] {
       return []
     }
 
+    // oxlint-disable-next-line guard-for-in -- biome-parity: oxlint is stricter here
     for (const chainId in chainData) {
       const chain = toSupportedChainId(chainId)
       if (!chain) {

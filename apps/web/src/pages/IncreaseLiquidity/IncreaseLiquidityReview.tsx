@@ -1,30 +1,16 @@
 import { ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
 import { CurrencyAmount } from '@uniswap/sdk-core'
-import { getLPBaseAnalyticsProperties } from 'components/Liquidity/analytics'
-import { useUpdatedAmountsFromDependentAmount } from 'components/Liquidity/hooks/useDependentAmountFallback'
-import { useGetPoolTokenPercentage } from 'components/Liquidity/hooks/useGetPoolTokenPercentage'
-import { TokenInfo } from 'components/Liquidity/TokenInfo'
-import { DetailLineItem } from 'components/swap/DetailLineItem'
-import { useCurrencyInfo } from 'hooks/Tokens'
-import { useAccount } from 'hooks/useAccount'
-import useSelectChain from 'hooks/useSelectChain'
-import { IncreaseLiquidityStep, useIncreaseLiquidityContext } from 'pages/IncreaseLiquidity/IncreaseLiquidityContext'
-import { useIncreaseLiquidityTxContext } from 'pages/IncreaseLiquidity/IncreaseLiquidityTxContext'
-import { useSetOverrideOneClickSwapFlag } from 'pages/Swap/settings/OneClickSwap'
+import { useGetPasskeyAuthStatus } from '@universe/embedded-wallet'
+import { Button, Flex, iconSizes, Separator, Text } from '@universe/mycelium'
+import { Passkey } from '@universe/mycelium/icons/Passkey'
 import { useMemo, useState } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { useDispatch } from 'react-redux'
-import { liquiditySaga } from 'state/sagas/liquidity/liquiditySaga'
-import { ExternalLink } from 'theme/components/Links'
-import { Button, Flex, Separator, Text } from 'ui/src'
-import { Passkey } from 'ui/src/components/icons/Passkey'
-import { iconSizes } from 'ui/src/theme'
 import { ProgressIndicator } from 'uniswap/src/components/ConfirmSwapModal/ProgressIndicator'
 import { CurrencyLogo } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
 import { NetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
 import { PollingInterval } from 'uniswap/src/constants/misc'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
-import { useGetPasskeyAuthStatus } from 'uniswap/src/features/passkey/hooks/useGetPasskeyAuthStatus'
 import { useUSDCValue } from 'uniswap/src/features/transactions/hooks/useUSDCPrice'
 import { isValidLiquidityTxContext } from 'uniswap/src/features/transactions/liquidity/types'
 import { getErrorMessageToDisplay } from 'uniswap/src/features/transactions/liquidity/utils'
@@ -34,7 +20,25 @@ import { isSignerMnemonicAccountDetails } from 'uniswap/src/features/wallet/type
 import { getSymbolDisplayText } from 'uniswap/src/utils/currency'
 import { NumberType } from 'utilities/src/format/types'
 import { useTrace } from 'utilities/src/telemetry/trace/TraceContext'
+import { DetailLineItem } from '~/components/DetailLineItem'
+import { LPGeoRestrictionBanner } from '~/components/GeoRestriction/LPGeoRestrictionBanner'
+import { getLPBaseAnalyticsProperties } from '~/features/Liquidity/analytics'
+import { useUpdatedAmountsFromDependentAmount } from '~/features/Liquidity/hooks/useDependentAmountFallback'
+import { useGetPoolTokenPercentage } from '~/features/Liquidity/hooks/useGetPoolTokenPercentage'
+import { useIsLiquiditySagaRunning } from '~/features/Liquidity/hooks/useIsLiquiditySagaRunning'
+import { LiquiditySagaPendingMessage } from '~/features/Liquidity/LiquiditySagaPendingMessage'
+import { TokenInfo } from '~/features/Liquidity/TokenInfo'
+import { useLPGeoRestriction } from '~/features/Liquidity/useLPGeoRestriction'
+import { useCurrencyInfo } from '~/hooks/Tokens'
+import { useAccount } from '~/hooks/useAccount'
+import { useSelectChain } from '~/hooks/useSelectChain'
+import { IncreaseLiquidityStep, useIncreaseLiquidityContext } from '~/pages/IncreaseLiquidity/IncreaseLiquidityContext'
+import { useIncreaseLiquidityTxContext } from '~/pages/IncreaseLiquidity/IncreaseLiquidityTxContext'
+import { useSetOverrideOneClickSwapFlag } from '~/pages/Swap/Swap/settings/OneClickSwap'
+import { liquiditySaga } from '~/state/sagas/liquidity/liquiditySaga'
+import { ExternalLink } from '~/theme/components/Links'
 
+// oxlint-disable-next-line complexity
 export function IncreaseLiquidityReview({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
   const dispatch = useDispatch()
@@ -44,6 +48,7 @@ export function IncreaseLiquidityReview({ onClose }: { onClose: () => void }) {
   const account = useWallet().evmAccount
   const trace = useTrace()
   const { needsPasskeySignin } = useGetPasskeyAuthStatus(connectedAccount.connector?.id)
+  const isLiquiditySagaRunning = useIsLiquiditySagaRunning()
   const disableOneClickSwap = useSetOverrideOneClickSwapFlag()
 
   const { formatCurrencyAmount, formatPercent, convertFiatAmountFormatted } = useLocalizationContext()
@@ -96,6 +101,18 @@ export function IncreaseLiquidityReview({ onClose }: { onClose: () => void }) {
   const currentPrice = increaseLiquidityState.position.poolOrPair?.token1Price
   const poolTokenPercentage = useGetPoolTokenPercentage(increaseLiquidityState.position)
 
+  // The signing-surface half of the gate. Read here rather than inherited from IncreaseLiquidityForm
+  // on purpose: the form gate fails open while the compliance answer is in flight, so a user can
+  // press Review before the verdict lands. Re-reading on this step is what catches that window.
+  const {
+    isGeoRestricted,
+    restrictedTokenSymbol,
+    unavailableLabel: geoUnavailableLabel,
+  } = useLPGeoRestriction({
+    token0: currency0Amount.currency,
+    token1: currency1Amount.currency,
+  })
+
   const currency0CurrencyInfo = useCurrencyInfo(currency0Amount.currency)
   const currency1CurrencyInfo = useCurrencyInfo(currency1Amount.currency)
 
@@ -146,6 +163,7 @@ export function IncreaseLiquidityReview({ onClose }: { onClose: () => void }) {
   const onIncreaseLiquidity = () => {
     const isValidTx = isValidLiquidityTxContext(txInfo)
     if (
+      isGeoRestricted ||
       !account ||
       !isSignerMnemonicAccountDetails(account) ||
       !isValidTx ||
@@ -208,6 +226,8 @@ export function IncreaseLiquidityReview({ onClose }: { onClose: () => void }) {
       : [updatedCurrencyAmounts.TOKEN1, updatedUSDAmounts?.TOKEN1]
   }, [fee1Amount, updatedCurrencyAmounts?.TOKEN1, fiatFeeValue1, updatedUSDAmounts?.TOKEN1])
 
+  const hasUnclaimedFees = displayFee0Amount?.greaterThan(0) || displayFee1Amount?.greaterThan(0)
+
   return (
     <Flex gap="$gap12">
       <Flex gap="$gap16" px="$padding16" pt="$padding12">
@@ -217,8 +237,8 @@ export function IncreaseLiquidityReview({ onClose }: { onClose: () => void }) {
         </Text>
         <TokenInfo currencyAmount={updatedCurrencyAmounts?.TOKEN1} currencyUSDAmount={updatedUSDAmounts?.TOKEN1} />
         {/* V4 adds unclaimed fees to the position */}
-        {version === ProtocolVersion.V4 && (
-          <Flex p="$spacing12" gap="$gap12" background="$surface2" borderRadius="$rounded12">
+        {version === ProtocolVersion.V4 && hasUnclaimedFees && (
+          <Flex p="$spacing12" gap="$gap12" backgroundColor="$surface2" borderRadius="$rounded12">
             <Text variant="body4" color="$neutral2">
               {t('fee.unclaimed.added')}
             </Text>
@@ -282,10 +302,9 @@ export function IncreaseLiquidityReview({ onClose }: { onClose: () => void }) {
               LineItem={{
                 Label: () => (
                   <Text variant="body3" color="$neutral2">
-                    <Trans
-                      i18nKey="pool.newSpecificPosition"
-                      values={{ symbol: currencyAmounts?.TOKEN0?.currency.symbol }}
-                    />
+                    {t('pool.newSpecificPosition', {
+                      symbol: currencyAmounts?.TOKEN0?.currency.symbol ?? t('common.token'),
+                    })}
                   </Text>
                 ),
                 Value: () => (
@@ -305,10 +324,9 @@ export function IncreaseLiquidityReview({ onClose }: { onClose: () => void }) {
               LineItem={{
                 Label: () => (
                   <Text variant="body3" color="$neutral2">
-                    <Trans
-                      i18nKey="pool.newSpecificPosition"
-                      values={{ symbol: currencyAmounts?.TOKEN1?.currency.symbol }}
-                    />
+                    {t('pool.newSpecificPosition', {
+                      symbol: currencyAmounts?.TOKEN1?.currency.symbol ?? t('common.token'),
+                    })}
                   </Text>
                 ),
                 Value: () => (
@@ -332,7 +350,7 @@ export function IncreaseLiquidityReview({ onClose }: { onClose: () => void }) {
                       {t('addLiquidity.shareOfPool')}
                     </Text>
                   ),
-                  Value: () => <Text>{formatPercent(poolTokenPercentage.toFixed())}</Text>,
+                  Value: () => <Text variant="body3">{formatPercent(poolTokenPercentage.toFixed())}</Text>,
                 }}
               />
             ) : null}
@@ -354,14 +372,22 @@ export function IncreaseLiquidityReview({ onClose }: { onClose: () => void }) {
               }}
             />
           </Flex>
+          {/* Owns the message when up: a dead confirm with no stated reason is the failure mode. */}
+          {isGeoRestricted && <LPGeoRestrictionBanner tokenSymbol={restrictedTokenSymbol} />}
+          <LiquiditySagaPendingMessage />
           <Flex row>
             <Button
               variant="branded"
               size="large"
               onPress={onIncreaseLiquidity}
-              icon={needsPasskeySignin ? <Passkey size="$icon.24" /> : undefined}
+              disabled={isGeoRestricted || isLiquiditySagaRunning}
+              icon={needsPasskeySignin && !isGeoRestricted ? <Passkey size="$icon.24" color="$white" /> : undefined}
             >
-              {needsPasskeySignin ? t('common.addLiquidity') : t('common.confirm')}
+              {isGeoRestricted
+                ? geoUnavailableLabel
+                : needsPasskeySignin
+                  ? t('common.addLiquidity')
+                  : t('common.confirm')}
             </Button>
           </Flex>
         </>

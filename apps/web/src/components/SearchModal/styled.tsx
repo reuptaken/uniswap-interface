@@ -1,47 +1,77 @@
-import { RowBetween } from 'components/deprecated/Row'
-import { deprecatedStyled } from 'lib/styled-components'
+import { Flex, type FlexCompatProps } from '@universe/mycelium'
+import { type ElementRef, forwardRef, type ForwardRefExoticComponent, type RefAttributes } from 'react'
+import { Input, type InputProps } from 'ui/src'
 
-export const MenuItem = deprecatedStyled(RowBetween)<{ dim?: boolean }>`
-  padding: 4px 20px;
-  height: 60px;
-  display: grid;
-  grid-template-columns: auto minmax(auto, 1fr) auto minmax(0, 72px);
-  grid-gap: 16px;
-  cursor: ${({ disabled }) => !disabled && 'pointer'};
-  pointer-events: ${({ disabled }) => disabled && 'none'};
-  &:hover {
-    background-color: ${({ theme }) => theme.deprecated_hoverDefault};
-  }
-  opacity: ${({ disabled, selected, dim }) => (dim || disabled || selected ? 0.4 : 1)};
-`
+export type MenuItemProps = FlexCompatProps & {
+  disabled?: boolean
+  selected?: boolean
+  dim?: boolean
+}
 
-export const SearchInput = deprecatedStyled.input`
-  padding: 16px;
-  padding-left: 40px;
-  height: 40px;
-  align-items: center;
-  width: 100%;
-  white-space: nowrap;
-  background-color: ${({ theme }) => theme.surface2};
-  border: none;
-  outline: none;
-  border-radius: 12px;
-  color: ${({ theme }) => theme.neutral1};
-  border-style: solid;
-  border: 1px solid ${({ theme }) => theme.surface3};
-  -webkit-appearance: none;
-  font-weight: 485;
+// Explicit return type: see "TS2883 on exported forwardRef wrappers" in packages/mycelium/CLAUDE.md.
+export const MenuItem: ForwardRefExoticComponent<MenuItemProps & RefAttributes<HTMLDivElement>> = forwardRef<
+  HTMLDivElement,
+  MenuItemProps
+>(function MenuItem({ disabled, selected, dim, '$platform-web': platformWeb, hoverStyle, ...rest }, ref) {
+  return (
+    <Flex
+      ref={ref}
+      row
+      justifyContent="space-between"
+      alignItems="center"
+      py="$spacing4"
+      px="$spacing20"
+      height="$spacing60"
+      gap="$gap16"
+      cursor="pointer"
+      width="100%"
+      // Merged explicitly, not spread: a plain spread would replace these bases wholesale.
+      $platform-web={{
+        display: 'grid',
+        gridTemplateColumns: 'auto minmax(auto, 1fr) auto minmax(0, 72px)',
+        ...platformWeb,
+      }}
+      hoverStyle={{ backgroundColor: '$surface3', ...hoverStyle }}
+      {...rest}
+      // disabled/selected/dim are derived state, not caller overrides, so they must win over
+      // anything in `rest` (e.g. a stray `opacity` or `cursor`); they spread last.
+      {...(disabled ? { cursor: 'default', pointerEvents: 'none', opacity: 0.4 } : {})}
+      {...(selected ? { opacity: 0.4 } : {})}
+      {...(dim ? { opacity: 0.4 } : {})}
+    />
+  )
+})
 
-  font-size: 16px;
-
-  ::placeholder {
-    color: ${({ theme }) => theme.neutral3};
-    font-size: 16px;
-  }
-  transition: border 100ms;
-  :focus {
-    border: 1px solid ${({ theme }) => theme.surface3};
-    background-color: ${({ theme }) => theme.surface2};
-    outline: none;
-  }
-`
+// Explicit return type: see "TS2883 on exported forwardRef wrappers" in packages/mycelium/CLAUDE.md.
+export const SearchInput: ForwardRefExoticComponent<InputProps & RefAttributes<ElementRef<typeof Input>>> = forwardRef<
+  ElementRef<typeof Input>,
+  InputProps
+>(function SearchInput({ '$platform-web': platformWeb, ...props }, ref) {
+  return (
+    <Input
+      ref={ref}
+      py="$padding16"
+      pl="$spacing40"
+      pr="$padding16"
+      height="$spacing40"
+      alignItems="center"
+      width="100%"
+      whiteSpace="nowrap"
+      backgroundColor="$surface2"
+      borderWidth={1}
+      borderStyle="solid"
+      borderColor="$surface3"
+      borderRadius="$rounded12"
+      color="$neutral1"
+      fontWeight="500"
+      fontSize={16}
+      outlineWidth={0}
+      // Merged explicitly, not spread: a plain spread would replace this base wholesale.
+      $platform-web={{ WebkitAppearance: 'none', ...platformWeb }}
+      placeholderTextColor="$neutral3"
+      // No focusStyle: it only re-stated the resting values above, and passing it would let focus
+      // beat a consumer's inline `style`, inverting the precedence ./styled.test.tsx pins.
+      {...props}
+    />
+  )
+})

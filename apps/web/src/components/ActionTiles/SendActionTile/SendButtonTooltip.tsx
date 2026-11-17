@@ -1,8 +1,9 @@
 import Portal from '@reach/portal'
+import { Flex, Text } from '@universe/mycelium'
+import { InfoCircleFilled } from '@universe/mycelium/icons/InfoCircleFilled'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
 import { PropsWithChildren, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text, useSporeColors } from 'ui/src'
-import { InfoCircleFilled } from 'ui/src/components/icons/InfoCircleFilled'
 import { logger } from 'utilities/src/logger/logger'
 import { useEvent } from 'utilities/src/react/hooks'
 
@@ -79,13 +80,12 @@ export function SendButtonTooltip({
             width={tooltipPosition.width}
             transform="translateX(-50%)"
             backgroundColor="$surface1"
-            borderWidth={1}
+            borderWidth="$spacing1"
             borderColor="$surface3"
             borderRadius="$rounded12"
             paddingHorizontal="$spacing16"
             paddingVertical="$spacing12"
             boxSizing="border-box"
-            boxShadow="$shadow1"
             pointerEvents="none"
             zIndex="$tooltip"
           >

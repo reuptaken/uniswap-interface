@@ -1,6 +1,6 @@
-import { ethCurrencyInfo } from 'pages/Swap/Buy/BuyFormContext'
 import { RampDirection } from 'uniswap/src/features/fiatOnRamp/types'
 import { getFiatCurrencyComponents } from 'utilities/src/format/localeBased'
+import { ethCurrencyInfo } from '~/pages/Swap/Buy/BuyFormContext'
 
 export const mockServiceProvider = {
   serviceProvider: 'test-provider',
@@ -29,7 +29,7 @@ export const mockBuyFormContext = {
     countryModalOpen: false,
     currencyModalOpen: false,
     providerModalOpen: true,
-    rampDirection: RampDirection.ONRAMP,
+    rampDirection: RampDirection.ON_RAMP,
   },
   derivedBuyFormInfo: {
     meldSupportedFiatCurrency: {
@@ -43,4 +43,5 @@ export const mockBuyFormContext = {
     fetchingQuotes: false,
   },
   setBuyFormState: vi.fn(),
+  externalTransactionIdSuffix: 'test-transaction-id-suffix',
 }

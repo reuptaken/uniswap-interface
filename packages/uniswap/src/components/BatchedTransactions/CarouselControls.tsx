@@ -1,10 +1,9 @@
-import { Flex, LinearGradient, TouchableArea, useSporeColors } from 'ui/src'
+import { isExtensionApp } from '@universe/environment'
+import { Flex, iconSizes, LinearGradient, spacing, TouchableArea, zIndexes } from '@universe/mycelium'
+import { opacify, useSporeColors } from '@universe/mycelium/theme-hooks-compat'
 import { RotatableChevron } from 'ui/src/components/icons/RotatableChevron'
-import { iconSizes, opacify, spacing, zIndexes } from 'ui/src/theme'
-import { isExtensionApp } from 'utilities/src/platform'
 
 export const ScrollArrow = ({ onPress, side }: { onPress: () => void; side: 'left' | 'right' }): JSX.Element => {
-  const colors = useSporeColors()
   const iconSize = iconSizes.icon24
 
   return (
@@ -25,7 +24,7 @@ export const ScrollArrow = ({ onPress, side }: { onPress: () => void; side: 'lef
       justifyContent="center"
     >
       <TouchableArea onPress={onPress}>
-        <RotatableChevron color={colors.neutral2.val} direction={side} height={iconSize} width={iconSize} />
+        <RotatableChevron color="$neutral2" direction={side} size="$icon.24" />
       </TouchableArea>
     </Flex>
   )

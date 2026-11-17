@@ -1,27 +1,29 @@
 import { createSelector, Selector } from '@reduxjs/toolkit'
+import { UniverseChainId } from '@universe/chains'
 import { useMemo } from 'react'
 import { useSelector } from 'react-redux'
-import { normalizeCurrencyIdForMapLookup } from 'uniswap/src/data/cache'
 import { SearchableRecipient } from 'uniswap/src/features/address/types'
 import { uniqueAddressesOnly } from 'uniswap/src/features/address/utils'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { TransactionsState } from 'uniswap/src/features/transactions/slice'
-import { isBridge, isClassic, isUniswapX } from 'uniswap/src/features/transactions/swap/utils/routing'
+import { isUniswapX } from 'uniswap/src/features/transactions/swap/utils/routing'
 import {
   InterfaceTransactionDetails,
+  PlanTransactionDetails,
   SendTokenTransactionInfo,
   TransactionDetails,
+  TransactionStatus,
   TransactionType,
   UniswapXOrderDetails,
 } from 'uniswap/src/features/transactions/types/transactionDetails'
-import { isFinalizedTx } from 'uniswap/src/features/transactions/types/utils'
-import { isLimitOrder } from 'uniswap/src/features/transactions/utils/uniswapX.utils'
+import { isFinalizedTx, isPlanTransactionDetails } from 'uniswap/src/features/transactions/types/utils'
 import { selectTokensVisibility } from 'uniswap/src/features/visibility/selectors'
 import { CurrencyIdToVisibility } from 'uniswap/src/features/visibility/slice'
 import { UniswapState } from 'uniswap/src/state/uniswapReducer'
+import { normalizeCurrencyIdForMapLookup } from 'uniswap/src/utils/currencyId'
 import { buildCurrencyId } from 'uniswap/src/utils/currencyId'
 import { unique } from 'utilities/src/primitives/array'
 import { flattenObjectOfObjects } from 'utilities/src/primitives/objects'
+import { ONE_DAY_MS } from 'utilities/src/time/time'
 
 export const selectTransactions = (state: UniswapState): TransactionsState => state.transactions
 
@@ -43,6 +45,23 @@ type PlatformAddresses = {
   svmAddress: Address | null
 }
 
+// Bank-rail on-ramps (ACH, SEPA) legitimately stay pending for 2–5 business days
+const ON_RAMP_MAX_PENDING_MS = 10 * ONE_DAY_MS
+
+const FOR_MAX_PENDING_MS: Partial<Record<TransactionType, number>> = {
+  [TransactionType.OnRampPurchase]: ON_RAMP_MAX_PENDING_MS,
+  [TransactionType.OnRampTransfer]: ON_RAMP_MAX_PENDING_MS,
+  [TransactionType.OffRampSale]: ONE_DAY_MS,
+}
+
+/** FOR providers can leave a record Pending forever; past its window it's noise in activity and the pending badge */
+function isStalePendingFORTransaction(tx: TransactionDetails): boolean {
+  const maxPendingMs = FOR_MAX_PENDING_MS[tx.typeInfo.type]
+  return (
+    maxPendingMs !== undefined && tx.status === TransactionStatus.Pending && Date.now() - tx.addedTime > maxPendingMs
+  )
+}
+
 export type AddressTransactionsSelector = Selector<UniswapState, TransactionDetails[] | undefined, [PlatformAddresses]>
 export function makeSelectAddressTransactions(): AddressTransactionsSelector {
   const extractAddresses = (_: UniswapState, addresses: PlatformAddresses): PlatformAddresses => addresses
@@ -61,39 +80,38 @@ export function makeSelectAddressTransactions(): AddressTransactionsSelector {
 
     // Combine transactions from both addresses
     const combinedTransactions = {
-      ...(evmAddressTransactions || {}),
-      ...(svmAddressTransactions || {}),
+      ...evmAddressTransactions,
+      ...svmAddressTransactions,
     }
 
-    // eslint-disable-next-line max-params
+    // oxlint-disable-next-line max-params
     return unique(flattenObjectOfObjects(combinedTransactions), (tx, _, self) => {
       // Remove dummy local FOR transactions from TransactionList, notification badge, etc.
       // this is what prevents the local transactions from actually appearing in the activity tab.
       if (tx.typeInfo.type === TransactionType.LocalOnRamp || tx.typeInfo.type === TransactionType.LocalOffRamp) {
         return false
       }
-      // Remove limit orders from the main activity list (they appear in their own menu)
-      if (isLimitOrder(tx)) {
+      if (isStalePendingFORTransaction(tx)) {
         return false
       }
       /*
        * Remove duplicate transactions with the same chain and nonce, keep the one with the higher addedTime,
-       * this represents a txn that is replacing or cancelling the older txn.
+       * this represents a txn that is replacing or cancelling the older txn. Only on-chain EOA txs carry a
+       * sequential nonce; orders (which have no `options`) can't be replacement-matched this way.
        */
+      const request = 'options' in tx ? tx.options.request : undefined
+      if (request?.nonce == null || request.chainId == null) {
+        return true
+      }
+      const { chainId, nonce } = request
       const duplicate = self.find(
         (tx2) =>
           tx2.id !== tx.id &&
-          (isClassic(tx) || isBridge(tx)) &&
-          (isClassic(tx2) || isBridge(tx2)) &&
-          tx2.options.request.chainId &&
-          tx2.options.request.chainId === tx.options.request.chainId &&
-          tx.options.request.nonce &&
-          tx2.options.request.nonce === tx.options.request.nonce,
+          'options' in tx2 &&
+          tx2.options.request?.chainId === chainId &&
+          tx2.options.request.nonce === nonce,
       )
-      if (duplicate) {
-        return tx.addedTime > duplicate.addedTime
-      }
-      return true
+      return duplicate ? tx.addedTime > duplicate.addedTime : true
     })
   })
 }
@@ -214,6 +232,30 @@ export const makeSelectUniswapXOrder = (): Selector<
     },
   )
 
+interface MakeSelectPlanParams {
+  planId: string
+}
+
+export const makeSelectPlanTransaction = (): Selector<
+  UniswapState,
+  PlanTransactionDetails | undefined,
+  [MakeSelectPlanParams]
+> =>
+  createSelector(
+    selectTransactions,
+    (_: UniswapState, { planId }: MakeSelectPlanParams) => ({ planId }),
+    (transactions, { planId }): PlanTransactionDetails | undefined => {
+      for (const transactionsForChain of flattenObjectOfObjects(transactions)) {
+        for (const tx of Object.values(transactionsForChain)) {
+          if (isPlanTransactionDetails(tx) && tx.typeInfo.planId === planId) {
+            return tx
+          }
+        }
+      }
+      return undefined
+    },
+  )
+
 // Returns a list of past recipients ordered from most to least recent
 // TODO: [MOB-232] either revert this to return addresses or keep but also return displayName so that it's searchable for RecipientSelect
 export const selectRecipientsByRecency = (state: UniswapState): SearchableRecipient[] => {
@@ -266,4 +308,25 @@ export const selectTransaction = (
   const { address, chainId, txId } = params
 
   return transactions[address]?.[chainId]?.[txId]
+}
+
+/**
+ * Selector to get a specific transaction from the store
+ * Returns the transaction if it exists, undefined otherwise
+ */
+export const selectPlanTransaction = (
+  state: UniswapState,
+  params: {
+    address: string
+    chainId: UniverseChainId
+    planId: string
+  },
+): PlanTransactionDetails | undefined => {
+  const transactions = selectTransactions(state)
+  const { address, chainId, planId } = params
+  const planTransaction = transactions[address]?.[chainId]?.[planId]
+  if (!planTransaction || !isPlanTransactionDetails(planTransaction)) {
+    return undefined
+  }
+  return planTransaction
 }

@@ -1,21 +1,24 @@
+import { UniverseChainId } from '@universe/chains'
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
 import { ethers } from 'ethers'
 import React, { PropsWithChildren, useCallback, useEffect, useState } from 'react'
 import { UniswapProvider } from 'uniswap/src/contexts/UniswapContext'
 import { getDelegationService } from 'uniswap/src/domains/services'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { useUpdateDelegatedState } from 'uniswap/src/features/smartWallet/delegation/hooks/useUpdateDelegateState'
+import type { SignDelegationAuthorizationFn } from 'uniswap/src/features/smartWallet/delegation/types'
 import { useHasAccountMismatchCallback } from 'uniswap/src/features/smartWallet/mismatch/hooks'
-import { MismatchContextProvider } from 'uniswap/src/features/smartWallet/mismatch/MismatchContext'
 import type {
   HasMismatchInput,
   HasMismatchResult,
   HasMismatchUtil,
 } from 'uniswap/src/features/smartWallet/mismatch/mismatch'
 import { createHasMismatchUtil } from 'uniswap/src/features/smartWallet/mismatch/mismatch'
+import { MismatchContextProvider } from 'uniswap/src/features/smartWallet/mismatch/MismatchContext'
+import { isPermit2MismatchDelegate } from 'uniswap/src/features/smartWallet/mismatch/permit2MismatchDelegates'
 import { useGetCanSignPermits } from 'uniswap/src/features/transactions/hooks/useGetCanSignPermits'
 import { prepareSwapFormState } from 'uniswap/src/features/transactions/types/transactionState'
+import { CurrencyField } from 'uniswap/src/types/currency'
 import { getLogger, logger } from 'utilities/src/logger/logger'
 import { useEvent } from 'utilities/src/react/hooks'
 import { useWalletNavigation } from 'wallet/src/contexts/WalletNavigationContext'
@@ -24,8 +27,9 @@ import {
   useGetSwapDelegationInfoForActiveAccount,
   WalletDelegationProvider,
 } from 'wallet/src/features/smartWallet/WalletDelegationProvider'
+import { prepareDelegationAuthorization } from 'wallet/src/features/transactions/executeTransaction/eip7702Utils'
 import { useShowSwapNetworkNotification } from 'wallet/src/features/transactions/swap/hooks/useShowSwapNetworkNotification'
-import { useProvider, useWalletSigners } from 'wallet/src/features/wallet/context'
+import { useProvider, useProviderManager, useWalletSigners } from 'wallet/src/features/wallet/context'
 import { useActiveAccount, useActiveSignerAccount, useDisplayName } from 'wallet/src/features/wallet/hooks'
 import { NativeSigner } from 'wallet/src/features/wallet/signing/NativeSigner'
 
@@ -77,17 +81,31 @@ function WalletUniswapProviderInner({ children }: PropsWithChildren): JSX.Elemen
     navigateToReceive,
     navigateToExternalProfile,
     navigateToPoolDetails,
-    navigateToNftCollection,
+    navigateToEarnVault,
+    navigateToCategoryDetails,
     handleShareToken,
+    navigateToAdvancedSettings,
   } = useWalletNavigation()
   const showSwapNetworkNotification = useShowSwapNetworkNotification()
 
   const navigateToSwapFromCurrencyIds = useCallback(
-    ({ inputCurrencyId, outputCurrencyId }: { inputCurrencyId?: string; outputCurrencyId?: string }) => {
+    ({
+      inputCurrencyId,
+      outputCurrencyId,
+      exactCurrencyField,
+      exactAmountToken,
+    }: {
+      inputCurrencyId?: string
+      outputCurrencyId?: string
+      exactCurrencyField?: CurrencyField
+      exactAmountToken?: string
+    }) => {
       const initialState = prepareSwapFormState({
         inputCurrencyId,
         outputCurrencyId,
         defaultChainId: UniverseChainId.Mainnet,
+        exactCurrencyField,
+        exactAmountToken,
       })
       navigateToSwapFlow({ initialState })
     },
@@ -105,7 +123,24 @@ function WalletUniswapProviderInner({ children }: PropsWithChildren): JSX.Elemen
 
   const getCanSignPermits = useGetCanSignPermits()
   const getSwapDelegationInfo = useGetSwapDelegationInfoForActiveAccount()
-  const getCanPayGasInAnyToken = useCallback(() => false, [])
+
+  // Signs the 7702 delegation auth up front so it can be bundled into 4337 swap/approval
+  // requests before the backend's paymaster + bundler simulation.
+  const providerManager = useProviderManager()
+  const signDelegationAuthorization: SignDelegationAuthorizationFn = useEvent(
+    async ({ chainId, sender, delegationAddress }: Parameters<SignDelegationAuthorizationFn>[0]) => {
+      if (!signer) {
+        return undefined
+      }
+      return prepareDelegationAuthorization({
+        signer,
+        provider: providerManager.getProvider(chainId),
+        walletAddress: sender,
+        chainId,
+        contractAddress: delegationAddress,
+      })
+    },
+  )
 
   return (
     <UniswapProvider
@@ -117,17 +152,21 @@ function WalletUniswapProviderInner({ children }: PropsWithChildren): JSX.Elemen
       navigateToTokenDetails={navigateToTokenDetails}
       navigateToExternalProfile={navigateToExternalProfile}
       navigateToNftDetails={navigateToNftDetails}
-      navigateToNftCollection={navigateToNftCollection}
       navigateToPoolDetails={navigateToPoolDetails}
+      navigateToEarnVault={navigateToEarnVault}
+      navigateToCategoryDetails={navigateToCategoryDetails}
       handleShareToken={handleShareToken}
+      navigateToAdvancedSettings={navigateToAdvancedSettings}
       signer={signer}
       useProviderHook={useWalletProvider}
       useWalletDisplayName={useDisplayName}
       getIsUniswapXSupported={getIsUniswapXSupported}
       getCanSignPermits={getCanSignPermits}
       getSwapDelegationInfo={getSwapDelegationInfo}
+      signDelegationAuthorization={signDelegationAuthorization}
+      // Mobile/extension execute sponsored delegated swaps as 4337 userOps (executeUserOpSwapSaga).
+      supportsUserOpSwaps={true}
       useAccountsStoreContextHook={useAccountsStoreContext}
-      getCanPayGasInAnyToken={getCanPayGasInAnyToken}
       onSwapChainsChanged={showSwapNetworkNotification}
     >
       {children}
@@ -181,6 +220,8 @@ function useMismatchCallback(): HasMismatchUtil {
           // hardcoded to false for now
           return false
         },
+        // limit the mismatch fallback flow to delegates that reject raw Permit2 signatures
+        shouldTreatAsMismatch: isPermit2MismatchDelegate,
       })(input),
   )
 }

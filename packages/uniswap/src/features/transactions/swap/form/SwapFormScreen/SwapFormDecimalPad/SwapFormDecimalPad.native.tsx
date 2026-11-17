@@ -1,11 +1,11 @@
+import { AnimatedFlex, Flex, useMedia } from '@universe/mycelium'
+import { withSporeCurve } from '@universe/tailwind/animations/reanimated'
 import type { MutableRefObject, RefObject } from 'react'
-import { useCallback, useMemo, useState } from 'react'
-import type { LayoutChangeEvent, TextInputProps } from 'react-native'
-import { type ButtonProps, Flex, type FlexProps } from 'ui/src'
-import {
-  AmountInputPresets,
-  PRESET_BUTTON_PROPS,
-} from 'uniswap/src/components/CurrencyInputPanel/AmountInputPresets/AmountInputPresets'
+import { memo, useCallback, useMemo } from 'react'
+import type { TextInputProps } from 'react-native'
+import { type EntryExitAnimationFunction, useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
+import { type ButtonProps } from 'ui/src'
+import { AmountInputPresets } from 'uniswap/src/components/CurrencyInputPanel/AmountInputPresets/AmountInputPresets'
 import { PresetAmountButton } from 'uniswap/src/components/CurrencyInputPanel/AmountInputPresets/PresetAmountButton'
 import type { PresetPercentage } from 'uniswap/src/components/CurrencyInputPanel/AmountInputPresets/types'
 import { PRESET_PERCENTAGES } from 'uniswap/src/components/CurrencyInputPanel/AmountInputPresets/utils'
@@ -24,21 +24,45 @@ import {
   useSwapFormStoreDerivedSwapInfo,
 } from 'uniswap/src/features/transactions/swap/stores/swapFormStore/useSwapFormStore'
 import { maybeLogFirstSwapAction } from 'uniswap/src/features/transactions/swap/utils/maybeLogFirstSwapAction'
+import { useSwapFlowTimer } from 'uniswap/src/features/transactions/swap/utils/SwapFlowTimerContext'
 import { CurrencyField } from 'uniswap/src/types/currency'
 import { truncateToMaxDecimals } from 'utilities/src/format/truncateToMaxDecimals'
+import { DDRumManualTiming } from 'utilities/src/logger/datadog/datadogEvents'
 import { useEvent } from 'utilities/src/react/hooks'
 import { useBooleanState } from 'utilities/src/react/useBooleanState'
+import { useImmediateVisibility } from 'utilities/src/react/useImmediateVisibility'
 import { useTrace } from 'utilities/src/telemetry/trace/TraceContext'
 
-const SHORT_BREAKPOINT_STYLE: FlexProps['$short'] = { gap: '$none' }
-
-const AMOUNT_INPUT_PRESET_BUTTON_PROPS: ButtonProps = {
-  emphasis: 'tertiary',
-  size: 'xsmall',
-  // set to height of the button for full rounding
-  borderRadius: 16,
-  fill: true,
+// Reanimated legs of the legacy Tamagui 'quick' presence slide-fade (enter/exit opacity 0, y 20).
+const slideFadeInQuick: EntryExitAnimationFunction = () => {
+  'worklet'
+  return {
+    initialValues: { opacity: 0, transform: [{ translateY: 20 }] },
+    animations: {
+      opacity: withSporeCurve('quick', 1),
+      transform: [{ translateY: withSporeCurve('quick', 0) }],
+    },
+  }
 }
+
+const slideFadeOutQuick: EntryExitAnimationFunction = () => {
+  'worklet'
+  return {
+    initialValues: { opacity: 1, transform: [{ translateY: 0 }] },
+    animations: {
+      opacity: withSporeCurve('quick', 0),
+      transform: [{ translateY: withSporeCurve('quick', 20) }],
+    },
+  }
+}
+
+const getAmountInputPresetButtonProps = (isShortScreen: boolean): ButtonProps => ({
+  variant: 'default',
+  emphasis: 'tertiary',
+  size: isShortScreen ? 'xsmall' : 'small',
+  borderRadius: '$roundedFull',
+  fill: true,
+})
 
 type SwapFormDecimalPadProps = {
   decimalPadRef: RefObject<DecimalPadInputRef | null>
@@ -47,10 +71,12 @@ type SwapFormDecimalPadProps = {
     start,
     end,
     currencyField,
+    value,
   }: {
     start: number
     end?: number
     currencyField?: CurrencyField
+    value?: string
   }) => void
   inputSelectionRef: MutableRefObject<TextInputProps['selection']>
   outputSelectionRef: MutableRefObject<TextInputProps['selection']>
@@ -80,6 +106,18 @@ function SwapFormDecimalPadContent({
   }))
 
   const { value: isDecimalPadReady, setTrue: setDecimalPadIsReady } = useBooleanState(false)
+  const tracker = useSwapFlowTimer()
+
+  // Reanimated leg of the legacy quick-preset opacity fade: the pad renders at opacity 0
+  // and fades in once ready, driven from the same handler that flips the ready state.
+  const decimalPadOpacity = useSharedValue(0)
+  const decimalPadAnimatedStyle = useAnimatedStyle(() => ({ opacity: decimalPadOpacity.value }))
+
+  const handleDecimalPadReady = useCallback(() => {
+    decimalPadOpacity.value = withSporeCurve('quick', 1)
+    setDecimalPadIsReady()
+    tracker?.mark(DDRumManualTiming.SwapDecimalPadLayout)
+  }, [decimalPadOpacity, setDecimalPadIsReady, tracker])
 
   const decimalPadControlledField = useDecimalPadControlledField()
 
@@ -97,6 +135,9 @@ function SwapFormDecimalPadContent({
       value,
       maxDecimals: currentMaxDecimals,
     })
+
+    // Sync valueRef so DecimalPadInput keeps the caret when focus ≠ exact.
+    decimalPadValueRef.current = truncatedValue
 
     updateSwapForm({
       exactAmountFiat: currentIsFiatMode ? truncatedValue : undefined,
@@ -122,11 +163,30 @@ function SwapFormDecimalPadContent({
     ? MAX_FIAT_INPUT_DECIMALS
     : (currencies[decimalPadControlledField]?.currency.decimals ?? 0)
 
-  const [additionalElementsHeight, setAdditionalElementsHeight] = useState<number | undefined>(undefined)
+  const media = useMedia()
 
-  const onAmountInputPresetsLayout = useEvent((event: LayoutChangeEvent): void => {
-    setAdditionalElementsHeight(event.nativeEvent.layout.height)
+  const showPresetButtons = useMemo(
+    () =>
+      !!currencyBalances[CurrencyField.INPUT] &&
+      !currencyAmounts[CurrencyField.INPUT]?.greaterThan(0) &&
+      !currencyAmounts[CurrencyField.OUTPUT]?.greaterThan(0),
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
+    [
+      // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
+      currencyBalances[CurrencyField.INPUT],
+      // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
+      currencyAmounts[CurrencyField.INPUT],
+      // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
+      currencyAmounts[CurrencyField.OUTPUT],
+    ],
+  )
+
+  const { isVisible: isPresetsVisible, handleAction: handleSetPresetValue } = useImmediateVisibility({
+    shouldShow: showPresetButtons,
+    onAction: onSetPresetValue,
   })
+
+  const amountInputPresetButtonProps = useMemo(() => getAmountInputPresetButtonProps(media.short), [media.short])
 
   const renderPreset = useCallback(
     (preset: PresetPercentage) => (
@@ -136,11 +196,19 @@ function SwapFormDecimalPadContent({
         currencyBalance={currencyBalances[CurrencyField.INPUT]}
         currencyField={CurrencyField.INPUT}
         elementName={ElementName.PresetPercentage}
-        buttonProps={{ ...PRESET_BUTTON_PROPS, ...AMOUNT_INPUT_PRESET_BUTTON_PROPS }}
-        onSetPresetValue={onSetPresetValue}
+        buttonProps={amountInputPresetButtonProps}
+        onSetPresetValue={handleSetPresetValue}
       />
     ),
-    [currencyAmounts[CurrencyField.INPUT], currencyBalances[CurrencyField.INPUT], onSetPresetValue],
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
+    [
+      // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
+      currencyAmounts[CurrencyField.INPUT],
+      // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
+      currencyBalances[CurrencyField.INPUT],
+      handleSetPresetValue,
+      amountInputPresetButtonProps,
+    ],
   )
 
   return (
@@ -148,38 +216,37 @@ function SwapFormDecimalPadContent({
       <DecimalPadCalculateSpace
         id={DecimalPadCalculatedSpaceId.Swap}
         decimalPadRef={decimalPadRef}
-        additionalElementsHeight={additionalElementsHeight}
         isDecimalPadReady={isDecimalPadReady}
       />
 
-      <Flex
-        $short={SHORT_BREAKPOINT_STYLE}
-        animation="quick"
+      <AnimatedFlex
         bottom={0}
-        gap="$spacing8"
+        gap={media.short ? '$none' : '$spacing8'}
         left={0}
-        opacity={isDecimalPadReady ? 1 : 0}
         position="absolute"
         right={0}
+        style={decimalPadAnimatedStyle}
       >
         <Flex grow justifyContent="flex-end">
           {/**
+
            * *********** IMPORTANT! ***********
            *
-           * If you add any additional elements inside this `Flex` you need to add the height to `additionalElementsHeight`,
+           * If you add any additional elements inside this `Flex` you need to pass the `additionalElementsHeight` prop to `DecimalPadCalculateSpace`,
            * otherwise it will break the `DecimalPad` auto-resizing.
            *
            * *********** IMPORTANT! ***********
            */}
-          {currencyBalances[CurrencyField.INPUT] && (
-            <AmountInputPresets
-              flex={1}
-              gap="$gap8"
-              pb="$padding16"
-              presets={PRESET_PERCENTAGES}
-              renderPreset={renderPreset}
-              onLayout={onAmountInputPresetsLayout}
-            />
+          {showPresetButtons && isPresetsVisible && (
+            <AnimatedFlex entering={slideFadeInQuick} exiting={slideFadeOutQuick}>
+              <AmountInputPresets
+                flex={1}
+                gap="$gap8"
+                pb="$padding16"
+                presets={PRESET_PERCENTAGES}
+                renderPreset={renderPreset}
+              />
+            </AnimatedFlex>
           )}
           <DecimalPadInput
             ref={decimalPadRef}
@@ -188,16 +255,16 @@ function SwapFormDecimalPadContent({
             selectionRef={selection[decimalPadControlledField]}
             setValue={setValue}
             valueRef={decimalPadValueRef}
-            onReady={setDecimalPadIsReady}
+            onReady={handleDecimalPadReady}
             onTriggerInputShakeAnimation={onDecimalPadTriggerInputShake}
           />
         </Flex>
-      </Flex>
+      </AnimatedFlex>
     </>
   )
 }
 
-export function SwapFormDecimalPad(): JSX.Element {
+export const SwapFormDecimalPad = memo(function SwapFormDecimalPad(): JSX.Element {
   const {
     decimalPadRef,
     inputSelectionRef,
@@ -227,4 +294,4 @@ export function SwapFormDecimalPad(): JSX.Element {
       onDecimalPadTriggerInputShake={onDecimalPadTriggerInputShake}
     />
   )
-}
+})

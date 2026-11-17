@@ -1,24 +1,33 @@
-import { AnimatePresence, Flex, useIsShortMobileDevice } from 'ui/src'
+import { isWebPlatform } from '@universe/environment'
+import { Flex, useIsShortMobileDevice } from '@universe/mycelium'
+import { Presence } from '@universe/mycelium/presence'
+import { memo } from 'react'
+import { useSwapFormScreenStore } from 'uniswap/src/features/transactions/swap/form/stores/swapFormScreenStore/useSwapFormScreenStore'
 import { ExactOutputUnavailableWarningRow } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/SwapFormScreenDetails/SwapFormScreenFooter/ExactOutputUnavailableWarningRow'
 import { GasAndWarningRows } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/SwapFormScreenDetails/SwapFormScreenFooter/GasAndWarningRows/GasAndWarningRows'
-import { useSwapFormScreenStore } from 'uniswap/src/features/transactions/swap/form/stores/swapFormScreenStore/useSwapFormScreenStore'
-import { isWebPlatform } from 'utilities/src/platform'
 
 /**
  * IMPORTANT: If you modify the footer layout, you must test this on a small device and verify that the `DecimalPad`
  *            is able to properly calculate the correct height and it does not change its height when the gas and
  *            warning rows are shown/hidden, or when moving from the review screen back to the form screen.
  */
-export function SwapFormScreenFooter(): JSX.Element | null {
+export const SwapFormScreenFooter = memo(function SwapFormScreenFooter(): JSX.Element | null {
   const isShortMobileDevice = useIsShortMobileDevice()
-  const { outputTokenHasBuyTax, showFooter, showExactOutputUnavailableWarning, exactAmountToken, currencies } =
-    useSwapFormScreenStore((state) => ({
-      outputTokenHasBuyTax: state.outputTokenHasBuyTax,
-      showFooter: state.showFooter,
-      showExactOutputUnavailableWarning: state.showExactOutputUnavailableWarning,
-      exactAmountToken: state.exactAmountToken,
-      currencies: state.currencies,
-    }))
+  const {
+    outputTokenHasBuyTax,
+    showFooter,
+    showExactOutputUnavailableWarning,
+    exactAmountToken,
+    currencies,
+    isCrossChain,
+  } = useSwapFormScreenStore((state) => ({
+    outputTokenHasBuyTax: state.outputTokenHasBuyTax,
+    showFooter: state.showFooter,
+    showExactOutputUnavailableWarning: state.showExactOutputUnavailableWarning,
+    exactAmountToken: state.exactAmountToken,
+    currencies: state.currencies,
+    isCrossChain: state.isCrossChain,
+  }))
 
   if (!showFooter) {
     return null
@@ -42,13 +51,17 @@ export function SwapFormScreenFooter(): JSX.Element | null {
 
   return (
     <Flex minHeight="$spacing40" pt={isShortMobileDevice ? '$spacing8' : '$spacing12'}>
-      <AnimatePresence>
+      <Presence>
         {showExactOutputUnavailableWarning && (
-          <ExactOutputUnavailableWarningRow currencies={currencies} outputTokenHasBuyTax={outputTokenHasBuyTax} />
+          <ExactOutputUnavailableWarningRow
+            currencies={currencies}
+            outputTokenHasBuyTax={outputTokenHasBuyTax}
+            isCrossChain={isCrossChain}
+          />
         )}
-      </AnimatePresence>
+      </Presence>
       {/* Accordion.Toggle is nested in GasAndWarningRows */}
       {showGasAndWarningRows && <GasAndWarningRows />}
     </Flex>
   )
-}
+})

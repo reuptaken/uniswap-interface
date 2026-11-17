@@ -1,17 +1,5 @@
-/* biome-ignore-all lint/suspicious/noExplicitAny: Third-party types not available */
-import { StoreEnhancerStoreCreator } from 'redux'
 import { PlatformSplitStubError } from 'utilities/src/errors'
-import { LoggerErrorContext, LogLevel } from 'utilities/src/logger/types'
-
-export interface ReduxEnhancerConfig {
-  shouldLogReduxState: (state: any) => boolean
-}
-
-export function createDatadogReduxEnhancer(
-  _config: ReduxEnhancerConfig,
-): (next: StoreEnhancerStoreCreator) => StoreEnhancerStoreCreator {
-  throw new PlatformSplitStubError('createDatadogReduxEnhancer')
-}
+import type { LoggerErrorContext, LogLevel } from 'utilities/src/logger/types'
 
 export function logToDatadog(
   _message: string,

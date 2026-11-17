@@ -1,34 +1,34 @@
 import { createColumnHelper, Row } from '@tanstack/react-table'
 import { SharedEventName } from '@uniswap/analytics-events'
 import { Currency, CurrencyAmount } from '@uniswap/sdk-core'
-import { useOpenLimitOrders } from 'components/AccountDrawer/MiniPortfolio/Activity/hooks'
-import {
-  useOpenOffchainActivityModal,
-  useOrderAmounts,
-} from 'components/AccountDrawer/MiniPortfolio/Activity/OffchainActivityModal'
-import { Table } from 'components/Table'
-import { Cell } from 'components/Table/Cell'
-import { HeaderCell } from 'components/Table/styled'
-import { hasRow } from 'components/Table/utils/hasRow'
+import { FeatureFlags, useFeatureFlag } from '@universe/gating'
+import { Flex, iconSizes, Text, TouchableArea } from '@universe/mycelium'
+import { useScrollbarStyles } from '@universe/mycelium/theme-hooks-compat'
 import { TFunction } from 'i18next'
-import { PORTFOLIO_TABLE_ROW_HEIGHT } from 'pages/Portfolio/constants'
-import { MAX_LIMITS_LOADING_ROWS } from 'pages/Portfolio/Overview/constants'
-import { TableSectionHeader } from 'pages/Portfolio/Overview/TableSectionHeader'
 import { memo, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text, TouchableArea } from 'ui/src'
-import { iconSizes } from 'ui/src/theme'
 import { useFormattedCurrencyAmountAndUSDValue } from 'uniswap/src/components/activity/hooks/useFormattedCurrencyAmountAndUSDValue'
+import AnimatedNumber from 'uniswap/src/components/AnimatedNumber/AnimatedNumber'
 import { SplitLogo } from 'uniswap/src/components/CurrencyLogo/SplitLogo'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
 import { ElementName, SectionName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { useCurrencyInfo } from 'uniswap/src/features/tokens/useCurrencyInfo'
-import { UniswapXOrderDetails } from 'uniswap/src/features/transactions/types/transactionDetails'
+import { isCancelTimedOut } from 'uniswap/src/features/transactions/cancel/cancelTimeoutStateMachine'
+import { TransactionStatus, UniswapXOrderDetails } from 'uniswap/src/features/transactions/types/transactionDetails'
 import { currencyId } from 'uniswap/src/utils/currencyId'
 import { NumberType } from 'utilities/src/format/types'
 import { useTrace } from 'utilities/src/telemetry/trace/TraceContext'
 import { getDurationRemainingString } from 'utilities/src/time/duration'
+import { useOpenLimitOrders } from '~/components/AccountDrawer/MiniPortfolio/Activity/hooks'
+import { useOpenOffchainActivityModal, useOrderAmounts } from '~/components/modals/OffchainActivityModal'
+import { Table } from '~/components/Table'
+import { Cell } from '~/components/Table/Cell'
+import { HeaderCell } from '~/components/Table/styled'
+import { hasRow } from '~/components/Table/utils/hasRow'
+import { PORTFOLIO_TABLE_ROW_HEIGHT } from '~/pages/Portfolio/constants'
+import { MAX_LIMITS_LOADING_ROWS, MINI_TABLE_MOBILE_BLEED_PX } from '~/pages/Portfolio/Overview/constants'
+import { TableSectionHeader } from '~/pages/Portfolio/Overview/TableSectionHeader'
 
 /**
  * Type guard to check if order amounts are fully defined with currencies.
@@ -56,16 +56,32 @@ function getExpiryText(expiry: number | undefined, t: TFunction): string | null 
   return t('common.limits.expiresIn', { duration: durationString })
 }
 
-interface OpenLimitsTableProps {
-  account: string
-  maxLimits?: number
+// Second line of the info cell: cancel-flow status text replaces the expiry text
+function getSecondLine({
+  order,
+  isCancelTimeoutEnabled,
+  t,
+}: {
+  order: UniswapXOrderDetails
+  isCancelTimeoutEnabled: boolean
+  t: TFunction
+}): { text: string | null; color: '$neutral2' | '$statusWarning' } {
+  if (order.status === TransactionStatus.Cancelling) {
+    if (isCancelTimeoutEnabled && isCancelTimedOut(order)) {
+      return { text: t('limits.cancel.likelyToFail'), color: '$statusWarning' }
+    }
+    return { text: t('common.pending.cancellation'), color: '$neutral2' }
+  }
+  return { text: getExpiryText(order.expiry, t), color: '$neutral2' }
 }
 
 // Left column cell component
 const LimitInfoCell = memo(function LimitInfoCell({ order }: { order: UniswapXOrderDetails }) {
   const { t } = useTranslation()
   const { formatCurrencyAmount } = useLocalizationContext()
+  const isCancelTimeoutEnabled = useFeatureFlag(FeatureFlags.LimitCancelTimeout)
   const amounts = useOrderAmounts(order)
+  const scrollbarStyles = useScrollbarStyles()
 
   const inputCurrencyInfo = useCurrencyInfo(
     amounts?.inputAmount.currency ? currencyId(amounts.inputAmount.currency) : undefined,
@@ -80,25 +96,29 @@ const LimitInfoCell = memo(function LimitInfoCell({ order }: { order: UniswapXOr
     return null
   }
 
+  const secondLine = getSecondLine({ order, isCancelTimeoutEnabled, t })
+
   return (
-    <Flex row alignItems="center" gap="$gap8">
-      <SplitLogo
-        chainId={order.chainId}
-        inputCurrencyInfo={inputCurrencyInfo}
-        outputCurrencyInfo={outputCurrencyInfo}
-        size={iconSizes.icon24}
-      />
-      <Flex>
-        <Text variant="body3" color="$neutral1">
-          {formatCurrencyAmount({
-            value: amounts.inputAmount,
-            type: NumberType.TokenTx,
-          })}{' '}
-          {amounts.inputAmount.currency.symbol} → {amounts.outputAmount.currency.symbol}
-        </Text>
-        <Text variant="body4" color="$neutral2">
-          {getExpiryText(order.expiry, t)}
-        </Text>
+    <Flex width="100%" $platform-web={{ overflowX: 'auto' }} style={scrollbarStyles}>
+      <Flex row alignItems="center" gap="$gap8" width="max-content">
+        <SplitLogo
+          chainId={order.chainId}
+          inputCurrencyInfo={inputCurrencyInfo}
+          outputCurrencyInfo={outputCurrencyInfo}
+          size={iconSizes.icon24}
+        />
+        <Flex>
+          <Text variant="body3" color="$neutral1">
+            {formatCurrencyAmount({
+              value: amounts.inputAmount,
+              type: NumberType.TokenTx,
+            })}{' '}
+            {amounts.inputAmount.currency.symbol} → {amounts.outputAmount.currency.symbol}
+          </Text>
+          <Text variant="body4" color={secondLine.color}>
+            {secondLine.text}
+          </Text>
+        </Flex>
       </Flex>
     </Flex>
   )
@@ -132,9 +152,7 @@ const LimitActionCell = memo(function LimitActionCell({ order }: { order: Uniswa
 
   return (
     <Flex alignItems="flex-end">
-      <Text variant="body3" color="$neutral1">
-        {outputAmountInfo.value}
-      </Text>
+      <AnimatedNumber value={outputAmountInfo.value} textVariant="$body3" />
       <Text variant="body4" color="$neutral2">
         {tokenAmountText}
       </Text>
@@ -142,7 +160,13 @@ const LimitActionCell = memo(function LimitActionCell({ order }: { order: Uniswa
   )
 })
 
-export const OpenLimitsTable = memo(function OpenLimitsTable({ account, maxLimits = 5 }: OpenLimitsTableProps) {
+export const OpenLimitsTable = memo(function OpenLimitsTable({
+  account,
+  maxLimits,
+}: {
+  account: string
+  maxLimits?: number
+}) {
   const { t } = useTranslation()
   const trace = useTrace()
   const { openLimitOrders, loading } = useOpenLimitOrders(account)
@@ -150,17 +174,23 @@ export const OpenLimitsTable = memo(function OpenLimitsTable({ account, maxLimit
 
   // Limit the number of orders displayed
   const limitedOrders = useMemo(() => {
+    if (!maxLimits) {
+      return openLimitOrders
+    }
     return openLimitOrders.slice(0, maxLimits)
   }, [openLimitOrders, maxLimits])
 
+  // Only show skeleton on initial load — background refetches should be silent.
+  const showLoadingSkeleton = loading && openLimitOrders.length === 0
+
   const columns = useMemo(() => {
     const columnHelper = createColumnHelper<UniswapXOrderDetails>()
-    const showLoadingSkeleton = loading
 
     return [
       // Left Column - Limit Info
       columnHelper.display({
         id: 'limitInfo',
+        minSize: 200,
         header: () => (
           <HeaderCell justifyContent="flex-start">
             <Text variant="body3" color="$neutral2" fontWeight="500">
@@ -170,7 +200,7 @@ export const OpenLimitsTable = memo(function OpenLimitsTable({ account, maxLimit
         ),
         cell: (info) => {
           return (
-            <Cell loading={showLoadingSkeleton} justifyContent="flex-start">
+            <Cell loading={showLoadingSkeleton} justifyContent="flex-start" $md={{ pl: '$none' }}>
               {hasRow<UniswapXOrderDetails>(info) && <LimitInfoCell order={info.row.original} />}
             </Cell>
           )
@@ -189,14 +219,14 @@ export const OpenLimitsTable = memo(function OpenLimitsTable({ account, maxLimit
         ),
         cell: (info) => {
           return (
-            <Cell loading={showLoadingSkeleton} justifyContent="flex-end">
+            <Cell loading={showLoadingSkeleton} justifyContent="flex-end" $md={{ pr: '$none' }}>
               {hasRow<UniswapXOrderDetails>(info) && <LimitActionCell order={info.row.original} />}
             </Cell>
           )
         },
       }),
     ]
-  }, [t, loading])
+  }, [t, showLoadingSkeleton])
 
   const rowWrapper = useCallback(
     (row: Row<UniswapXOrderDetails>, content: JSX.Element) => {
@@ -231,19 +261,22 @@ export const OpenLimitsTable = memo(function OpenLimitsTable({ account, maxLimit
     <TableSectionHeader
       title={t('common.limits.open')}
       subtitle={t('portfolio.overview.limits.table.openLimits', { count: openLimitOrders.length })}
+      contentGap="$spacing2"
     >
-      <Table
-        hideHeader
-        columns={columns}
-        data={limitedOrders}
-        loading={tableLoading}
-        error={false}
-        v2={true}
-        rowWrapper={rowWrapper}
-        loadingRowsCount={MAX_LIMITS_LOADING_ROWS}
-        rowHeight={PORTFOLIO_TABLE_ROW_HEIGHT}
-        compactRowHeight={PORTFOLIO_TABLE_ROW_HEIGHT}
-      />
+      <Flex $md={{ mx: -MINI_TABLE_MOBILE_BLEED_PX }}>
+        <Table
+          mobileFullBleed
+          hideHeader
+          columns={columns}
+          data={limitedOrders}
+          loading={tableLoading}
+          error={false}
+          rowWrapper={rowWrapper}
+          loadingRowsCount={MAX_LIMITS_LOADING_ROWS}
+          rowHeight={PORTFOLIO_TABLE_ROW_HEIGHT}
+          compactRowHeight={PORTFOLIO_TABLE_ROW_HEIGHT}
+        />
+      </Flex>
     </TableSectionHeader>
   )
 })

@@ -1,11 +1,12 @@
 import type { RouteProp } from '@react-navigation/native'
 import { useIsFocused, useNavigation, useRoute, useScrollToTop } from '@react-navigation/native'
 import { SharedEventName } from '@uniswap/analytics-events'
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
+import type { UniverseChainId } from '@universe/chains'
+import { isAndroid } from '@universe/environment'
+import { Flex } from '@universe/mycelium'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { type TextInput } from 'react-native'
-import type { FlatList } from 'react-native-gesture-handler'
+import { type ScrollView, type TextInput } from 'react-native'
 import { useAnimatedRef } from 'react-native-reanimated'
 import type { Edge } from 'react-native-safe-area-context'
 import { useDispatch } from 'react-redux'
@@ -13,18 +14,15 @@ import type { ExploreStackParamList } from 'src/app/navigation/types'
 import { ExploreSections } from 'src/components/explore/ExploreSections/ExploreSections'
 import { ExploreScreenSearchResultsList } from 'src/components/explore/search/ExploreScreenSearchResultsList'
 import { Screen } from 'src/components/layout/Screen'
-import { Flex, useLayoutAnimationOnChange } from 'ui/src'
+import { useLayoutAnimationOnChange } from 'ui/src'
 import { useBottomSheetContext } from 'uniswap/src/components/modals/BottomSheetContext'
-import { HandleBar } from 'uniswap/src/components/modals/HandleBar'
-import { NetworkFilter, type NetworkFilterProps } from 'uniswap/src/components/network/NetworkFilter'
+import { NetworkFilter } from 'uniswap/src/components/network/NetworkFilter/NetworkFilter'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import type { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { useFilterCallbacks } from 'uniswap/src/features/search/SearchModal/hooks/useFilterCallbacks'
 import { CancelBehaviorType, SearchTextInput } from 'uniswap/src/features/search/SearchTextInput'
 import { MobileEventName, ModalName, SectionName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { MobileScreens } from 'uniswap/src/types/screens/mobile'
-import { isAndroid } from 'utilities/src/platform'
 import { useEvent } from 'utilities/src/react/hooks'
 import { setHasUsedExplore } from 'wallet/src/features/behaviorHistory/slice'
 
@@ -34,23 +32,21 @@ const MIN_SEARCH_INPUT_HEIGHT = 52
 const androidBottomInset: Edge[] = isAndroid ? ['bottom'] : []
 const edges: Edge[] = ['top', ...androidBottomInset]
 
-const networkFilterStyles: NetworkFilterProps['styles'] = { buttonPaddingY: '$none' }
-
 export function ExploreScreen(): JSX.Element {
   const { chains } = useEnabledChains()
-  const isBottomTabsEnabled = useFeatureFlag(FeatureFlags.BottomTabs)
   const navigation = useNavigation()
   const route = useRoute<RouteProp<ExploreStackParamList, MobileScreens.Explore>>()
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- route.params can be null
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- route.params can be null
   const { chainId, orderByMetric, showFavorites } = route.params ?? {}
 
-  const { isSheetReady } = useBottomSheetContext({ forceSafeReturn: isBottomTabsEnabled })
+  const { isSheetReady } = useBottomSheetContext({ forceSafeReturn: true })
 
   const dispatch = useDispatch()
   const { t } = useTranslation()
 
   const textInputRef = useRef<TextInput>(null)
-  const listRef = useAnimatedRef<FlatList<unknown>>()
+  const listRef = useAnimatedRef<ScrollView>()
+  const exploreScrollToTopRef = useRef<(() => void) | null>(null)
   const isFocused = useIsFocused()
 
   const [isAtTop, setIsAtTop] = useState<boolean>(true)
@@ -66,7 +62,7 @@ export function ExploreScreen(): JSX.Element {
 
   // Disable default scroll-to-top behavior when bottom tabs are enabled
   // We'll implement custom behavior that focuses search input if already at top
-  useScrollToTop(isBottomTabsEnabled ? { current: null } : listRef)
+  useScrollToTop({ current: null })
 
   const [isSearchMode, setIsSearchMode] = useState<boolean>(false)
 
@@ -74,13 +70,8 @@ export function ExploreScreen(): JSX.Element {
     duration: 125,
   })
 
-  // Custom tab press handler for double-tap behavior (only when bottom tabs enabled)
-  // This effect only runs when isBottomTabsEnabled or navigation changes
+  // Custom tab press handler for double-tap behavior on the Explore tab
   useEffect((): (() => void) | undefined => {
-    if (!isBottomTabsEnabled) {
-      return undefined
-    }
-
     const unsubscribe = navigation.addListener('state', (e) => {
       const currentRouteName = e.data.state.routeNames[e.data.state.index] as unknown as string | undefined
       const isOnExploreScreen = currentRouteName === MobileScreens.Explore
@@ -106,15 +97,15 @@ export function ExploreScreen(): JSX.Element {
         textInputRef.current?.focus()
       } else {
         // If not at top, scroll to top
-        listRef.current?.scrollToOffset({ offset: 0, animated: true })
+        exploreScrollToTopRef.current?.()
       }
     })
 
     return unsubscribe
-  }, [isBottomTabsEnabled, navigation])
+  }, [navigation])
 
   // TODO(WALL-5482): investigate list rendering performance/scrolling issue
-  const canRenderList = useRenderNextFrame(isSheetReady && !isSearchMode)
+  const canRenderList = useRenderNextFrame(isSheetReady)
 
   const { onChangeChainFilter, onChangeText, searchFilter, chainFilter, parsedChainFilter, parsedSearchFilter } =
     useFilterCallbacks(chainId ?? null, ModalName.Search)
@@ -146,15 +137,11 @@ export function ExploreScreen(): JSX.Element {
   })
 
   useEffect(() => {
-    // Moved location of this event only in bottom tab mode
-    if (isBottomTabsEnabled) {
-      dispatch(setHasUsedExplore(true))
-    }
-  }, [dispatch, isBottomTabsEnabled])
+    dispatch(setHasUsedExplore(true))
+  }, [dispatch])
 
   return (
     <Screen backgroundColor="$surface1" edges={edges}>
-      {!isBottomTabsEnabled && <HandleBar backgroundColor="none" />}
       <Flex p="$spacing16">
         <SearchTextInput
           ref={textInputRef}
@@ -167,7 +154,6 @@ export function ExploreScreen(): JSX.Element {
                   includeAllNetworks
                   chainIds={chains}
                   selectedChain={chainFilter}
-                  styles={networkFilterStyles}
                   onPressChain={onPressChain}
                 />
               </Flex>
@@ -176,6 +162,8 @@ export function ExploreScreen(): JSX.Element {
           hideIcon={isSearchMode}
           minHeight={MIN_SEARCH_INPUT_HEIGHT}
           placeholder={t('explore.search.placeholder')}
+          borderColor="$transparent"
+          borderWidth="$none"
           onCancel={onSearchCancel}
           onChangeText={onSearchChangeText}
           onFocus={onSearchFocus}
@@ -191,10 +179,13 @@ export function ExploreScreen(): JSX.Element {
       ) : isSheetReady && canRenderList ? (
         <ExploreSections
           listRef={listRef}
-          setIsAtTopOnScroll={isBottomTabsEnabled ? setIsAtTop : undefined}
+          setIsAtTopOnScroll={setIsAtTop}
           chainId={chainId}
           orderByMetric={orderByMetric}
           showFavorites={showFavorites}
+          onScrollToTopReady={(scrollToTop): void => {
+            exploreScrollToTopRef.current = scrollToTop
+          }}
         />
       ) : null}
     </Screen>
@@ -209,21 +200,14 @@ export function ExploreScreen(): JSX.Element {
 const useRenderNextFrame = (condition: boolean): boolean => {
   const [canRender, setCanRender] = useState<boolean>(false)
   const rafRef = useRef<number>(undefined)
-  const mountedRef = useRef<boolean>(true)
-
   const conditionRef = useRef<boolean>(condition)
 
-  // clean up on unmount to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current)
-      }
-    }
-  }, [])
-
-  // schedule render for next frame if we should mount
+  // schedule render for next frame if we should mount.
+  // The cleanup cancels the RAF on real unmount, so the callback can't fire after
+  // unmount — no separate `mountedRef` guard is needed (and a `mountedRef` set
+  // only by the cleanup is broken under React 19 strict-mode dev double-invocation:
+  // the simulated unmount sets it to false and the simulated remount never resets
+  // it, so `setCanRender(true)` is never called).
   useEffect(() => {
     conditionRef.current = condition
 
@@ -231,7 +215,7 @@ const useRenderNextFrame = (condition: boolean): boolean => {
       rafRef.current = requestAnimationFrame(() => {
         // By the time this callback runs, 'condition' might have changed
         // since RAF executes in the next frame, so we store the condition in a ref
-        if (mountedRef.current && conditionRef.current) {
+        if (conditionRef.current) {
           setCanRender(true)
         }
       })

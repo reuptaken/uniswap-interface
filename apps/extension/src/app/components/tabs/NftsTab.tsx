@@ -1,6 +1,6 @@
 import { SharedEventName } from '@uniswap/analytics-events'
+import { Flex } from '@universe/mycelium'
 import { memo, useCallback } from 'react'
-import { Flex } from 'ui/src'
 // This is intentionally imported from the native file as only the web app requires a web specific implementation
 import { NftsList } from 'uniswap/src/components/nfts/NftsList.native'
 import { NftViewWithContextMenu } from 'uniswap/src/components/nfts/NftViewWithContextMenu'
@@ -9,7 +9,7 @@ import { ElementName, SectionName } from 'uniswap/src/features/telemetry/constan
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { useAccounts } from 'wallet/src/features/wallet/hooks'
 
-export const NftsTab = memo(function _NftsTab({ owner, skip }: { owner: Address; skip?: boolean }): JSX.Element {
+export const NftsTab = memo(function NftsTabInner({ owner, skip }: { owner: Address; skip?: boolean }): JSX.Element {
   const accounts = useAccounts()
 
   const renderNFTItem = useCallback(
@@ -32,6 +32,9 @@ export const NftsTab = memo(function _NftsTab({ owner, skip }: { owner: Address;
 
   return (
     <NftsList
+      // The sidepanel document is the scroller; without this the DOM engine adds its own unbounded
+      // `overflow: auto` wrapper, which stops virtualizing and reserves a second scrollbar gutter.
+      useWindowScroll
       emptyStateStyle={defaultEmptyStyle}
       errorStateStyle={defaultEmptyStyle}
       owner={owner}

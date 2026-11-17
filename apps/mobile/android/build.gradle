@@ -2,7 +2,7 @@
 
 buildscript {
   ext {
-    kotlinVersion = "2.0.21"
+    kotlinVersion = "2.1.20"
 
     appCompat = "1.6.1"
     compose = "1.4.3"
@@ -20,6 +20,7 @@ buildscript {
     classpath("com.android.tools.build:gradle")
     classpath("com.facebook.react:react-native-gradle-plugin")
     classpath('com.google.gms:google-services:4.3.15')
+    classpath('com.datadoghq:dd-sdk-android-gradle-plugin:1.31.0')
     // NOTE: Do not place your application dependencies here; they belong
     // in the individual module build.gradle files
     classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
@@ -44,6 +45,19 @@ allprojects {
     react {
       reactNativeDir = rootProject.file("../../../node_modules/react-native/")
       codegenDir = rootProject.file("../../../node_modules/react-native-codegen/")
+    }
+  }
+
+  // Ensure all native libraries support 16KB page sizes (required for Android 15+)
+  pluginManager.withPlugin("com.android.library") {
+    project.android {
+      defaultConfig {
+        externalNativeBuild {
+          cmake {
+            arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+          }
+        }
+      }
     }
   }
 

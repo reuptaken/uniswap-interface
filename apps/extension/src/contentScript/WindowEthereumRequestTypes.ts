@@ -1,8 +1,10 @@
+/* oxlint-disable eslint-js/no-restricted-syntax */
 import { EthersTransactionRequestSchema } from 'src/app/features/dappRequests/types/EthersTypes'
-import { HexadecimalNumberSchema } from 'src/app/features/dappRequests/types/utilityTypes'
 import { HomeTabs } from 'src/app/navigation/constants'
+import { normalizeSendCalls } from 'wallet/src/features/batchedTransactions/normalizeSendCalls'
 import { GetCallsStatusParamsSchema, SendCallsParamsSchema } from 'wallet/src/features/dappRequests/types'
-import { ZodIssueCode, z } from 'zod'
+import { canonicalizeTypedData } from 'wallet/src/features/wallet/signing/canonicalizeTypedData'
+import { z } from 'zod'
 
 /**
  * Schemas + types for requests that come via `window.ethereum.request`
@@ -49,13 +51,9 @@ export const EthSendTransactionRequestSchema = EthereumRequestWithIdSchema.exten
     throw new Error('Params array must contain at least one element')
   }
 
-  const parseResult = EthersTransactionRequestSchema.safeParse(params[0])
-
-  if (!parseResult.success) {
-    throw new Error('First element of the array must match EthersTransactionRequestSchema')
-  }
-
-  const transaction = parseResult.data
+  // Preserve ZodError so the content-script boundary returns an EIP-1193 parsing error
+  // instead of leaving an invalid request pending.
+  const transaction = EthersTransactionRequestSchema.parse(params[0])
 
   return {
     requestId,
@@ -77,7 +75,8 @@ export const PersonalSignRequestSchema = EthereumRequestWithIdSchema.extend({
       {
         message: 'Params array must contain at least two elements',
         path: ['params'],
-        code: ZodIssueCode.custom,
+        code: 'custom',
+        input: undefined,
       },
     ])
   }
@@ -107,29 +106,43 @@ export const EthSignTypedDataV4RequestSchema = EthereumRequestWithIdSchema.exten
       {
         message: 'Params array must contain at least two elements',
         path: ['params'],
-        code: ZodIssueCode.custom,
+        code: 'custom',
+        input: undefined,
       },
     ])
   }
 
   const address = z.string().parse(params[0])
-  const typedData = z.string().parse(params[1])
+  let typedData: string
+  try {
+    typedData = canonicalizeTypedData(z.string().parse(params[1]))
+  } catch {
+    throw new z.ZodError([
+      {
+        message: 'Typed data must be valid EIP-712 data',
+        path: ['params', '1'],
+        code: 'custom',
+        input: params[1],
+      },
+    ])
+  }
 
   const chainId = JSON.parse(typedData)?.domain?.chainId
-  const formattedChainId = HexadecimalNumberSchema.parse(chainId)
+  const formattedChainId = Number(chainId)
   if (!formattedChainId) {
     throw new z.ZodError([
       {
         message: 'Typed data must contain a chainId',
         path: ['params', '1'],
-        code: ZodIssueCode.custom,
+        code: 'custom',
+        input: undefined,
       },
     ])
   }
   return {
     requestId,
     method,
-    params,
+    params: [address, typedData],
     address,
     typedData,
   }
@@ -150,7 +163,8 @@ export const WalletSwitchEthereumChainRequestSchema = EthereumRequestWithIdSchem
       {
         message: 'Params array must contain at least one element',
         path: ['params'],
-        code: ZodIssueCode.custom,
+        code: 'custom',
+        input: undefined,
       },
     ])
   }
@@ -161,7 +175,8 @@ export const WalletSwitchEthereumChainRequestSchema = EthereumRequestWithIdSchem
       {
         message: 'Chain id should be specified as a hexadecimal string within object',
         path: ['params', '0'],
-        code: ZodIssueCode.custom,
+        code: 'custom',
+        input: undefined,
       },
     ])
   }
@@ -177,12 +192,10 @@ export const WalletSwitchEthereumChainRequestSchema = EthereumRequestWithIdSchem
 })
 export type WalletSwitchEthereumChainRequest = z.infer<typeof WalletSwitchEthereumChainRequestSchema>
 
-// eslint-disable-next-line no-restricted-syntax
-export const PermissionRequestSchema = z.record(z.record(z.any()))
+export const PermissionRequestSchema = z.record(z.string(), z.record(z.string(), z.any()))
 
 const CaveatSchema = z.object({
   type: z.string(),
-  // eslint-disable-next-line no-restricted-syntax
   value: z.any(),
 })
 
@@ -203,7 +216,8 @@ export const WalletRequestPermissionsRequestSchema = EthereumRequestWithIdSchema
       {
         message: 'Params array must contain at least one element',
         path: ['params'],
-        code: ZodIssueCode.custom,
+        code: 'custom',
+        input: undefined,
       },
     ])
   }
@@ -230,7 +244,8 @@ export const WalletRevokePermissionsRequestSchema = EthereumRequestWithIdSchema.
       {
         message: 'Params array must contain at least one element',
         path: ['params'],
-        code: ZodIssueCode.custom,
+        code: 'custom',
+        input: undefined,
       },
     ])
   }
@@ -263,7 +278,8 @@ export const WalletGetCapabilitiesRequestSchema = EthereumRequestWithIdSchema.ex
       {
         message: 'Params array must contain at least one element (address)',
         path: ['params'],
-        code: ZodIssueCode.custom,
+        code: 'custom',
+        input: undefined,
       },
     ])
   }
@@ -305,7 +321,8 @@ export const WalletSendCallsRequestSchema = EthereumRequestWithIdSchema.extend({
       {
         message: 'Params array must contain at least one element',
         path: ['params'],
-        code: ZodIssueCode.custom,
+        code: 'custom',
+        input: undefined,
       },
     ])
   }
@@ -313,14 +330,34 @@ export const WalletSendCallsRequestSchema = EthereumRequestWithIdSchema.extend({
   const parseResult = SendCallsParamsSchema.safeParse(params[0])
 
   if (!parseResult.success) {
-    throw new Error('First element of the array must match SendCallsParamsSchema')
+    throw parseResult.error
   }
 
   if (!parseResult.data.from) {
-    throw new Error('From address must be specified')
+    throw new z.ZodError([
+      {
+        message: 'From address must be specified',
+        path: ['params', 0, 'from'],
+        code: 'custom',
+        input: params[0],
+      },
+    ])
   }
 
-  const { calls, chainId, from, id, capabilities, version } = parseResult.data
+  const { chainId, from, id, capabilities, version } = parseResult.data
+  let calls: ReturnType<typeof normalizeSendCalls>
+  try {
+    calls = normalizeSendCalls(parseResult.data.calls)
+  } catch (error) {
+    throw new z.ZodError([
+      {
+        message: error instanceof Error ? error.message : 'Calls must be valid',
+        path: ['params', 0, 'calls'],
+        code: 'custom',
+        input: parseResult.data.calls,
+      },
+    ])
+  }
 
   return {
     requestId,
@@ -348,7 +385,8 @@ export const WalletGetCallsStatusRequestSchema = EthereumRequestWithIdSchema.ext
       {
         message: 'Params array must contain at least one element',
         path: ['params'],
-        code: ZodIssueCode.custom,
+        code: 'custom',
+        input: undefined,
       },
     ])
   }

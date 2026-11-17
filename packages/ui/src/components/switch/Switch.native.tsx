@@ -1,5 +1,8 @@
+import { useSporeColors } from '@universe/mycelium'
 import { memo, useEffect, useMemo } from 'react'
-import { Pressable, type PressableProps, type StyleProp, StyleSheet, type ViewStyle } from 'react-native'
+import { type StyleProp, StyleSheet, type ViewStyle } from 'react-native'
+// RNGH Pressable (not RN's) so the switch's tap gesture coordinates with the RNGH-backed TouchableArea it nests inside.
+import { Pressable } from 'react-native-gesture-handler'
 import Animated, { Easing, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { Check } from 'ui/src/components/icons'
 import {
@@ -9,7 +12,6 @@ import {
   SWITCH_TRACK_WIDTH,
 } from 'ui/src/components/switch/shared'
 import type { SwitchProps } from 'ui/src/components/switch/types'
-import { useSporeColors } from 'ui/src/hooks/useSporeColors'
 import { useEvent } from 'utilities/src/react/hooks'
 
 const ANIMATION_CONFIG = {
@@ -27,6 +29,7 @@ export const Switch = memo(function Switch({
   defaultChecked = false,
   onCheckedChange,
   disabled,
+  // oxlint-disable-next-line typescript/no-useless-default-assignment -- defensive default
   variant = 'default',
   style,
   testID,
@@ -40,6 +43,7 @@ export const Switch = memo(function Switch({
     if (checked !== undefined && checked !== (progress.value === 1)) {
       progress.value = withTiming(checked ? 1 : 0, ANIMATION_CONFIG)
     }
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
   }, [checked])
 
   const trackStyle = useAnimatedStyle(() => {
@@ -83,7 +87,7 @@ export const Switch = memo(function Switch({
     })
   })
 
-  const containerStyle: PressableProps['style'] = useMemo(
+  const containerStyle: StyleProp<ViewStyle> = useMemo(
     () => (pointerEvents === 'none' ? { pointerEvents: 'none' } : {}),
     [pointerEvents],
   )

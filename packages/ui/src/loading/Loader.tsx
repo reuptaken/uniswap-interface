@@ -1,21 +1,17 @@
+import { Flex, FlexLoader, type FlexLoaderProps, type FlexProps, Skeleton } from '@universe/mycelium'
 import React, { memo, useMemo } from 'react'
-import { getToken, SpaceTokens } from 'tamagui'
-import { Flex, Separator } from 'ui/src/components/layout'
-import { useDeviceDimensions } from 'ui/src/hooks/useDeviceDimensions/useDeviceDimensions'
-import { FlexLoader, FlexLoaderProps } from 'ui/src/loading/FlexLoader'
+import { Separator } from 'ui/src/components/layout'
 import { InsufficientFundsNetworkRowLoader } from 'ui/src/loading/InsufficientFundsNetworkRowLoader'
 import { NftCardLoader } from 'ui/src/loading/NftCardLoader'
-import { Skeleton } from 'ui/src/loading/Skeleton'
 import { TokenLoader } from 'ui/src/loading/TokenLoader'
 import { TransactionLoader } from 'ui/src/loading/TransactionLoader'
 import { WalletLoader } from 'ui/src/loading/WalletLoader'
-import { fonts } from 'ui/src/theme'
 
 const Transaction = memo(function _Transaction({ repeat = 1 }: { repeat?: number }): JSX.Element {
   return (
     <Skeleton>
       <Flex>
-        {/* eslint-disable-next-line max-params */}
+        {/* oxlint-disable-next-line max-params */}
         {new Array(repeat).fill(null).map((_, i, { length }) => (
           <React.Fragment key={i}>
             <TransactionLoader opacity={(length - i) / length} />
@@ -33,33 +29,9 @@ const SearchResult = memo(function _SearchResult({ repeat = 1 }: { repeat?: numb
   return <Transaction repeat={repeat} />
 })
 
-const TransferInstitution = memo(function _TransferInstitution({
-  itemsCount,
-  iconSize,
-}: {
-  itemsCount: number
-  iconSize: number
-}): JSX.Element {
-  const { fullWidth } = useDeviceDimensions()
-  const LINKED_TEXT_WIDTH = 40
+function Box({ disableShimmer, ...props }: FlexLoaderProps & { disableShimmer?: boolean }): JSX.Element {
   return (
-    <Flex>
-      {new Array(itemsCount).fill(null).map((_, i) => (
-        <Flex key={i} row alignItems="center" gap="$spacing12" mb="$spacing12" mx="$spacing8" p="$spacing16">
-          <Flex grow row alignItems="center" gap="$spacing12">
-            <Loader.Box borderRadius="$rounded12" height={iconSize} width={iconSize} />
-            <Loader.Box borderRadius="$rounded4" height={fonts.body3.lineHeight} width={fullWidth / 3} />
-          </Flex>
-          <Loader.Box borderRadius="$rounded4" height={fonts.body3.lineHeight} width={LINKED_TEXT_WIDTH} />
-        </Flex>
-      ))}
-    </Flex>
-  )
-})
-
-function Box(props: FlexLoaderProps): JSX.Element {
-  return (
-    <Skeleton>
+    <Skeleton disabled={disableShimmer}>
       <FlexLoader {...props} />
     </Skeleton>
   )
@@ -67,19 +39,19 @@ function Box(props: FlexLoaderProps): JSX.Element {
 
 function Token({
   repeat = 1,
-  contrast,
   withPrice,
   gap = '$spacing4',
 }: {
   repeat?: number
-  contrast?: boolean
   withPrice?: boolean
-  gap?: SpaceTokens
+  // Typed off the Flex prop the value lands on, so it tracks the layout primitive's own
+  // rebuild instead of pinning the legacy Tamagui SpaceTokens union here.
+  gap?: FlexProps['gap']
 }): JSX.Element {
   return (
-    <Skeleton contrast={contrast}>
+    <Skeleton>
       <Flex grow gap={gap}>
-        {/* eslint-disable-next-line max-params */}
+        {/* oxlint-disable-next-line max-params */}
         {new Array(repeat).fill(null).map((_, i, { length }) => (
           <React.Fragment key={i}>
             <TokenLoader opacity={(length - i) / length} withPrice={withPrice} />
@@ -90,9 +62,9 @@ function Token({
   )
 }
 
-function InsufficientFundsNetworkRow({ repeat = 1, contrast }: { repeat?: number; contrast?: boolean }): JSX.Element {
+function InsufficientFundsNetworkRow({ repeat = 1 }: { repeat?: number }): JSX.Element {
   return (
-    <Skeleton contrast={contrast}>
+    <Skeleton>
       <Flex grow>
         {Array.from({ length: repeat }, (_, i) => (
           <React.Fragment key={i}>
@@ -112,7 +84,7 @@ function NFT({ repeat = 1 }: { repeat?: number }): JSX.Element {
         <NftCardLoader opacity={1} />
       ) : (
         <Flex>
-          {/* eslint-disable-next-line max-params */}
+          {/* oxlint-disable-next-line max-params */}
           {new Array(Math.floor(repeat / 2)).fill(null).map((_, i, { length }) => {
             const opacity = (length - i) / length
             return (
@@ -133,7 +105,9 @@ function NFT({ repeat = 1 }: { repeat?: number }): JSX.Element {
 function Image(): JSX.Element {
   return (
     <Skeleton>
-      <FlexLoader aspectRatio={1} borderRadius={getToken('$none', 'radius')} />
+      {/* 0 is the exact value the legacy getToken('$none', 'radius') resolved to; the $none
+          token spelling resolves to a CSS var on web instead of the literal the old code set. */}
+      <FlexLoader aspectRatio={1} borderRadius={0} />
     </Skeleton>
   )
 }
@@ -142,7 +116,7 @@ function Wallets({ repeat = 1 }: { repeat?: number }): JSX.Element {
   return (
     <Skeleton>
       <Flex gap="$spacing12">
-        {/* eslint-disable-next-line max-params */}
+        {/* oxlint-disable-next-line max-params */}
         {new Array(repeat).fill(null).map((_, i, { length }) => (
           <React.Fragment key={i}>
             <WalletLoader opacity={(length - i) / length} />
@@ -160,7 +134,6 @@ export const Loader = {
   Image,
   SearchResult,
   Token,
-  TransferInstitution,
   Transaction,
   Wallets,
 }

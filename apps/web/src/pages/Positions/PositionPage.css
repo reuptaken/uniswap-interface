@@ -1,0 +1,122 @@
+/* Position page: text 10% smaller, except the smallest (12px text, 16px line height), which is left as is.
+   Unlayered on purpose: it then wins over the layered Tailwind utilities these classes come from. */
+.position-page-compact .text-\[14px\] {
+  font-size: 12.6px;
+}
+.position-page-compact .text-\[15px\] {
+  font-size: 13.5px;
+}
+.position-page-compact .text-\[16px\] {
+  font-size: 14.4px;
+}
+.position-page-compact .text-\[17px\] {
+  font-size: 15.3px;
+}
+.position-page-compact .text-\[18px\] {
+  font-size: 16.2px;
+}
+.position-page-compact .text-\[19px\] {
+  font-size: 17.1px;
+}
+.position-page-compact .text-\[20px\] {
+  font-size: 18px;
+}
+.position-page-compact .text-\[22px\] {
+  font-size: 19.8px;
+}
+.position-page-compact .text-\[24px\] {
+  font-size: 21.6px;
+}
+.position-page-compact .text-\[25px\] {
+  font-size: 22.5px;
+}
+.position-page-compact .text-\[28px\] {
+  font-size: 25.2px;
+}
+.position-page-compact .text-\[30px\] {
+  font-size: 27px;
+}
+.position-page-compact .text-\[32px\] {
+  font-size: 28.8px;
+}
+.position-page-compact .text-\[36px\] {
+  font-size: 32.4px;
+}
+.position-page-compact .text-\[40px\] {
+  font-size: 36px;
+}
+.position-page-compact .text-\[44px\] {
+  font-size: 39.6px;
+}
+.position-page-compact .text-\[48px\] {
+  font-size: 43.2px;
+}
+.position-page-compact .text-\[52px\] {
+  font-size: 46.8px;
+}
+.position-page-compact .text-\[56px\] {
+  font-size: 50.4px;
+}
+.position-page-compact .text-\[64px\] {
+  font-size: 57.6px;
+}
+.position-page-compact .\[line-height\:16\.1px\] {
+  line-height: 14.49px;
+}
+.position-page-compact .\[line-height\:17px\] {
+  line-height: 15.3px;
+}
+.position-page-compact .\[line-height\:18px\] {
+  line-height: 16.2px;
+}
+.position-page-compact .\[line-height\:19px\] {
+  line-height: 17.1px;
+}
+.position-page-compact .\[line-height\:20px\] {
+  line-height: 18px;
+}
+.position-page-compact .\[line-height\:22px\] {
+  line-height: 19.8px;
+}
+.position-page-compact .\[line-height\:24px\] {
+  line-height: 21.6px;
+}
+.position-page-compact .\[line-height\:26px\] {
+  line-height: 23.4px;
+}
+.position-page-compact .\[line-height\:28px\] {
+  line-height: 25.2px;
+}
+.position-page-compact .\[line-height\:30px\] {
+  line-height: 27px;
+}
+.position-page-compact .\[line-height\:32px\] {
+  line-height: 28.8px;
+}
+.position-page-compact .\[line-height\:36px\] {
+  line-height: 32.4px;
+}
+.position-page-compact .\[line-height\:40px\] {
+  line-height: 36px;
+}
+.position-page-compact .\[line-height\:44px\] {
+  line-height: 39.6px;
+}
+.position-page-compact .\[line-height\:48px\] {
+  line-height: 43.2px;
+}
+.position-page-compact .\[line-height\:52px\] {
+  line-height: 46.8px;
+}
+.position-page-compact .\[line-height\:56px\] {
+  line-height: 50.4px;
+}
+.position-page-compact .\[line-height\:60px\] {
+  line-height: 54px;
+}
+.position-page-compact .\[line-height\:64px\] {
+  line-height: 57.6px;
+}
+.position-page-compact .\[line-height\:72px\] {
+  line-height: 64.8px;
+}

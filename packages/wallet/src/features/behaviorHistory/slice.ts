@@ -11,7 +11,6 @@ export interface BehaviorHistoryState {
   hasViewedNotificationsCard?: boolean
   hasUsedExplore: boolean
   backupReminderLastSeenTs?: number
-  hasViewedOffRampTooltip: boolean
   hasViewedBridgedAssetsCard?: boolean
   hasViewedBridgedAssetsV2Card?: boolean
   hasDismissedBridgingWarning?: boolean
@@ -34,14 +33,14 @@ export interface BehaviorHistoryState {
     }
   }
   hasSeenSmartWalletCreatedWalletModal?: boolean
+  /** One-time reveal animation for the unfunded Earn module on Home. */
+  hasSeenUnfundedEarnCardReveal?: boolean
   /**
    * Whether the user has copied their private keys via the view private keys screen during
    * a restoration flow.
    */
   hasCopiedPrivateKeys?: boolean
   isAllSmartWalletNudgesDisabled?: boolean
-  hasDismissedMonadAnnouncement?: boolean
-  hasDismissedNoAppFeesAnnouncement?: boolean
 }
 
 export const initialBehaviorHistoryState: BehaviorHistoryState = {
@@ -52,21 +51,15 @@ export const initialBehaviorHistoryState: BehaviorHistoryState = {
   hasUsedExplore: false,
   backupReminderLastSeenTs: undefined,
   hasViewedBridgedAssetsCard: false,
-  hasViewedOffRampTooltip: false,
   hasViewedDappRequestBridgingBanner: {},
   smartWalletNudge: {},
   hasCopiedPrivateKeys: false,
-  hasDismissedMonadAnnouncement: false,
-  hasDismissedNoAppFeesAnnouncement: false,
 }
 
 const slice = createSlice({
   name: 'behaviorHistory',
   initialState: initialBehaviorHistoryState,
   reducers: {
-    setHasViewedConnectionMigration: (state, action: PayloadAction<boolean>) => {
-      state.hasViewedConnectionMigration = action.payload
-    },
     setHasSkippedUnitagPrompt: (state, action: PayloadAction<boolean>) => {
       state.hasSkippedUnitagPrompt = action.payload
     },
@@ -78,15 +71,6 @@ const slice = createSlice({
     },
     setBackupReminderLastSeenTs: (state, action: PayloadAction<number | undefined>) => {
       state.backupReminderLastSeenTs = action.payload
-    },
-    setHasViewedBridgedAssetsCard: (state, action: PayloadAction<boolean>) => {
-      state.hasViewedBridgedAssetsCard = action.payload
-    },
-    setHasViewedBridgedAssetsV2Card: (state, action: PayloadAction<boolean>) => {
-      state.hasViewedBridgedAssetsV2Card = action.payload
-    },
-    setHasViewedOffRampTooltip: (state, action: PayloadAction<boolean>) => {
-      state.hasViewedOffRampTooltip = action.payload
     },
     setHasViewedNotificationsCard: (state, action: PayloadAction<boolean>) => {
       state.hasViewedNotificationsCard = action.payload
@@ -137,6 +121,9 @@ const slice = createSlice({
     setHasSeenSmartWalletCreatedWalletModal: (state) => {
       state.hasSeenSmartWalletCreatedWalletModal = true
     },
+    setHasSeenUnfundedEarnCardReveal: (state) => {
+      state.hasSeenUnfundedEarnCardReveal = true
+    },
     setHasShownSmartWalletHomeScreenNudge: (state, action: PayloadAction<{ walletAddress: string }>) => {
       state.smartWalletNudge ??= {}
       state.smartWalletNudge[action.payload.walletAddress] = {
@@ -164,36 +151,25 @@ const slice = createSlice({
         isAllSmartWalletNudgesDisabled: action.payload.isDisabled,
       }
     },
-    setHasDismissedMonadAnnouncement: (state, action: PayloadAction<boolean>) => {
-      state.hasDismissedMonadAnnouncement = action.payload
-    },
-    setHasDismissedNoAppFeesAnnouncement: (state, action: PayloadAction<boolean>) => {
-      state.hasDismissedNoAppFeesAnnouncement = action.payload
-    },
   },
 })
 
 export const {
-  setHasViewedConnectionMigration,
   setHasSkippedUnitagPrompt,
   setHasCompletedUnitagsIntroModal,
   setHasUsedExplore,
   setBackupReminderLastSeenTs,
-  setHasViewedOffRampTooltip,
   setHasViewedDappRequestBridgingBanner,
   resetWalletBehaviorHistory,
   setHasViewedNotificationsCard,
-  setHasViewedBridgedAssetsCard,
-  setHasViewedBridgedAssetsV2Card,
   setHasDismissedSmartWalletHomeScreenNudge,
   setHasCopiedPrivateKeys,
   setHasShown5792Nudge,
   setIncrementNumPostSwapNudge,
   setHasSeenSmartWalletCreatedWalletModal,
+  setHasSeenUnfundedEarnCardReveal,
   setIsAllSmartWalletNudgesDisabled,
   setHasShownSmartWalletHomeScreenNudge,
-  setHasDismissedMonadAnnouncement,
-  setHasDismissedNoAppFeesAnnouncement,
 } = slice.actions
 
 export const behaviorHistoryReducer = slice.reducer

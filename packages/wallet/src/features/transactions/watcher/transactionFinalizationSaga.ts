@@ -1,77 +1,55 @@
-import { ApolloClient, NormalizedCacheObject } from '@apollo/client'
 import { TradeType } from '@uniswap/sdk-core'
 import { SharedQueryClient } from '@universe/api'
-import { Experiments, getExperimentValue, PrivateRpcProperties } from '@universe/gating'
+import {
+  DEFAULT_CALLDATA_HINTS_ENABLED,
+  FLASHBOTS_DEFAULT_REFUND_PERCENT,
+  type UniverseChainId,
+} from '@universe/chains'
+import { FeatureFlags, getFeatureFlag } from '@universe/gating'
 import { BigNumber } from 'ethers'
 import { call, put, select, takeEvery } from 'typed-redux-saga'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { getChainLabel } from 'uniswap/src/features/chains/utils'
-import { getGasPrice } from 'uniswap/src/features/gas/types'
-import { findLocalGasStrategy } from 'uniswap/src/features/gas/utils'
+import { findLocalGasStrategy, getGasPrice } from 'uniswap/src/features/gas/utils'
 import { setNotificationStatus } from 'uniswap/src/features/notifications/slice/slice'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
 import { refetchQueries } from 'uniswap/src/features/portfolio/portfolioUpdates/refetchQueriesSaga'
-import {
-  DEFAULT_FLASHBOTS_ENABLED,
-  FLASHBOTS_DEFAULT_REFUND_PERCENT,
-} from 'uniswap/src/features/providers/FlashbotsCommon'
-import { getEnabledChainIdsSaga } from 'uniswap/src/features/settings/saga'
 import { MobileAppsFlyerEvents, SwapEventName, WalletEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent, sendAppsFlyerEvent } from 'uniswap/src/features/telemetry/send'
-import { selectSwapTransactionsCount } from 'uniswap/src/features/transactions/selectors'
+import { getCancelTxFinalizationUpdates } from 'uniswap/src/features/transactions/cancel/getCancelTxFinalizationUpdates'
+import { selectSwapTransactionsCount, selectTransactions } from 'uniswap/src/features/transactions/selectors'
 import { transactionActions } from 'uniswap/src/features/transactions/slice'
 import { getRouteAnalyticsData, tradeRoutingToFillType } from 'uniswap/src/features/transactions/swap/analytics'
-import { isNonInstantFlashblockTransactionType } from 'uniswap/src/features/transactions/swap/components/UnichainInstantBalanceModal/utils'
-import { getIsFlashblocksEnabled } from 'uniswap/src/features/transactions/swap/hooks/useIsUnichainFlashblocksEnabled'
+import { activePlanStore } from 'uniswap/src/features/transactions/swap/review/stores/activePlan/activePlanStore'
 import { isClassic, isUniswapX } from 'uniswap/src/features/transactions/swap/utils/routing'
 import { SwapEventType, timestampTracker } from 'uniswap/src/features/transactions/swap/utils/SwapEventTimestampTracker'
 import {
-  FinalizedTransactionDetails,
-  SendTokenTransactionInfo,
-  TransactionDetails,
+  type FinalizedTransactionDetails,
+  type SendTokenTransactionInfo,
+  type TransactionDetails,
   TransactionStatus,
   TransactionType,
 } from 'uniswap/src/features/transactions/types/transactionDetails'
+import { isFinalizedPlanTXDetails } from 'uniswap/src/features/transactions/types/utils'
 import { currencyIdToChain } from 'uniswap/src/utils/currencyId'
 import { logger } from 'utilities/src/logger/logger'
-import { createDelegationQueryOptions } from 'wallet/src/features/smartWallet/WalletDelegationProvider'
+import { ReactQueryCacheKey } from 'utilities/src/reactQuery/cache'
 import { getDiff, getOptionalTransactionProperty, getPercentageError } from 'wallet/src/features/transactions/utils'
-import {
-  selectActiveAccountAddress,
-  selectAllSignerMnemonicAccountAddresses,
-} from 'wallet/src/features/wallet/selectors'
+import { selectActiveAccountAddress } from 'wallet/src/features/wallet/selectors'
 
 export function* finalizeTransaction({
-  apolloClient,
   transaction,
 }: {
-  apolloClient: ApolloClient<NormalizedCacheObject>
   transaction: FinalizedTransactionDetails
 }): Generator<unknown> {
   yield* put(transactionActions.finalizeTransaction(transaction))
 
-  const isUnichainFlashblock = getIsFlashblocksEnabled(transaction.chainId)
-  const shouldSkipSuccessNotification =
-    isUnichainFlashblock &&
-    'isFlashblockTxWithinThreshold' in transaction &&
-    transaction.isFlashblockTxWithinThreshold &&
-    !isNonInstantFlashblockTransactionType(transaction)
-
-  // Only show notification badge if not a fast flashblock transaction
-  if (!shouldSkipSuccessNotification) {
-    yield* put(setNotificationStatus({ address: transaction.from, hasNotifications: true }))
-  }
+  yield* put(setNotificationStatus({ address: transaction.from, hasNotifications: true }))
 
   // Refetch data when a local tx has confirmed
   const activeAddress = yield* select(selectActiveAccountAddress)
   yield* refetchQueries({
     transaction,
-    apolloClient,
     activeAddress,
   })
-
-  const { chains } = yield* call(getEnabledChainIdsSaga, Platform.EVM)
-  const accountAddresses = yield* select(selectAllSignerMnemonicAccountAddresses)
 
   try {
     logger.debug(
@@ -79,7 +57,7 @@ export function* finalizeTransaction({
       'finalizeTransaction',
       'invalidating + refetching wallet delegation queries',
     )
-    yield* call(invalidateAndRefetchWalletDelegationQueries, { accountAddresses, chainIds: chains })
+    yield* call(invalidateAndRefetchWalletDelegationQueries)
   } catch (error) {
     logger.debug('transactionFinalizationSaga', 'finalizeTransaction', 'error refetching wallet delegation queries', {
       error,
@@ -93,25 +71,31 @@ export function* finalizeTransaction({
       yield* call(sendAppsFlyerEvent, MobileAppsFlyerEvents.SwapCompleted)
     }
   }
+
+  if (transaction.typeInfo.type === TransactionType.Plan) {
+    activePlanStore.getState().actions.clearPlan(transaction.typeInfo.planId)
+  }
 }
 
-export async function invalidateAndRefetchWalletDelegationQueries(input: {
-  accountAddresses: Address[]
-  chainIds: UniverseChainId[]
-}): Promise<void> {
-  const queryOptions = createDelegationQueryOptions(input)
-  await SharedQueryClient.invalidateQueries(queryOptions)
-  await SharedQueryClient.fetchQuery({ ...queryOptions, gcTime: 0 })
+export async function invalidateAndRefetchWalletDelegationQueries(): Promise<void> {
+  const queryKey = [ReactQueryCacheKey.WalletDelegation]
+  await SharedQueryClient.invalidateQueries({ queryKey })
 }
 
 /**
  * Send analytics events for finalized transactions
  */
-// eslint-disable-next-line complexity
 export function logTransactionEvent(actionData: ReturnType<typeof transactionActions.finalizeTransaction>): void {
   const { payload } = actionData
-  const { hash, chainId, addedTime, from, typeInfo, receipt, status, transactionOriginType } = payload
+  const { chainId, addedTime, from, typeInfo, receipt, transactionOriginType } = payload
   const { type } = typeInfo
+  const loggerTags = {
+    tags: {
+      file: 'transactionFinalizationSaga',
+      function: 'logTransactionEvent',
+    },
+    extra: { payload },
+  }
 
   // Send analytics event for swap success and failure
   if (type === TransactionType.Swap || type === TransactionType.Bridge) {
@@ -119,6 +103,13 @@ export function logTransactionEvent(actionData: ReturnType<typeof transactionAct
     const isOnChainTransaction = 'options' in payload
     const includesDelegation = isOnChainTransaction ? payload.options.includesDelegation : undefined
     const isSmartWalletTransaction = isOnChainTransaction ? payload.options.isSmartWalletTransaction : undefined
+    const userSubmissionTimestampMs = isOnChainTransaction ? payload.options.userSubmissionTimestampMs : undefined
+    // Submission-to-inclusion latency (epoch ms). For 4337 userOps the completion event fires on bundler
+    // success, before the on-chain receipt lands, so `confirmedTime` is usually absent — fall back to
+    // finalization time as the inclusion timestamp. Null unless we know when the user submitted.
+    const inclusionTimestampMs = confirmedTime ?? Date.now()
+    const timeToInclusionMs =
+      userSubmissionTimestampMs !== undefined ? inclusionTimestampMs - userSubmissionTimestampMs : undefined
 
     const { quoteId, gasUseEstimate, inputCurrencyId, outputCurrencyId, transactedUSDValue } = typeInfo
 
@@ -143,7 +134,10 @@ export function logTransactionEvent(actionData: ReturnType<typeof transactionAct
     const baseProperties = {
       routing: tradeRoutingToFillType({ routing: payload.routing, indicative: false }),
       id: payload.id,
-      hash,
+      hash: payload.hash,
+      // For 4337 swaps the bundler returns a UserOp hash; the wallet controls the bundler so this is reliable here.
+      user_op_hash: payload.userOpHash,
+      time_to_inclusion_ms: timeToInclusionMs,
       transactionOriginType,
       address: from,
       chain_id: chainId,
@@ -157,31 +151,44 @@ export function logTransactionEvent(actionData: ReturnType<typeof transactionAct
       quoteId,
       submitViaPrivateRpc: isUniswapX(payload) ? false : payload.options.submitViaPrivateRpc,
       transactedUSDValue,
-      is_final_step: typeInfo.isFinalStep ?? true, // If no `isFinalStep` is provided, we assume it's not a multi-step transaction and default to `true`
       swap_start_timestamp: typeInfo.swapStartTimestamp,
+      // Execution-time gas sponsorship captured at submit (see isGasSponsoredExecution)
+      is_sponsored: typeInfo.isSponsored,
+      sponsorship_campaign_id: typeInfo.sponsorshipCampaignId,
+      // RWA analytics captured at submit (see getRwaSwapAnalyticsProperties)
+      market_closed: typeInfo.marketClosed,
+      price_warning: typeInfo.priceWarning,
+      token_in_stocks: typeInfo.tokenInStocks,
+      token_out_stocks: typeInfo.tokenOutStocks,
+      // Chained action analytics fields
+      plan_id: typeInfo.planId,
+      step_index: typeInfo.stepIndex,
+      step_type: typeInfo.stepType,
+      total_steps: typeInfo.totalSteps,
+      total_non_error_steps: typeInfo.totalNonErrorSteps,
+      is_final_step: typeInfo.isFinalStep,
       ...swapProperties,
       ...bridgeProperties,
       ...getRouteAnalyticsData(payload),
     }
 
-    if (isUniswapX(payload)) {
-      const { orderHash } = payload
+    if (isFinalizedPlanTXDetails(payload)) {
+      // Per-step SwapTransactionCompleted events are fired from planSaga.ts when each step finalizes.
+      // The parent plan transaction does not need its own event.
+      return
+    } else if (isUniswapX(payload)) {
+      const { orderHash, hash, status } = payload
       // All local uniswapx swaps should be tracked in redux with an orderHash .
       if (!orderHash) {
-        logger.error(new Error('Attempting to log uniswapx swap event without a orderHash'), {
-          tags: {
-            file: 'transactionFinalizationSaga',
-            function: 'logTransactionEvent',
-          },
-          extra: { payload },
-        })
+        logger.error(new Error('Attempting to log uniswapx swap event without a orderHash'), loggerTags)
         return
       }
 
       switch (status) {
-        case TransactionStatus.Success:
+        case TransactionStatus.Success: {
           logSwapSuccess({ ...baseProperties, order_hash: orderHash, hash })
           break
+        }
         case TransactionStatus.Canceled:
           sendAnalyticsEvent(WalletEventName.SwapTransactionCancelled, {
             ...baseProperties,
@@ -192,15 +199,10 @@ export function logTransactionEvent(actionData: ReturnType<typeof transactionAct
           sendAnalyticsEvent(SwapEventName.SwapTransactionFailed, { ...baseProperties, order_hash: orderHash })
       }
     } else {
+      const { hash, status } = payload
       // All successful classic swaps should be tracked in redux with a tx hash.
       if (status !== TransactionStatus.Failed && !hash) {
-        logger.error(new Error('Attempting to log swap event without a hash'), {
-          tags: {
-            file: 'transactionFinalizationSaga',
-            function: 'logTransactionEvent',
-          },
-          extra: { payload },
-        })
+        logger.error(new Error('Attempting to log swap event without a hash'), loggerTags)
         return
       }
 
@@ -257,31 +259,29 @@ function logSend(typeInfo: SendTokenTransactionInfo, chainId: UniverseChainId): 
 }
 
 export function logTransactionTimeout(transaction: TransactionDetails): void {
-  const flashbotsEnabled = getExperimentValue({
-    experiment: Experiments.PrivateRpc,
-    param: PrivateRpcProperties.FlashbotsEnabled,
-    defaultValue: DEFAULT_FLASHBOTS_ENABLED,
-  })
-
-  const flashbotsRefundPercent = getExperimentValue({
-    experiment: Experiments.PrivateRpc,
-    param: PrivateRpcProperties.RefundPercent,
-    defaultValue: FLASHBOTS_DEFAULT_REFUND_PERCENT,
-  })
+  // Old persisted txs predate the label; every private submission was Flashbots then.
+  const privateRpcProvider = isClassic(transaction)
+    ? (transaction.options.privateRpcProvider ?? (transaction.options.submitViaPrivateRpc ? 'flashbots' : undefined))
+    : undefined
+  const flashbotsRefundPercent = FLASHBOTS_DEFAULT_REFUND_PERCENT
+  const calldataHintsEnabled = DEFAULT_CALLDATA_HINTS_ENABLED
 
   sendAnalyticsEvent(WalletEventName.PendingTransactionTimeout, {
-    use_flashbots: flashbotsEnabled,
+    use_flashbots: privateRpcProvider === 'flashbots',
     flashbots_refund_percent: flashbotsRefundPercent,
+    calldata_hints_enabled: calldataHintsEnabled,
     chain_id: transaction.chainId,
     tx_hash: transaction.hash,
     address: transaction.from,
     private_rpc: (isClassic(transaction) && transaction.options.submitViaPrivateRpc) ?? false,
+    private_rpc_provider: privateRpcProvider,
   })
 
   logger.warn('transactionFinalizationSaga', 'logTransactionTimeout', 'Transaction timed out', {
     chain_id: transaction.chainId,
-    flashbots_enabled: flashbotsEnabled,
+    private_rpc_provider: privateRpcProvider,
     flashbots_refund_percent: flashbotsRefundPercent,
+    calldata_hints_enabled: calldataHintsEnabled,
     transaction,
     address: transaction.from,
   })
@@ -290,7 +290,7 @@ export function logTransactionTimeout(transaction: TransactionDetails): void {
 function maybeLogGasEstimateAccuracy(transaction: TransactionDetails): void {
   const { gasEstimate } = transaction.typeInfo
   const currentTimeMs = Date.now()
-  const transactionGasLimit = getOptionalTransactionProperty(transaction, (options) => options.request.gasLimit)
+  const transactionGasLimit = getOptionalTransactionProperty(transaction, (options) => options.request?.gasLimit)
   const userSubmissionTimestampMs = getOptionalTransactionProperty(
     transaction,
     (options) => options.userSubmissionTimestampMs,
@@ -374,7 +374,36 @@ function logSwapSuccess(
   })
 }
 
+/**
+ * Flips UniswapX orders when their tracked cancel tx finalizes (pure core in
+ * getCancelTxFinalizationUpdates). Covers every `finalizeTransaction` dispatch site.
+ */
+export function* handleCancelTxFinalized(
+  actionData: ReturnType<typeof transactionActions.finalizeTransaction>,
+): Generator<unknown> {
+  const { payload } = actionData
+  if (payload.typeInfo.type !== TransactionType.UniswapXCancel) {
+    return
+  }
+  if (!getFeatureFlag(FeatureFlags.LimitCancelTimeout)) {
+    return
+  }
+
+  const transactionsState = yield* select(selectTransactions)
+  const updates = getCancelTxFinalizationUpdates({
+    transaction: payload,
+    transactionsState,
+    nowMs: Date.now(),
+  })
+  for (const update of updates) {
+    yield* put(update)
+  }
+}
+
 export function* watchTransactionEvents(): Generator<unknown> {
   // Watch for finalized transactions to send analytics events
   yield* takeEvery(transactionActions.finalizeTransaction.type, logTransactionEvent)
+
+  // Watch for finalized cancel txs to flip their linked UniswapX orders
+  yield* takeEvery(transactionActions.finalizeTransaction.type, handleCancelTxFinalized)
 }

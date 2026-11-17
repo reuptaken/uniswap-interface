@@ -1,21 +1,23 @@
+import { UniverseChainId } from '@universe/chains'
+import { Flex, UniversalImage, UniversalImageResizeMode, useSporeColors } from '@universe/mycelium'
 import React, { useEffect } from 'react'
 import type { IconProps } from 'ui/src'
-import { Flex, UniversalImage, UniversalImageResizeMode, useSporeColors } from 'ui/src'
 import { AlertTriangleFilled } from 'ui/src/components/icons/AlertTriangleFilled'
 import { Approve } from 'ui/src/components/icons/Approve'
 import { ArrowDownInCircle } from 'ui/src/components/icons/ArrowDownInCircle'
+import { ArrowDownToLine } from 'ui/src/components/icons/ArrowDownToLine'
 import { ArrowUpInCircle } from 'ui/src/components/icons/ArrowUpInCircle'
 import { QuestionInCircle } from 'ui/src/components/icons/QuestionInCircle'
+import { SlashCircle } from 'ui/src/components/icons/SlashCircle'
 import { Walletconnect } from 'ui/src/components/icons/Walletconnect'
 import { borderRadii, zIndexes } from 'ui/src/theme'
-import { CurrencyLogo, STATUS_RATIO } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
+import { STATUS_RATIO } from 'uniswap/src/components/CurrencyLogo/constants'
+import { CurrencyLogo } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
 import { TransactionSummaryNetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
 import { DappIconPlaceholder } from 'uniswap/src/components/dapps/DappIconPlaceholder'
-import { ImageUri } from 'uniswap/src/components/nfts/images/ImageUri'
-import { NFTViewer } from 'uniswap/src/components/nfts/images/NFTViewer'
+import { NFTViewer } from 'uniswap/src/components/nfts/NFTViewer'
 import { AssetType } from 'uniswap/src/entities/assets'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
+import { type CurrencyInfo } from 'uniswap/src/features/dataApi/types'
 import {
   NFTTradeType,
   TransactionStatus,
@@ -30,6 +32,7 @@ interface LogoWithTxStatusBaseProps {
   txStatus: TransactionStatus
   size: number
   chainId: UniverseChainId | null
+  isVaultTransaction?: boolean
 }
 
 interface DappLogoWithTxStatusProps {
@@ -75,7 +78,6 @@ function getLogo(props: LogoWithTxStatusProps): JSX.Element {
   )
 }
 
-/* eslint-disable complexity */
 export function LogoWithTxStatus(props: LogoWithTxStatusProps): JSX.Element {
   const { assetType, txType, txStatus, size, chainId } = props
   const colors = useSporeColors()
@@ -85,6 +87,7 @@ export function LogoWithTxStatus(props: LogoWithTxStatusProps): JSX.Element {
   const logo = getLogo(props)
 
   const fill = txStatus === TransactionStatus.Success ? colors.statusSuccess : colors.neutral2
+  const fillToken = txStatus === TransactionStatus.Success ? ('$statusSuccess' as const) : ('$neutral2' as const)
   const color = colors.surface2
 
   let icon: JSX.Element | undefined
@@ -92,14 +95,23 @@ export function LogoWithTxStatus(props: LogoWithTxStatusProps): JSX.Element {
     icon = <TransactionSummaryNetworkLogo chainId={chainId} size={size * STATUS_RATIO} />
   } else {
     let Icon: React.NamedExoticComponent<IconProps> | undefined
+    let iconRotation: IconProps['rotate'] | undefined
+    // ArrowDownToLine draws a bare glyph in `color` (no built-in disc filled via `fill`), so the
+    // badge wrapper supplies the status-colored disc — otherwise it renders surface2-on-surface1.
+    let iconIsBareGlyph = false
     switch (txType) {
       case TransactionType.Approve:
       case TransactionType.NFTApprove:
         Icon = Approve
         break
       case TransactionType.Send:
+      case TransactionType.ToucanBid:
       case TransactionType.OffRampSale:
         Icon = ArrowUpInCircle
+        break
+      case TransactionType.Deposit:
+        Icon = ArrowDownToLine
+        iconIsBareGlyph = true
         break
       case TransactionType.NFTTrade:
         if (assetType === AssetType.ERC721 || assetType === AssetType.ERC1155) {
@@ -119,12 +131,41 @@ export function LogoWithTxStatus(props: LogoWithTxStatusProps): JSX.Element {
       case TransactionType.ClaimUni:
         Icon = ArrowDownInCircle
         break
+      case TransactionType.Withdraw:
+        if (props.isVaultTransaction) {
+          Icon = ArrowDownToLine
+          iconRotation = '180deg'
+          iconIsBareGlyph = true
+        } else {
+          Icon = ArrowDownInCircle
+        }
+        break
+      case TransactionType.UniswapXCancel:
+        Icon = SlashCircle
+        break
       case TransactionType.Unknown:
         Icon = QuestionInCircle
         break
     }
     if (Icon) {
-      icon = <Icon color={color.val} fill={fill.val} size={statusSize} testID="status-icon" />
+      icon = (
+        <Flex
+          centered
+          backgroundColor={iconIsBareGlyph ? fillToken : '$surface1'}
+          borderRadius="$roundedFull"
+          height={statusSize}
+          overflow="hidden"
+          width={statusSize}
+        >
+          <Icon
+            color={color.get()}
+            fill={fill.val}
+            rotate={iconRotation}
+            size={iconIsBareGlyph ? statusSize * 0.65 : statusSize}
+            testID="status-icon"
+          />
+        </Flex>
+      )
     }
   }
 
@@ -183,19 +224,21 @@ export function DappLogoWithTxStatus({
     </Flex>
   )
 
-  const iconStyle = {
-    borderRadius: borderRadii.rounded4,
-    height: dappImageSize,
-    width: dappImageSize,
-  }
-
   const dappImage = dappImageUrl ? (
-    <ImageUri
+    <UniversalImage
       fallback={fallback}
-      imageStyle={iconStyle}
-      loadingContainerStyle={{ ...iconStyle, borderRadius: borderRadii.roundedFull, overflow: 'hidden' }}
-      testID="dapp-image"
       uri={dappImageUrl}
+      size={{ height: dappImageSize, width: dappImageSize }}
+      style={{
+        image: { borderRadius: borderRadii.rounded4 },
+        loadingContainer: {
+          height: dappImageSize,
+          width: dappImageSize,
+          borderRadius: borderRadii.roundedFull,
+          overflow: 'hidden',
+        },
+      }}
+      testID="dapp-image"
     />
   ) : (
     fallback

@@ -1,6 +1,6 @@
+import { UniverseChainId } from '@universe/chains'
 import { ChainsConfigKey, DynamicConfigs, useDynamicConfigValue } from '@universe/gating'
 import { useMemo } from 'react'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { isUniverseChainId } from 'uniswap/src/features/chains/utils'
 import { isUniverseChainIdArrayType } from 'uniswap/src/features/gating/typeGuards'
 
@@ -13,6 +13,6 @@ export function useNewChainIds(): UniverseChainId[] {
   })
 
   // For some reason, in the test suite, `newChainIds` is undefined
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // oxlint-disable-next-line typescript/no-unnecessary-condition
   return useMemo(() => (newChainIds || []).filter(isUniverseChainId), [newChainIds])
 }

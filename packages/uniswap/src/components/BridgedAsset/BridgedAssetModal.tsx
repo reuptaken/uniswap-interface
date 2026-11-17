@@ -1,17 +1,10 @@
+import { isWebAppDesktop } from '@universe/environment'
+import { Flex, Text, TouchableArea, useExtractedTokenColor, useSporeColors } from '@universe/mycelium'
+import { useColorsFromTokenColor } from '@universe/mycelium/theme-hooks-compat'
 import { atom } from 'jotai'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  Button,
-  Flex,
-  getContrastPassingTextColor,
-  ModalCloseIcon,
-  Text,
-  TouchableArea,
-  useColorsFromTokenColor,
-  useExtractedTokenColor,
-  useSporeColors,
-} from 'ui/src'
+import { Button, getContrastPassingTextColor, ModalCloseIcon } from 'ui/src'
 import { ArrowUpCircle } from 'ui/src/components/icons/ArrowUpCircle'
 import { EnvelopeHeart } from 'ui/src/components/icons/EnvelopeHeart'
 import { OrderRouting } from 'ui/src/components/icons/OrderRouting'
@@ -19,14 +12,14 @@ import { Verified } from 'ui/src/components/icons/Verified'
 import { iconSizes } from 'ui/src/theme'
 import { CurrencyLogo } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
 import { Modal } from 'uniswap/src/components/modals/Modal'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
+import type { BaseModalProps } from 'uniswap/src/components/modals/ModalProps'
+import { UniswapHelpUrls } from 'uniswap/src/constants/urls'
 import { getChainLabel } from 'uniswap/src/features/chains/utils'
 import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
 import { ElementName, ModalName, ModalNameType } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 import { useDismissedBridgedAssetWarnings } from 'uniswap/src/features/tokens/warnings/slice/hooks'
 import { openUri } from 'uniswap/src/utils/linking'
-import { isWebAppDesktop } from 'utilities/src/platform'
 import { useEvent } from 'utilities/src/react/hooks'
 
 export type BridgedAssetModalProps = {
@@ -34,11 +27,6 @@ export type BridgedAssetModalProps = {
   currencyInfo1?: CurrencyInfo
   onContinue?: () => void
   modalName?: ModalNameType
-}
-
-export type BaseModalProps = {
-  isOpen: boolean
-  onClose: () => void
 }
 
 export const BridgedAssetModalAtom = atom<BridgedAssetModalProps | undefined>(undefined)
@@ -140,19 +128,19 @@ export function BridgedAssetModal({
     tokenName: currentCurrencyInfo?.currency.name,
     backgroundColor: colors.surface1.val,
     defaultColor: colors.accent1.val,
+    colorOverrides: currentCurrencyInfo?.colorOverrides,
   })
   const { validTokenColor } = useColorsFromTokenColor(tokenColor ?? undefined)
   const textColor = useMemo(() => {
     return getContrastPassingTextColor(validTokenColor ?? colors.accent1.val)
   }, [colors.accent1.val, validTokenColor])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +isOpen
   useEffect(() => {
     setShowingSecondCurrency(false)
   }, [isOpen])
 
   const onPressGetHelp = async (): Promise<void> => {
-    await openUri({ uri: uniswapUrls.helpArticleUrls.bridgedAssets })
+    await openUri({ uri: UniswapHelpUrls.articles.bridgedAssets })
     onClose()
   }
 
@@ -195,7 +183,7 @@ export function BridgedAssetModal({
               <TouchableArea onPress={onPressGetHelp}>
                 <Flex
                   row
-                  width="max-content"
+                  maxContent
                   borderRadius="$rounded16"
                   px="$spacing8"
                   py="$spacing4"

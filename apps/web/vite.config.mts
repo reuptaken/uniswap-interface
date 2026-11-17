@@ -1,36 +1,82 @@
-import { cloudflare } from '@cloudflare/vite-plugin'
-import { tamaguiPlugin } from '@tamagui/vite-plugin'
-import react from '@vitejs/plugin-react'
-import reactOxc from '@vitejs/plugin-react-oxc'
 import { execSync } from 'child_process'
-import { config as dotenvConfig } from 'dotenv'
 import fs from 'fs'
+import { createHash } from 'node:crypto'
 import path from 'path'
 import process from 'process'
 import { fileURLToPath } from 'url'
-import { defineConfig, loadEnv, type ViteDevServer } from 'vite'
+import tailwindcss from '@tailwindcss/vite'
+import react from '@vitejs/plugin-react'
+import { defineConfig, type ViteDevServer } from 'vite'
 import bundlesize from 'vite-plugin-bundlesize'
 import commonjs from 'vite-plugin-commonjs'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import svgr from 'vite-plugin-svgr'
-import tsconfigPaths from 'vite-tsconfig-paths'
-import { generateAssetsIgnorePlugin } from './vite/generateAssetsIgnorePlugin.js'
+import { createEntryGatewayProxies, createWebSocketProxy } from './vite/entry-gateway-proxy'
+import { generateVersionFilePlugin } from './vite/generateVersionFilePlugin.js'
+import { honoDevServerPlugin } from './vite/honoDevServerPlugin'
+import { resolveEnvConfigs } from './vite/resolveEnvConfigs'
 import { cspMetaTagPlugin } from './vite/vite.plugins.js'
-import {createEntryGatewayProxy} from './vite/entry-gateway-proxy'
+
+// process.env.APP_ID is injected into the browser bundle via envDefines below and set
+// here on the Node side too — resolveEnvConfigs() returns an env object and only
+// mutates process.env for the keys it resolves, not APP_ID.
+process.env.APP_ID = 'web'
 
 // Get current file directory (ESM equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+
 const ENABLE_REACT_COMPILER = process.env.ENABLE_REACT_COMPILER === 'true'
 const ReactCompilerConfig = {
   target: '18', // '17' | '18' | '19'
 }
-const DEPLOY_TARGET = process.env.DEPLOY_TARGET || 'cloudflare'
-const VITE_DISABLE_SOURCEMAP = process.env.VITE_DISABLE_SOURCEMAP === 'true'
-const DEBUG_PROXY = process.env.VITE_DEBUG_PROXY === 'true'
-const ENABLE_PROXY = process.env.VITE_ENABLE_ENTRY_GATEWAY_PROXY === 'true'
+const DEPLOY_TARGET = process.env.DEPLOY_TARGET
+// Read before resolveEnvConfigs() can overwrite process.env from the pulled .env layer.
+const IS_GITHUB_ACTIONS = Boolean(process.env.GITHUB_ACTIONS)
+const DISABLE_SOURCEMAP = (process.env.DISABLE_SOURCEMAP ?? process.env.VITE_DISABLE_SOURCEMAP) === 'true'
+const DEBUG_PROXY = (process.env.DEBUG_PROXY ?? process.env.VITE_DEBUG_PROXY) === 'true'
+const ENABLE_PROXY = (process.env.ENABLE_ENTRY_GATEWAY_PROXY ?? process.env.VITE_ENABLE_ENTRY_GATEWAY_PROXY) === 'true'
 
 const DEFAULT_PORT = 3000
+
+/**
+ * Vite's optimizeDeps cache hash doesn't include `define` values, so changing env vars
+ * (which are injected via `define` as `process.env.X` replacements) won't invalidate the
+ * pre-bundled deps cache. This compares a hash of the resolved env defines against a stored
+ * hash and forces a re-bundle only when env values actually changed.
+ */
+function shouldInvalidateOptimizeDepsForEnv({
+  defines,
+  cacheDir,
+}: {
+  defines: Record<string, unknown>
+  cacheDir: string
+}): boolean {
+  const hash = createHash('md5').update(JSON.stringify(defines)).digest('hex').slice(0, 16)
+  const hashFile = path.join(cacheDir, '.env-defines-hash')
+
+  try {
+    if (fs.existsSync(hashFile)) {
+      const stored = fs.readFileSync(hashFile, 'utf-8').trim()
+      if (stored === hash) {
+        return false
+      }
+    }
+  } catch {
+    return true
+  }
+
+  try {
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true })
+    }
+    fs.writeFileSync(hashFile, hash)
+  } catch {
+    return true
+  }
+
+  return true
+}
 
 const reactPlugin = () =>
   ENABLE_REACT_COMPILER
@@ -39,7 +85,7 @@ const reactPlugin = () =>
           plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
         },
       })
-    : reactOxc()
+    : react()
 
 // Prints a warning if server automatically switches to a different port when `DEFAULT_PORT` is already in use
 const portWarningPlugin = (isProduction: boolean) =>
@@ -75,35 +121,68 @@ const portWarningPlugin = (isProduction: boolean) =>
         },
       }
 
-// Get git commit hash
-const commitHash = execSync('git rev-parse HEAD').toString().trim()
-
-export default defineConfig(({ mode }) => {
-  let env = loadEnv(mode, __dirname, '')
-
-  // Force load .env.[mode] files since NX ignores them
-  const modeEnvPath = path.resolve(__dirname, `.env.${mode}`)
-  if (fs.existsSync(modeEnvPath)) {
-    try {
-      const result = dotenvConfig({ path: modeEnvPath })
-      if (result.parsed) {
-        // Override base values with mode-specific values
-        Object.assign(env, result.parsed)
-      }
-      if (result.error) {
-        console.warn(`Warning: Failed to parse ${modeEnvPath}:`, result.error.message)
-      }
-    } catch (error) {
-      console.warn(`Warning: Failed to read ${modeEnvPath}:`, error.message)
-    }
+// Containerized builds have no .git — prefer the env var.
+function resolveCommitHash(): string {
+  if (process.env.GIT_COMMIT_HASH) {
+    return process.env.GIT_COMMIT_HASH
   }
+  try {
+    return execSync('git rev-parse HEAD').toString().trim()
+  } catch {
+    return ''
+  }
+}
+const commitHash = resolveCommitHash()
+
+// Compute next dev version from latest non-RC web/* git tag. Local dev only — it returns
+// X.(Y+1).0 of the newest tag, which matches no release and therefore no sourcemap upload.
+function getNextDevVersion(): string {
+  try {
+    const latestTag = execSync("git tag --list 'web/*' --sort=-version:refname | grep -v '\\-rc\\.' | head -1")
+      .toString()
+      .trim()
+    if (!latestTag) {
+      return ''
+    }
+    const version = latestTag.replace('web/', '')
+    const parts = version.split('.').map(Number)
+    if (parts.length < 3 || parts.some(isNaN)) {
+      return ''
+    }
+    return `${parts[0]}.${parts[1] + 1}.0`
+  } catch {
+    return ''
+  }
+}
+
+export default defineConfig(({ mode, command, isPreview }) => {
+  // Unified config: resolve .env + overrides via the shared utility (the same
+  // code the Playwright test runner uses, so the build and runner configs stay identical).
+  const env = resolveEnvConfigs({
+    rootDir: __dirname,
+    isE2eTest: process.env.IS_E2E_TEST === 'true',
+    onOverride: (key) => console.log(`ENV_OVERRIDE: ${key}`),
+    overrideProcessEnv: true,
+  })
 
   // Log environment loading for CI verification
-  console.log(`ENV_LOADED: mode=${mode} REACT_APP_AWS_API_ENDPOINT=${env.REACT_APP_AWS_API_ENDPOINT}`)
+  console.log(`ENV_LOADED: mode=${mode} AWS_API_ENDPOINT=${env.AWS_API_ENDPOINT ?? env.REACT_APP_AWS_API_ENDPOINT}`)
 
   const isProduction = mode === 'production'
-  const isStaging = mode === 'staging'
   const isVercelDeploy = DEPLOY_TARGET === 'vercel'
+  const isEcsDeploy = DEPLOY_TARGET === 'ecs'
+  const isIpfsDeploy = DEPLOY_TARGET === 'ipfs'
+  if (isIpfsDeploy) {
+    // IPFS gateways have no same-origin BFF: hit the entry gateway and statsig proxy directly (both allow cross-origin).
+    env.ENABLE_ENTRY_GATEWAY_PROXY = 'false'
+    env.STATSIG_PROXY_URL_OVERRIDE = 'https://gating.interface.gateway.uniswap.org/v1/statsig-proxy'
+  }
+  const isOptimizedBuild = isProduction || isEcsDeploy
+  const isMinifiedBuild = isOptimizedBuild && !isVercelDeploy
+  // A CI static client build whose sourcemaps a workflow uploads to Datadog
+  // (web_test_sourcemap_upload.yml); every other CI static build sets DISABLE_SOURCEMAP.
+  // Prod sourcemaps ship from the ECS image build. Local builds skip GITHUB_ACTIONS.
+  const isSourcemapUploadBuild = !DEPLOY_TARGET && isMinifiedBuild && !DISABLE_SOURCEMAP && IS_GITHUB_ACTIONS
   const root = path.resolve(__dirname)
 
   // External package aliases only
@@ -116,31 +195,94 @@ export default defineConfig(({ mode }) => {
     'utilities/src': path.resolve(__dirname, '../../packages/utilities/src'),
     'ui/src': path.resolve(__dirname, '../../packages/ui/src'),
     'expo-clipboard': path.resolve(__dirname, 'src/lib/expo-clipboard.jsx'),
-    jsbi: path.resolve(__dirname, '../../node_modules/jsbi/dist/jsbi.mjs'), // force consistent ESM build
+    // Force JSBI to use ESM build so transform plugin can add __esModule marker
+    jsbi: path.resolve(__dirname, '../../node_modules/jsbi/dist/jsbi.mjs'),
   }
+
+  // Aliases that need exact matching (using resolve.alias array format)
+  const exactAliases = [
+    // Use web app-specific i18n entry that doesn't import wallet's i18n-setup (exact match only)
+    {
+      find: /^uniswap\/src\/i18n$/,
+      replacement: path.resolve(__dirname, '../../packages/uniswap/src/i18n/index.web-app.ts'),
+    },
+  ]
 
   // Create process.env definitions for ALL environment variables
   const envDefines = Object.fromEntries(
     Object.entries(env).map(([key, value]) => [`process.env.${key}`, JSON.stringify(value)]),
   )
 
+  // Datadog joins uploaded sourcemaps on service + version + filename, so on an upload build the
+  // version baked into the bundle must be the CI-provided release version — never one derived or
+  // read from the pulled .env layer. INFRA-3219
+  const releaseVersion = env.VERSION
+  if (isSourcemapUploadBuild && !releaseVersion) {
+    throw new Error(
+      'VERSION is unset for a deployed web build. Refusing to derive one from git tags: the bundle ' +
+        'would report a version matching no release, and Datadog could not symbolicate any stack ' +
+        '(INFRA-3219). Set VERSION on the build step in .github/workflows/web_test_sourcemap_upload.yml ' +
+        'to the same value passed to `datadog-ci sourcemaps upload --release-version`.',
+    )
+  }
+  // Single source of truth for the version the bundle reports (config.appVersion → RUM `version`).
+  // The fallbacks only ever apply to non-upload builds (local dev, e2e, CI checks).
+  const bundleVersion = releaseVersion || env.REACT_APP_VERSION_TAG || getNextDevVersion() || commitHash
+
+  const defines = {
+    __DEV__: !isProduction,
+    // NODE_ENV must be a valid NodeEnv (development|production|test). `mode` is 'staging'
+    // for ecs/staging builds — a deployed build's Node runtime is 'production'; backend env
+    // (dev/staging/prod) is carried separately via ENVIRONMENT.
+    'process.env.NODE_ENV': JSON.stringify(mode === 'development' || mode === 'test' ? mode : 'production'),
+    'process.env.ENVIRONMENT': JSON.stringify(mode),
+    'process.env.EXPO_OS': JSON.stringify('web'),
+    'process.env.GIT_COMMIT_HASH': JSON.stringify(commitHash),
+    // Enable Tamagui's global z-index stacking to fix modal stacking issues
+    'process.env.TAMAGUI_STACK_Z_INDEX_GLOBAL': JSON.stringify('true'),
+    // So getConfig().isVercelEnvironment is true in the client on Vercel; enables direct staging WS URL to match EGW
+    ...(isVercelDeploy ? { 'process.env.VERCEL': JSON.stringify(process.env.VERCEL ?? '0') } : {}),
+    ...envDefines,
+    // Must come after envDefines: also emitted to build/client/version.json so the deploy can
+    // assert it against the release tag before uploading sourcemaps.
+    'process.env.VERSION': JSON.stringify(bundleVersion),
+    // Serving stack this artifact is built for; tags DD RUM + Amplitude events per cohort.
+    'process.env.WEB_BUILD_TYPE': JSON.stringify(
+      isEcsDeploy ? 'ecs' : isVercelDeploy ? 'vercel' : isIpfsDeploy ? 'ipfs' : 'local',
+    ),
+  }
+
+  const cacheDir = path.resolve(__dirname, 'node_modules/.vite')
+  const forceOptimize = shouldInvalidateOptimizeDepsForEnv({ defines, cacheDir })
+
   return {
     root,
 
-    define: {
-      __DEV__: !isProduction,
-      'process.env.NODE_ENV': JSON.stringify(mode),
-      'process.env.EXPO_OS': JSON.stringify('web'),
-      'process.env.REACT_APP_GIT_COMMIT_HASH': JSON.stringify(commitHash),
-      'process.env.REACT_APP_STAGING': JSON.stringify(mode === 'staging'),
-      'process.env.REACT_APP_WEB_BUILD_TYPE': JSON.stringify('vite'),
-      // Enable Tamagui's global z-index stacking to fix modal stacking issues
-      'process.env.TAMAGUI_STACK_Z_INDEX_GLOBAL': JSON.stringify('true'),
-      ...envDefines,
-    },
+    // IPFS path gateways serve the app under /ipfs/<cid>/; relative base keeps asset URLs inside the CID.
+    base: isIpfsDeploy ? './' : isEcsDeploy ? process.env.ASSET_BASE_URL || '/' : '/',
+
+    define: defines,
 
     resolve: {
-      extensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.js'],
+      // Native replacement for vite-tsconfig-paths: per-importer resolution, no tsconfig crawl.
+      tsconfigPaths: true,
+
+      // .web-app file extensions take priority over .web for web app-specific overrides
+      extensions: [
+        '.web-app.tsx',
+        '.web-app.ts',
+        '.web-app.js',
+        '.web.tsx',
+        '.web.ts',
+        // .mjs before .js (matching Vite's defaults): packages like @rn-primitives publish
+        // paired .web.mjs/.web.js legs, and resolving the CJS leg breaks named ESM imports in dev
+        '.web.mjs',
+        '.web.js',
+        '.tsx',
+        '.ts',
+        '.mjs',
+        '.js',
+      ],
       modules: [path.resolve(root, 'node_modules')],
       dedupe: [
         '@uniswap/sdk-core',
@@ -157,22 +299,45 @@ export default defineConfig(({ mode }) => {
         'react',
         'react-dom',
       ],
-      alias: {
-        ...overrides,
-      },
+      alias: [...exactAliases, ...Object.entries(overrides).map(([find, replacement]) => ({ find, replacement }))],
     },
 
     plugins: [
+      // Fix JSBI ESM interop issue:
+      // Rollup's interop wrapper checks for __esModule and passes through if present.
+      // JSBI's pure ESM build doesn't have __esModule, so Rollup creates a proxy wrapper
+      // that loses static methods like BigInt(). By adding __esModule as a named export,
+      // the module namespace will include it, and the interop function returns the module
+      // as-is, preserving all static methods.
+      {
+        name: 'jsbi-esm-interop-fix',
+        enforce: 'pre' as const,
+        transform(code: string, id: string) {
+          // Only transform the JSBI ESM module
+          if (!id.includes('node_modules/jsbi/dist/jsbi.mjs')) {
+            return null
+          }
+
+          // Add __esModule as a named export so Rollup's interop passes it through
+          // The interop checks: hasOwnProperty(moduleNamespace, "__esModule")
+          // By exporting it, it will be a property on the module namespace object
+          return {
+            code: `${code}\nexport const __esModule = true;`,
+            map: null,
+          }
+        },
+      },
       {
         name: 'transform-react-native-jsx',
         async transform(code: string, id: string) {
           // Transform JSX in react-native libraries that ship JSX in .js files
           const needsJsxTransform = [
             'node_modules/react-native-reanimated',
-            'node_modules/expo-blur'  // In case it's not fully mocked
-          ].some(path => id.includes(path))
+            'node_modules/expo-blur', // In case it's not fully mocked
+            'node_modules/@rn-primitives', // tsup dist ships raw JSX in .js/.mjs
+          ].some((path) => id.includes(path))
 
-          if (!needsJsxTransform || !id.endsWith('.js')) {
+          if (!needsJsxTransform || !/\.(js|mjs)$/.test(id)) {
             return null
           }
 
@@ -188,19 +353,13 @@ export default defineConfig(({ mode }) => {
       },
       portWarningPlugin(isProduction),
       reactPlugin(),
-      isProduction || isStaging
-        ? tamaguiPlugin({
-            config: '../../packages/ui/src/tamagui.config.ts',
-            components: ['ui', 'uniswap', 'utilities'],
-            optimize: true,
-            importsWhitelist: ['constants.js'],
-          })
-        : undefined,
-      tsconfigPaths({
-        // ignores tsconfig files in Nx generator template directories
-        skip: (dir) => dir.includes('files'),
-      }),
-      env.REACT_APP_SKIP_CSP ? undefined : cspMetaTagPlugin(mode),
+      // Tailwind v4 — compiles @import "tailwindcss" + @universe/tailwind tokens.
+      // Client environment only: CSS is generated exclusively for the browser bundle.
+      ...tailwindcss().map((plugin) => ({
+        ...plugin,
+        applyToEnvironment: (environment: { name: string }) => environment.name === 'client',
+      })),
+      env.SKIP_CSP ? undefined : cspMetaTagPlugin(mode, env),
       svgr({
         svgrOptions: {
           icon: false,
@@ -233,7 +392,6 @@ export default defineConfig(({ mode }) => {
         transform(code: string) {
           const regex = /import\s+([a-zA-Z0-9_$]+)\s+from\s+['"]([^'"]+\.svg)['"]/g
 
-          // eslint-disable-next-line max-params
           const transformed = code.replace(regex, (match, varName, path) => {
             // Don't touch named imports like { ReactComponent }
             if (match.includes('{')) return match
@@ -248,24 +406,47 @@ export default defineConfig(({ mode }) => {
       },
       nodePolyfills({
         globals: {
-          process: true,
+          // In dev, `true` injects a per-module `import ... as process` shim that shadows
+          // `process`, so rolldown/oxc's scope-aware define skips the `process.env.*`
+          // replacements above (empty shim env -> config boot crash). `'dev'` instead sets
+          // `globalThis.process` via the dep optimizer, keeping defines working; build
+          // keeps the module shim (`true`) so prod output is unchanged.
+          process: command === 'serve' ? 'dev' : true,
         },
         include: ['path', 'buffer'],
       }),
+      // nodePolyfills (above) banners `import ... from 'vite-plugin-node-polyfills/shims/*'` onto every
+      // optimized dep, where the dep scanner can't see it. Every environment, client included, must
+      // know the shims up front, or each one is discovered on first chunk load, costing an extra
+      // optimize pass and a page reload. (Rolldown dropped the esbuild `inject` that covered the client.)
+      {
+        name: 'pre-bundle-node-polyfill-shims',
+        configEnvironment() {
+          return {
+            optimizeDeps: {
+              include: [
+                'vite-plugin-node-polyfills/shims/buffer',
+                'vite-plugin-node-polyfills/shims/global',
+                'vite-plugin-node-polyfills/shims/process',
+              ],
+            },
+          }
+        },
+      },
       commonjs({
         dynamic: {
           loose: false,
         },
       }),
-      isProduction || VITE_DISABLE_SOURCEMAP
+      isOptimizedBuild || DISABLE_SOURCEMAP
         ? undefined
         : bundlesize({
             limits: [
-              { name: 'assets/index-*.js', limit: '2.35 MB', mode: 'gzip' },
+              { name: 'assets/index-*.js', limit: '2.40 MB', mode: 'gzip' },
               { name: '**/*', limit: Infinity, mode: 'uncompressed' },
             ],
           }),
-      generateAssetsIgnorePlugin(isProduction && !isVercelDeploy && !VITE_DISABLE_SOURCEMAP, __dirname),
+      generateVersionFilePlugin(!isVercelDeploy, bundleVersion, __dirname),
       {
         name: 'copy-twist-config',
         writeBundle() {
@@ -296,30 +477,18 @@ export default defineConfig(({ mode }) => {
           }
         },
       },
-      DEPLOY_TARGET === 'cloudflare' || mode === 'development'
-        ? cloudflare({
-            configPath: './wrangler-vite-worker.jsonc',
-            // Workaround for cloudflare plugin bug: explicitly set environment name based on CLOUDFLARE_ENV
-            viteEnvironment:
-              process.env.CLOUDFLARE_ENV === 'production'
-                ? { name: 'app' }
-                : process.env.CLOUDFLARE_ENV === 'staging'
-                  ? { name: 'app_staging' }
-                  : undefined,
-          })
-        : undefined,
+      honoDevServerPlugin(),
     ].filter(Boolean as unknown as <T>(x: T) => x is NonNullable<T>),
 
     optimizeDeps: {
+      force: forceOptimize,
       entries: ['index.html'],
       include: [
         'graphql',
         'expo-linear-gradient',
-        'expo-modules-core',
+        'invariant',
         'react-native-web',
         'react-native-gesture-handler',
-        'tamagui',
-        '@tamagui/web',
         'ui',
         '@uniswap/sdk-core',
         '@uniswap/v2-sdk',
@@ -332,13 +501,35 @@ export default defineConfig(({ mode }) => {
         'jsbi',
         'ethers',
         '@visx/responsive',
+        'use-resize-observer',
       ],
       // Libraries that shouldn't be pre-bundled
-      exclude: ['expo-clipboard', '@connectrpc/connect'],
-      esbuildOptions: {
-        resolveExtensions: ['.web.js', '.web.ts', '.web.tsx', '.js', '.ts', '.tsx'],
-        loader: {
+      exclude: [
+        'expo-clipboard',
+        '@connectrpc/connect',
+        '@uniswap/client-liquidity',
+        '@uniswap/client-privy-embedded-wallet',
+        'expo-modules-core',
+      ],
+      rolldownOptions: {
+        resolve: {
+          extensions: [
+            '.web-app.js',
+            '.web-app.ts',
+            '.web-app.tsx',
+            '.web.mjs',
+            '.web.js',
+            '.web.ts',
+            '.web.tsx',
+            '.mjs',
+            '.js',
+            '.ts',
+            '.tsx',
+          ],
+        },
+        moduleTypes: {
           '.js': 'jsx',
+          '.mjs': 'jsx',
           '.ts': 'ts',
           '.tsx': 'tsx',
         },
@@ -348,15 +539,23 @@ export default defineConfig(({ mode }) => {
     server: {
       port: DEFAULT_PORT,
       proxy: {
-        ...(ENABLE_PROXY ? {
-          '/entry-gateway': createEntryGatewayProxy({ getLogger })
-        } : {})}
+        '/config': {
+          target: 'https://gating.interface.gateway.uniswap.org',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/config/, '/v1/statsig-proxy'),
+        },
+        ...(ENABLE_PROXY ? createEntryGatewayProxies({ getLogger, env }) : {}),
+        // Dev only: `vite preview` (which inherits server.proxy) serves e2e without a live socket.
+        ...(isPreview ? {} : createWebSocketProxy(env)),
+      },
     },
 
     build: {
-      outDir: 'build',
-      sourcemap: VITE_DISABLE_SOURCEMAP ? false : (isProduction && !isVercelDeploy ? 'hidden' : true),
-      minify: isProduction && !isVercelDeploy ? 'esbuild' : undefined,
+      // build/server holds the ECS bundle (vite.server.config.mts); Vercel reads build/ directly.
+      outDir: isVercelDeploy ? 'build' : 'build/client',
+      sourcemap: DISABLE_SOURCEMAP ? false : isMinifiedBuild ? 'hidden' : true,
+      minify: isMinifiedBuild ? 'esbuild' : undefined,
       rollupOptions: {
         external: [/\.stories\.[tj]sx?$/, /\.mdx$/, /expo-clipboard\/build\/ClipboardPasteButton\.js/],
         output: {
@@ -368,8 +567,10 @@ export default defineConfig(({ mode }) => {
       },
       // Increase the warning limit for larger chunks
       chunkSizeWarningLimit: 800,
+      // Log-only gzip sizing; size enforcement lives in check-bundle-size.ts
+      reportCompressedSize: false,
       commonjsOptions: {
-        include: [/jsbi/, /node_modules/], // force inclusion + conversion of jsbi CJS
+        include: [/node_modules/],
       },
     },
 
@@ -378,19 +579,12 @@ export default defineConfig(({ mode }) => {
 
     preview: {
       port: 3000,
+      host: '0.0.0.0',
+      allowedHosts: ['mba.local'],
     },
   }
 })
 
-function getLogger(): {
-  log: typeof console.log
-} {
-  if(!DEBUG_PROXY) {
-    return {
-      log: () => {}
-    }
-  }
-  return {
-    log: console.log
-  }
+function getLogger(): { log: typeof console.log } {
+  return { log: DEBUG_PROXY ? console.log : () => {} }
 }

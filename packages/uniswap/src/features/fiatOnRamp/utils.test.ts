@@ -1,12 +1,58 @@
-import { FORFilters, FORQuote, FORServiceProvider, InitialQuoteSelection } from 'uniswap/src/features/fiatOnRamp/types'
+import { PortfolioBalance } from 'uniswap/src/features/dataApi/types'
+import {
+  FiatOnRampCurrency,
+  FORFilters,
+  FORQuote,
+  FORServiceProvider,
+  InitialQuoteSelection,
+} from 'uniswap/src/features/fiatOnRamp/types'
 import {
   filterQuotesByPaymentMethod,
   getCountryFlagSvgUrl,
+  getUnsupportedFORTokensWithBalance,
   isFiatOnRampApiError,
   isInvalidRequestAmountTooHigh,
   isInvalidRequestAmountTooLow,
+  isValidIsoCurrencyCode,
+  normalizeBalancesByIdForLookup,
   organizeQuotesIntoSections,
 } from 'uniswap/src/features/fiatOnRamp/utils'
+
+describe('isValidIsoCurrencyCode', () => {
+  test('returns true for valid 3-letter currency codes', () => {
+    expect(isValidIsoCurrencyCode('USD')).toBe(true)
+    expect(isValidIsoCurrencyCode('EUR')).toBe(true)
+    expect(isValidIsoCurrencyCode('GBP')).toBe(true)
+    expect(isValidIsoCurrencyCode('JPY')).toBe(true)
+  })
+
+  test('returns true for lowercase 3-letter codes', () => {
+    expect(isValidIsoCurrencyCode('usd')).toBe(true)
+  })
+
+  test('returns false for non-string values', () => {
+    expect(isValidIsoCurrencyCode(null)).toBe(false)
+    expect(isValidIsoCurrencyCode(undefined)).toBe(false)
+    expect(isValidIsoCurrencyCode(123)).toBe(false)
+    expect(isValidIsoCurrencyCode({})).toBe(false)
+    expect(isValidIsoCurrencyCode([])).toBe(false)
+  })
+
+  test('returns false for strings with wrong length', () => {
+    expect(isValidIsoCurrencyCode('')).toBe(false)
+    expect(isValidIsoCurrencyCode('US')).toBe(false)
+    expect(isValidIsoCurrencyCode('USDT')).toBe(false)
+    expect(isValidIsoCurrencyCode('United States Dollar')).toBe(false)
+  })
+
+  test('returns false for 3-character strings with non-alphabetic characters', () => {
+    expect(isValidIsoCurrencyCode('123')).toBe(false)
+    expect(isValidIsoCurrencyCode('12A')).toBe(false)
+    expect(isValidIsoCurrencyCode('U$D')).toBe(false)
+    expect(isValidIsoCurrencyCode('   ')).toBe(false)
+    expect(isValidIsoCurrencyCode('US1')).toBe(false)
+  })
+})
 
 describe('getCountryFlagSvgUrl', () => {
   test('should return the correct SVG URL for a given country code', () => {
@@ -181,7 +227,9 @@ const createMockQuote = ({
   sourceCurrencyCode: 'USD',
   destinationAmount,
   destinationCurrencyCode: 'ETH',
+  serviceProvider: 'mock-provider',
   serviceProviderDetails: {
+    serviceProvider: 'mock-provider',
     paymentMethods,
   } as unknown as FORServiceProvider,
   totalFee: 5,
@@ -319,11 +367,11 @@ describe('organizeQuotesIntoSections', () => {
 
       // First section should have the most recent quote
       expect(result.sections[0]?.data).toEqual([mostRecentQuote])
-      expect(result.sections[0]?.type).toBe(InitialQuoteSelection.MostRecent)
+      expect(result.sections[0]?.['type']).toBe(InitialQuoteSelection.MostRecent)
 
       // Second section should have other quotes
       expect(result.sections[1]?.data).toEqual([regularQuote1, regularQuote2])
-      expect(result.sections[1]?.type).toBeUndefined()
+      expect(result.sections[1]?.['type']).toBeUndefined()
     }
   })
 
@@ -342,7 +390,7 @@ describe('organizeQuotesIntoSections', () => {
 
       // Single section with all quotes and Best type
       expect(result.sections[0]?.data).toEqual(quotes)
-      expect(result.sections[0]?.type).toBe(InitialQuoteSelection.Best)
+      expect(result.sections[0]?.['type']).toBe(InitialQuoteSelection.Best)
     }
   })
 
@@ -357,7 +405,7 @@ describe('organizeQuotesIntoSections', () => {
       expect(result.initialQuote).toBe(singleQuote)
       expect(result.sections).toHaveLength(1)
       expect(result.sections[0]?.data).toEqual([singleQuote])
-      expect(result.sections[0]?.type).toBe(InitialQuoteSelection.Best)
+      expect(result.sections[0]?.['type']).toBe(InitialQuoteSelection.Best)
     }
   })
 
@@ -376,7 +424,7 @@ describe('organizeQuotesIntoSections', () => {
       expect(result.initialQuote).toBe(mostRecentQuote)
       expect(result.sections).toHaveLength(1)
       expect(result.sections[0]?.data).toEqual([mostRecentQuote])
-      expect(result.sections[0]?.type).toBe(InitialQuoteSelection.MostRecent)
+      expect(result.sections[0]?.['type']).toBe(InitialQuoteSelection.MostRecent)
     }
   })
 
@@ -395,7 +443,7 @@ describe('organizeQuotesIntoSections', () => {
       expect(result.initialQuote).toBe(mostRecentQuote)
       expect(result.sections).toHaveLength(1)
       expect(result.sections[0]?.data).toEqual([mostRecentQuote])
-      expect(result.sections[0]?.type).toBe(InitialQuoteSelection.MostRecent)
+      expect(result.sections[0]?.['type']).toBe(InitialQuoteSelection.MostRecent)
     }
   })
 
@@ -412,7 +460,7 @@ describe('organizeQuotesIntoSections', () => {
       expect(result.initialQuote).toBe(quote1) // Should be the first one when amounts are equal
       expect(result.sections).toHaveLength(1)
       expect(result.sections[0]?.data).toEqual(quotes)
-      expect(result.sections[0]?.type).toBe(InitialQuoteSelection.Best)
+      expect(result.sections[0]?.['type']).toBe(InitialQuoteSelection.Best)
     }
   })
 
@@ -437,8 +485,78 @@ describe('organizeQuotesIntoSections', () => {
       expect(result.initialQuote).toBe(mostRecentQuote1) // Should pick the first most recent
       expect(result.sections).toHaveLength(2)
       expect(result.sections[0]?.data).toEqual([mostRecentQuote1])
-      expect(result.sections[0]?.type).toBe(InitialQuoteSelection.MostRecent)
+      expect(result.sections[0]?.['type']).toBe(InitialQuoteSelection.MostRecent)
       expect(result.sections[1]?.data).toEqual([mostRecentQuote2, regularQuote])
     }
+  })
+})
+
+// Native USDC on Arbitrum, as data-api returns it (checksummed) and as the portfolio keys it (lowercase).
+const ARB_USDC_CHECKSUMMED_ID = '42161-0xaf88d065e77c8cC2239327C5EDB3A432268e5831'
+const ARB_USDC_LOWERCASE_ID = '42161-0xaf88d065e77c8cc2239327c5edb3a432268e5831'
+
+function forCurrency(currencyId: string): FiatOnRampCurrency {
+  return {
+    currencyInfo: { currencyId } as FiatOnRampCurrency['currencyInfo'],
+    meldCurrencyCode: 'USDC_ARBITRUM',
+  } as FiatOnRampCurrency
+}
+
+function portfolioBalance(currencyId: string): PortfolioBalance {
+  return { quantity: 10, balanceUSD: 10, currencyInfo: { currencyId } } as PortfolioBalance
+}
+
+describe('normalizeBalancesByIdForLookup', () => {
+  test('returns undefined when there are no balances', () => {
+    expect(normalizeBalancesByIdForLookup(undefined)).toBeUndefined()
+  })
+
+  test('re-keys an EVM balance so a checksummed currency id finds it', () => {
+    const balance = portfolioBalance(ARB_USDC_LOWERCASE_ID)
+
+    const normalized = normalizeBalancesByIdForLookup({ [ARB_USDC_LOWERCASE_ID]: balance })
+
+    expect(normalized?.[ARB_USDC_LOWERCASE_ID]).toBe(balance)
+    expect(Object.keys(normalized ?? {})).toEqual([ARB_USDC_LOWERCASE_ID])
+  })
+
+  test('lowercases a checksummed balance key', () => {
+    const balance = portfolioBalance(ARB_USDC_CHECKSUMMED_ID)
+
+    const normalized = normalizeBalancesByIdForLookup({ [ARB_USDC_CHECKSUMMED_ID]: balance })
+
+    expect(normalized?.[ARB_USDC_LOWERCASE_ID]).toBe(balance)
+  })
+
+  test('leaves case-sensitive Solana ids untouched', () => {
+    const solanaId = '501000101-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+    const balance = portfolioBalance(solanaId)
+
+    expect(normalizeBalancesByIdForLookup({ [solanaId]: balance })?.[solanaId]).toBe(balance)
+  })
+})
+
+describe('getUnsupportedFORTokensWithBalance', () => {
+  test('treats a held token as supported when the list and the portfolio disagree on address casing', () => {
+    const balance = portfolioBalance(ARB_USDC_LOWERCASE_ID)
+
+    const result = getUnsupportedFORTokensWithBalance([forCurrency(ARB_USDC_CHECKSUMMED_ID)], {
+      [ARB_USDC_LOWERCASE_ID]: balance,
+    })
+
+    expect(result).toEqual([])
+  })
+
+  test('returns held tokens missing from the supported list', () => {
+    const wbtcId = '1-0x2260fac5e5542a773aa44fbcfedf7c193bc2c599'
+    const balance = portfolioBalance(wbtcId)
+
+    const result = getUnsupportedFORTokensWithBalance([forCurrency(ARB_USDC_CHECKSUMMED_ID)], { [wbtcId]: balance })
+
+    expect(result).toEqual([balance])
+  })
+
+  test('returns nothing when there are no balances', () => {
+    expect(getUnsupportedFORTokensWithBalance([forCurrency(ARB_USDC_CHECKSUMMED_ID)], undefined)).toEqual([])
   })
 })

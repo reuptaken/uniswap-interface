@@ -1,6 +1,6 @@
+import { UniverseChainId } from '@universe/chains'
 import { useCallback, useEffect, useRef } from 'react'
 import { useTransactionConfirmationTracker } from 'src/app/features/dappRequests/context/TransactionConfirmationTracker'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { logger } from 'utilities/src/logger/logger'
 
 /**
@@ -66,6 +66,7 @@ export function useConditionalPreSignDelay(options: {
 
     // Set up execution with conditional delay
     timeoutRef.current = setTimeout(() => {
+      // oxlint-disable-next-line typescript/no-floating-promises -- biome-parity: oxlint is stricter here
       executeCallback()
     }, delayMs)
 

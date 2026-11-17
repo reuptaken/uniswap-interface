@@ -1,8 +1,6 @@
+import { Platform, getValidAddress } from '@universe/chains'
 import { useUnitagsAddressQuery } from 'uniswap/src/data/apiClients/unitagsApi/useUnitagsAddressQuery'
 import { useENSAvatar } from 'uniswap/src/features/ens/api'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
-import { getValidAddress } from 'uniswap/src/utils/addresses'
-
 /*
  * Fetches avatar for address, in priority uses: unitag avatar, ens avatar, undefined
  *  Note that this hook is used instead of just useENSAvatar because our implementation
@@ -14,7 +12,6 @@ export function useAvatar(address: string | undefined): {
   avatar: string | undefined
   loading: boolean
 } {
-  // TODO(WEB-8012): Update to support Solana
   const validated = getValidAddress({ address, platform: Platform.EVM })
   const { data: ensAvatar, isLoading: ensLoading } = useENSAvatar(validated)
   const { data: unitag, isLoading: unitagLoading } = useUnitagsAddressQuery({

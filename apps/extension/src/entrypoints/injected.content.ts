@@ -1,5 +1,7 @@
 import { JsonRpcProvider } from '@ethersproject/providers'
 import { providerErrors, serializeError } from '@metamask/rpc-errors'
+import { Platform, getValidAddress } from '@universe/chains'
+import { hexToNumber, HexString } from '@universe/encoding'
 import { dappStore } from 'src/app/features/dapp/store'
 import { getOrderedConnectedAddresses } from 'src/app/features/dapp/utils'
 import { isArcBrowser } from 'src/app/utils/chrome'
@@ -15,8 +17,9 @@ import {
   ContentScriptUtilityMessageType,
   ExtensionToDappRequestType,
 } from 'src/background/messagePassing/types/requests'
-import { ExtensionEthMethodHandler } from 'src/contentScript/methodHandlers/ExtensionEthMethodHandler'
+import { isSandboxedFrame } from 'src/contentScript/isSandboxedFrame'
 import { emitAccountsChanged, emitChainChanged } from 'src/contentScript/methodHandlers/emitUtils'
+import { ExtensionEthMethodHandler } from 'src/contentScript/methodHandlers/ExtensionEthMethodHandler'
 import { ProviderDirectMethodHandler } from 'src/contentScript/methodHandlers/ProviderDirectMethodHandler'
 import { UniswapMethodHandler } from 'src/contentScript/methodHandlers/UniswapMethodHandler'
 import {
@@ -37,12 +40,9 @@ import {
   WindowEthereumRequest,
 } from 'src/contentScript/types'
 import { logContentScriptError } from 'src/contentScript/utils'
-import { chainIdToHexadecimalString } from 'uniswap/src/features/chains/utils'
+import { chainIdToHexadecimalString, toSupportedChainId } from 'uniswap/src/features/chains/utils'
 import { EthMethod } from 'uniswap/src/features/dappRequests/types'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
 import { ExtensionEventName } from 'uniswap/src/features/telemetry/constants'
-import { getValidAddress } from 'uniswap/src/utils/addresses'
-import { HexString } from 'utilities/src/addresses/hex'
 import { logger } from 'utilities/src/logger/logger'
 import { arraysAreEqual } from 'utilities/src/primitives/array'
 import { ONE_SECOND_MS } from 'utilities/src/time/time'
@@ -51,6 +51,11 @@ import { defineContentScript } from 'wxt/utils/define-content-script'
 import { ZodError } from 'zod'
 
 function makeInjected(): void {
+  // Do not inject into sandboxed frames without allow-same-origin.
+  if (isSandboxedFrame()) {
+    return
+  }
+
   // arc styles aren't available on load
   const ARC_STYLE_INJECTION_DELAY = ONE_SECOND_MS
 
@@ -69,7 +74,16 @@ function makeInjected(): void {
     return _chainId
   }
 
-  const getProvider = (): JsonRpcProvider | undefined => _provider
+  // Derived from the stored chain like getChainId, so a frame that loaded before its origin
+  // connected (a same-origin iframe, say) gets a provider once the store syncs.
+  const getProvider = (): JsonRpcProvider | undefined => {
+    const chainId = getChainId()
+    if (!_provider && chainId) {
+      const supportedChainId = toSupportedChainId(hexToNumber(chainId))
+      _provider = (supportedChainId && walletContextValue.providers.tryGetProvider(supportedChainId)) || undefined
+    }
+    return _provider
+  }
   const getConnectedAddresses = (): Address[] | undefined => {
     const storedDappInfo = dappStore.getDappInfo(dappUrl)
     const storedConnectedAddresses =
@@ -212,27 +226,50 @@ function makeInjected(): void {
     },
   })
 
-  externalDappMessageChannel.addMessageListener(ExtensionToDappRequestType.SwitchChain, (message) => {
+  // Background broadcasts reach every frame in the tab, so an update meant for the top-level page
+  // would otherwise also land in a cross-origin iframe. Act only on updates addressed to this origin.
+  const isAddressedToThisOrigin = (message: { dappUrl: string }): boolean => message.dappUrl === dappUrl
+
+  externalDappMessageChannel.addMessageListener(ExtensionToDappRequestType.SwitchChain, async (message) => {
+    if (!isAddressedToThisOrigin(message)) {
+      return
+    }
     setChainIdAndMaybeEmit(message.chainId)
-    setProvider(new JsonRpcProvider(message.providerUrl, parseInt(message.chainId)))
+    // Route through the wallet's ProviderManager so chain switches inherit the
+    // same UniRPC + observability wiring as the init path below. Constructing a
+    // bare JsonRpcProvider with `message.providerUrl` would bypass the entry
+    // gateway and emit no telemetry. The chainId in the message is the source
+    // of truth for routing; the providerUrl from the message is now unused
+    // (kept in the protocol for backward compatibility — TODO: remove once
+    // background scripts stop sending it).
+    //
+    // chainId arrives as a hex string (e.g. "0x1") — parse with explicit
+    // radix 16 to match the init path below. ProviderManager.getProvider
+    // throws on unsupported chains; log and bail rather than crashing the
+    // message listener so subsequent dapp messages still flow.
+    const chainIdNum = parseInt(message.chainId, 16)
+    try {
+      const provider = walletContextValue.providers.getProvider(chainIdNum)
+      setProvider(provider)
+    } catch (error) {
+      await logContentScriptError({
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        fileName: 'injected.content.ts',
+        functionName: 'SwitchChainListener',
+      })
+    }
   })
 
   externalDappMessageChannel.addMessageListener(ExtensionToDappRequestType.UpdateConnections, (message) => {
+    if (!isAddressedToThisOrigin(message)) {
+      return
+    }
     setConnectedAddressesAndMaybeEmit(message.addresses)
   })
 
   async function init(): Promise<void> {
     try {
       await Promise.all([backgroundStore.init(), dappStore.init()])
-
-      const chainId = getChainId()
-      const provider = getProvider()
-
-      if (chainId && !provider) {
-        const chainIdNum = parseInt(chainId, 16)
-        const defaultProvider = walletContextValue.providers.getProvider(chainIdNum)
-        setProvider(defaultProvider)
-      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       await logContentScriptError({
@@ -285,7 +322,7 @@ function makeInjected(): void {
   // notify background script if arc browser detected so we can disable the extension
   window.addEventListener('load', () => {
     // if styles aren't available at all, then we cannot check for the arc styles
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
     const isStylesAvailable = document.documentElement && !!getComputedStyle(document.documentElement).length
     if (!isStylesAvailable) {
       return
@@ -300,13 +337,10 @@ function makeInjected(): void {
   })
 }
 
-// eslint-disable-next-line import/no-unused-modules
 export default defineContentScript({
-  matches:
-    __DEV__ || process.env.BUILD_ENV === 'dev'
-      ? ['http://127.0.0.1/*', 'http://localhost/*', 'https://*/*']
-      : ['https://*/*'],
+  matches: ['http://127.0.0.1/*', 'http://localhost/*', 'https://*/*'],
   runAt: 'document_start',
+  allFrames: true,
   main() {
     makeInjected()
   },

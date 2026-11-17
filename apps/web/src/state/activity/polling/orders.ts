@@ -1,13 +1,12 @@
 import { TradeType } from '@uniswap/sdk-core'
 import { TradingApi } from '@universe/api'
-import { useAccount } from 'hooks/useAccount'
 import ms from 'ms'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityUpdateTransactionType, OnActivityUpdate } from 'state/activity/types'
-import { usePendingUniswapXOrders } from 'state/transactions/hooks'
-import { OrderQueryResponse, UniswapXBackendOrder } from 'types/uniswapx'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
+import type { Dispatch } from 'redux'
 import { isL2ChainId } from 'uniswap/src/features/chains/utils'
+import { InterfaceEventName } from 'uniswap/src/features/telemetry/constants'
+import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
+import { tradeRoutingToFillType } from 'uniswap/src/features/transactions/swap/analytics'
 import {
   ExactInputSwapTransactionInfo,
   TransactionStatus,
@@ -16,6 +15,14 @@ import {
 import { isFinalizedTxStatus } from 'uniswap/src/features/transactions/types/utils'
 import { convertOrderStatusToTransactionStatus } from 'uniswap/src/features/transactions/utils/uniswapX.utils'
 import { logger } from 'utilities/src/logger/logger'
+import { getConfig } from '~/config'
+import { useAccount } from '~/hooks/useAccount'
+import { evaluateCancelTimeouts } from '~/state/activity/polling/cancelTimeouts'
+import { ActivityUpdateTransactionType, OnActivityUpdate } from '~/state/activity/types'
+import { getRwaSwapAnalyticsFromTypeInfo } from '~/state/activity/utils'
+import { useAppDispatch } from '~/state/hooks'
+import { usePendingUniswapXOrders } from '~/state/transactions/hooks'
+import { OrderQueryResponse, UniswapXBackendOrder } from '~/types/uniswapx'
 
 const STANDARD_POLLING_INITIAL_INTERVAL = ms(`2s`)
 const STANDARD_POLLING_MAX_INTERVAL = ms('30s')
@@ -27,10 +34,7 @@ export const QUICK_POLL_MAX_INTERVAL = ms('30s')
 export const QUICK_POLL_INITIAL_PHASE = ms('10s')
 export const QUICK_POLL_MEDIUM_PHASE = ms('200s')
 
-const UNISWAP_GATEWAY_DNS_URL = process.env.REACT_APP_UNISWAP_GATEWAY_DNS
-if (UNISWAP_GATEWAY_DNS_URL === undefined) {
-  throw new Error(`UNISWAP_GATEWAY_DNS_URL must be defined environment variables`)
-}
+const UNISWAP_GATEWAY_DNS_URL = getConfig().uniswapGatewayDns
 
 export function getQuickPollingInterval(orderStartTime: number) {
   const elapsedTime = Date.now() - orderStartTime
@@ -65,7 +69,7 @@ export async function fetchOpenLimitOrders(params: {
   account?: string
   orderHashes?: string[]
 }): Promise<UniswapXBackendOrder[]> {
-  let url = `${UNISWAP_GATEWAY_DNS_URL}${uniswapUrls.limitOrderStatusesPath}`
+  let url = `${UNISWAP_GATEWAY_DNS_URL}/limit-orders`
   const queryParams: string[] = []
 
   if (params.account) {
@@ -100,11 +104,18 @@ function updateOrders({
   pendingOrders,
   statuses,
   onActivityUpdate,
+  dispatch,
 }: {
   pendingOrders: UniswapXOrderDetails[]
   statuses: UniswapXBackendOrder[]
   onActivityUpdate: OnActivityUpdate
+  dispatch: Dispatch
 }) {
+  // Flag-gated cancel-timeout tick: evaluates persisted deadlines against the same fresh
+  // statuses. Callers pass only the orders whose statuses this tick fetched, so a sub-5s quick
+  // L2 tick never runs receipt RPCs for a timed-out mainnet order (the standard tick owns those).
+  void evaluateCancelTimeouts({ pendingOrders, statuses, dispatch })
+
   pendingOrders.forEach((pendingOrder) => {
     const updatedOrder = statuses.find((order) => order.orderHash === pendingOrder.orderHash)
     if (!updatedOrder) {
@@ -118,10 +129,10 @@ function updateOrders({
       return
     }
 
-    // Guard against downgrading from Cancelling to Pending
-    // This prevents the poller from overwriting user-initiated cancellation status
-    // Orders in "Cancelling" state should only transition to Success, Failed, or remain Cancelling
-    if (pendingOrder.status === TransactionStatus.Cancelling && transactionStatus === TransactionStatus.Pending) {
+    // Orders in the cancel flow exit only to FINAL statuses. Non-final backend statuses
+    // (OPEN, INSUFFICIENT_FUNDS) must never flick a Cancelling order back to a cancellable
+    // state mid-cancel; the backend is not yet aware of the cancellation.
+    if (pendingOrder.status === TransactionStatus.Cancelling && !isFinalizedTxStatus(transactionStatus)) {
       return
     }
 
@@ -133,6 +144,10 @@ function updateOrders({
           ? updatedOrder.txHash
           : pendingOrder.hash,
       typeInfo: { ...pendingOrder.typeInfo },
+      // The cancellation raced a fill and lost: the order succeeded, the cancellation did not apply
+      ...(pendingOrder.status === TransactionStatus.Cancelling && transactionStatus === TransactionStatus.Success
+        ? { cancelFailedReason: 'filled' as const }
+        : {}),
     }
 
     if (
@@ -144,10 +159,27 @@ function updateOrders({
       if ('tradeType' in pendingOrder.typeInfo && pendingOrder.typeInfo.tradeType === TradeType.EXACT_INPUT) {
         const exactInputTypeInfo = updatedTransaction.typeInfo as ExactInputSwapTransactionInfo
         exactInputTypeInfo.settledOutputCurrencyAmountRaw = updatedOrder.settledAmounts[0].amountOut
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       } else if ('tradeType' in pendingOrder.typeInfo && pendingOrder.typeInfo.tradeType === TradeType.EXACT_OUTPUT) {
         // TODO(WEB-3962): Handle settled EXACT_OUTPUT amounts
       }
+    }
+
+    // Send analytics event when order becomes finalized
+    if (isFinalizedTxStatus(transactionStatus)) {
+      const txHash =
+        transactionStatus === TransactionStatus.Success && 'txHash' in updatedOrder
+          ? updatedOrder.txHash
+          : pendingOrder.hash
+      sendAnalyticsEvent(InterfaceEventName.SwapConfirmedOnClient, {
+        time: Date.now() - pendingOrder.addedTime,
+        swap_success: transactionStatus === TransactionStatus.Success,
+        success: transactionStatus === TransactionStatus.Success,
+        chainId: pendingOrder.chainId,
+        txHash: txHash ?? '',
+        transactionType: pendingOrder.typeInfo.type,
+        routing: tradeRoutingToFillType({ routing: pendingOrder.routing, indicative: false }),
+        ...getRwaSwapAnalyticsFromTypeInfo(pendingOrder.typeInfo),
+      })
     }
 
     onActivityUpdate({
@@ -168,6 +200,7 @@ function useQuickPolling({
   pendingOrders: UniswapXOrderDetails[]
   onActivityUpdate: OnActivityUpdate
 }) {
+  const dispatch = useAppDispatch()
   const [delay, setDelay] = useState(QUICK_POLL_INITIAL_INTERVAL)
 
   const pendingOrdersRef = useRef(pendingOrders)
@@ -180,7 +213,7 @@ function useQuickPolling({
   }, [pendingOrders])
 
   useEffect(() => {
-    let timeout: NodeJS.Timeout
+    let timeout: ReturnType<typeof setTimeout>
 
     async function poll() {
       const l2Orders = pendingOrders.filter((order) => isL2ChainId(order.chainId))
@@ -195,7 +228,9 @@ function useQuickPolling({
 
       try {
         const statuses = await fetchOrderStatuses(account.address, l2Orders)
-        updateOrders({ pendingOrders, statuses, onActivityUpdate })
+        // Scope the tick to its own L2 orders — mainnet orders can never match L2 statuses,
+        // and the cancel-timeout tick must not evaluate orders this poll did not fetch
+        updateOrders({ pendingOrders: l2Orders, statuses, onActivityUpdate, dispatch })
 
         const earliestOrder = l2Orders.find((order) => !isFinalizedTxStatus(order.status))
         if (earliestOrder) {
@@ -211,7 +246,7 @@ function useQuickPolling({
 
     timeout = setTimeout(poll, delay)
     return () => clearTimeout(timeout)
-  }, [account.address, delay, onActivityUpdate, pendingOrders])
+  }, [account.address, delay, dispatch, onActivityUpdate, pendingOrders])
 }
 
 function useStandardPolling({
@@ -223,6 +258,7 @@ function useStandardPolling({
   pendingOrders: UniswapXOrderDetails[]
   onActivityUpdate: OnActivityUpdate
 }) {
+  const dispatch = useAppDispatch()
   const [delay, setDelay] = useState(STANDARD_POLLING_INITIAL_INTERVAL)
   const pendingOrdersRef = useRef(pendingOrders)
 
@@ -234,7 +270,7 @@ function useStandardPolling({
   }, [pendingOrders])
 
   useEffect(() => {
-    let timeout: NodeJS.Timeout
+    let timeout: ReturnType<typeof setTimeout>
 
     async function poll() {
       const mainnetOrders = pendingOrders.filter((order) => !isL2ChainId(order.chainId))
@@ -253,7 +289,8 @@ function useStandardPolling({
           fetchLimitStatuses(account.address, mainnetOrders),
         ]).then((results) => results.flat())
 
-        updateOrders({ pendingOrders, statuses, onActivityUpdate })
+        // Scope the tick to its own mainnet orders (see the quick poller's matching note)
+        updateOrders({ pendingOrders: mainnetOrders, statuses, onActivityUpdate, dispatch })
         const newDelay = Math.min(delay * 1.5, STANDARD_POLLING_MAX_INTERVAL)
         setDelay(newDelay)
         timeout = setTimeout(poll, newDelay)
@@ -265,7 +302,7 @@ function useStandardPolling({
 
     timeout = setTimeout(poll, delay)
     return () => clearTimeout(timeout)
-  }, [account.address, delay, onActivityUpdate, pendingOrders])
+  }, [account.address, delay, dispatch, onActivityUpdate, pendingOrders])
 }
 
 export function usePollPendingOrders(onActivityUpdate: OnActivityUpdate) {

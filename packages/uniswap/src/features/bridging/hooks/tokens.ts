@@ -1,26 +1,27 @@
-import { GqlResult, GraphQLApi, TradingApi } from '@universe/api'
+import { TradingApi } from '@universe/api'
+import { UniverseChainId } from '@universe/chains'
 import { useCallback, useMemo } from 'react'
 import { OnchainItemListOptionType, TokenOption } from 'uniswap/src/components/lists/items/types'
 import { filter } from 'uniswap/src/components/TokenSelector/filter'
-import { usePortfolioBalancesForAddressById } from 'uniswap/src/components/TokenSelector/hooks/usePortfolioBalancesForAddressById'
+import { type PortfolioBalancesResult } from 'uniswap/src/components/TokenSelector/hooks/usePortfolioBalancesForAddressById'
 import { createEmptyTokenOptionFromBridgingToken } from 'uniswap/src/components/TokenSelector/utils'
+import { useCrossChainBalances } from 'uniswap/src/data/apiClients/dataApiService/balances/hooks/useCrossChainBalances'
 import { useTradingApiSwappableTokensQuery } from 'uniswap/src/data/apiClients/tradingApi/useTradingApiSwappableTokensQuery'
 import { tradingApiSwappableTokenToCurrencyInfo } from 'uniswap/src/data/apiClients/tradingApi/utils/tradingApiSwappableTokenToCurrencyInfo'
-import { useCrossChainBalances } from 'uniswap/src/data/balances/hooks/useCrossChainBalances'
-import { normalizeCurrencyIdForMapLookup } from 'uniswap/src/data/cache'
 import { TradeableAsset } from 'uniswap/src/entities/assets'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { toSupportedChainId } from 'uniswap/src/features/chains/utils'
+import { toGraphQLChain, toSupportedChainId } from 'uniswap/src/features/chains/utils'
 import { CurrencyInfo, PortfolioBalance } from 'uniswap/src/features/dataApi/types'
-import { currencyIdToContractInput } from 'uniswap/src/features/dataApi/utils/currencyIdToContractInput'
+import { useMultichainCurrencyInfos } from 'uniswap/src/features/tokens/useMultichainCurrencyInfos'
 import {
   getTokenAddressFromChainForTradingApi,
   NATIVE_ADDRESS_FOR_TRADING_API,
   toTradingApiSupportedChainId,
 } from 'uniswap/src/features/transactions/swap/utils/tradingApi'
+import { normalizeCurrencyIdForMapLookup } from 'uniswap/src/utils/currencyId'
 import { buildCurrencyId, buildNativeCurrencyId } from 'uniswap/src/utils/currencyId'
 import { logger } from 'utilities/src/logger/logger'
+import type { DerivedQueryResult } from 'utilities/src/reactQuery/types'
 
 export function useBridgingTokenWithHighestBalance({
   evmAddress,
@@ -46,11 +47,18 @@ export function useBridgingTokenWithHighestBalance({
   const tokenIn = currencyAddress ? getTokenAddressFromChainForTradingApi(currencyAddress, currencyChainId) : undefined
   const tokenInChainId = toTradingApiSupportedChainId(currencyChainId)
 
-  const { data: tokenProjectsData, loading: tokenProjectsLoading } = GraphQLApi.useTokenProjectsQuery({
-    variables: { contracts: [currencyIdToContractInput(currencyId)] },
-  })
+  const multichainQueryIds = useMemo(() => [currencyId], [currencyId])
+  const { data: currencyOnAllChains, isLoading: currencyInfosLoading } = useMultichainCurrencyInfos(multichainQueryIds)
 
-  const crossChainTokens = tokenProjectsData?.tokenProjects?.[0]?.tokens
+  // useCrossChainBalances still speaks the GraphQL deployment shape (chain enum + nullable address).
+  const crossChainTokens = useMemo(
+    () =>
+      currencyOnAllChains?.map(({ currency }) => ({
+        chain: toGraphQLChain(currency.chainId),
+        address: currency.isNative ? undefined : currency.address,
+      })),
+    [currencyOnAllChains],
+  )
 
   const { otherChainBalances } = useCrossChainBalances({
     evmAddress,
@@ -70,7 +78,7 @@ export function useBridgingTokenWithHighestBalance({
         : undefined,
   })
 
-  const isLoading = tokenProjectsLoading || bridgingTokensLoading
+  const isLoading = currencyInfosLoading || bridgingTokensLoading
 
   return useMemo(() => {
     if (!otherChainBalances || !bridgingTokens?.tokens) {
@@ -122,15 +130,15 @@ export function useBridgingTokenWithHighestBalance({
 
 export function useBridgingTokensOptions({
   oppositeSelectedToken,
-  evmAddress,
-  svmAddress,
   chainFilter,
+  chainIds,
+  portfolioData,
 }: {
   oppositeSelectedToken: TradeableAsset | undefined
-  evmAddress: Address | undefined
-  svmAddress: Address | undefined
   chainFilter: UniverseChainId | null
-}): GqlResult<TokenOption[] | undefined> & { shouldNest?: boolean } {
+  chainIds?: UniverseChainId[]
+  portfolioData: PortfolioBalancesResult
+}): DerivedQueryResult<TokenOption[] | undefined> & { shouldNest?: boolean } {
   const tokenIn = oppositeSelectedToken?.address
     ? getTokenAddressFromChainForTradingApi(oppositeSelectedToken.address, oppositeSelectedToken.chainId)
     : undefined
@@ -155,16 +163,21 @@ export function useBridgingTokensOptions({
     data: portfolioBalancesById,
     error: portfolioBalancesByIdError,
     refetch: portfolioBalancesByIdRefetch,
-    loading: loadingPorfolioBalancesById,
-  } = usePortfolioBalancesForAddressById({ evmAddress, svmAddress })
+    isLoading: loadingPorfolioBalancesById,
+  } = portfolioData
 
   const tokenOptions = useBridgingTokensToTokenOptions(bridgingTokens?.tokens, portfolioBalancesById)
   // Filter out tokens that are not on the current chain, unless the input token is the same as the current chain
   const isSameChain = oppositeSelectedToken?.chainId === chainFilter
   const shouldFilterByChain = chainFilter !== null && !isSameChain
   const filteredTokenOptions = useMemo(
-    () => filter({ tokenOptions: tokenOptions ?? null, chainFilter: shouldFilterByChain ? chainFilter : null }),
-    [tokenOptions, shouldFilterByChain, chainFilter],
+    () =>
+      filter({
+        tokenOptions: tokenOptions ?? null,
+        chainFilter: shouldFilterByChain ? chainFilter : null,
+        chainIds: shouldFilterByChain ? undefined : chainIds,
+      }),
+    [tokenOptions, shouldFilterByChain, chainFilter, chainIds],
   )
 
   const error = (!portfolioBalancesById && portfolioBalancesByIdError) || (!tokenOptions && errorBridgingTokens)
@@ -176,8 +189,8 @@ export function useBridgingTokensOptions({
 
   return {
     data: filteredTokenOptions,
-    loading: loadingBridgingTokens || loadingPorfolioBalancesById,
-    error: error || undefined,
+    isLoading: loadingBridgingTokens || loadingPorfolioBalancesById,
+    error: error || null,
     refetch,
     shouldNest: !shouldFilterByChain,
   }
@@ -195,13 +208,29 @@ function useBridgingTokensToTokenOptions(
     }
 
     // We sort the tokens by chain in the same order as in the network selector
+    const chainIndexMap = new Map(enabledChainIds.map((id, index) => [id, index]))
     const sortedBridgingTokens = [...bridgingTokens].sort((a, b) => {
       const chainIdA = toSupportedChainId(a.chainId)
       const chainIdB = toSupportedChainId(b.chainId)
       if (!chainIdA || !chainIdB) {
         return 0
       }
-      return enabledChainIds.indexOf(chainIdA) - enabledChainIds.indexOf(chainIdB)
+      const indexA = chainIndexMap.get(chainIdA) ?? -1
+      const indexB = chainIndexMap.get(chainIdB) ?? -1
+
+      if (indexA === -1 && indexB === -1) {
+        // If neither chain is enabled, treat them as equal
+        return 0
+      } else if (indexA === -1) {
+        // If only A is not enabled, B comes first
+        return 1
+      } else if (indexB === -1) {
+        // If only B is not enabled, A comes first
+        return -1
+      }
+
+      // Otherwise, sort by their index in enabledChainIds
+      return indexA - indexB
     })
 
     return sortedBridgingTokens
@@ -220,6 +249,11 @@ function useBridgingTokensToTokenOptions(
           type: OnchainItemListOptionType.Token,
         }
       })
-      .filter((tokenOption): tokenOption is TokenOption => tokenOption !== undefined)
+      .filter((tokenOption): tokenOption is TokenOption => {
+        if (!tokenOption || !('currencyInfo' in tokenOption)) {
+          return false
+        }
+        return enabledChainIds.includes(tokenOption.currencyInfo.currency.chainId)
+      })
   }, [bridgingTokens, portfolioBalancesById, enabledChainIds])
 }

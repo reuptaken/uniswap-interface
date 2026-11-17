@@ -1,4 +1,5 @@
-import { RefObject, useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
+import type { RefObject } from 'react'
 
 // modified from https://usehooks.com/usePrevious/
 export function usePrevious<T>(value: T): T | undefined {
@@ -42,11 +43,14 @@ export function useOnClickOutside<T extends HTMLElement>({
   handler,
   ignoredNodes = [],
   event = 'mousedown',
+  capture = false,
 }: {
   node: RefObject<T | undefined | null>
   handler?: () => void
   ignoredNodes?: Array<RefObject<HTMLElement | undefined | null>>
   event?: 'mousedown' | 'mouseup'
+  /** When true, listen in capture phase so the handler runs before inner elements (e.g. modal overlays) that call stopPropagation. Use when the trigger/content may be inside a modal. */
+  capture?: boolean
 }): void {
   const handlerRef = useRef<undefined | (() => void)>(handler)
 
@@ -71,12 +75,12 @@ export function useOnClickOutside<T extends HTMLElement>({
       }
     }
 
-    document.addEventListener(event, handleClickOutside)
+    document.addEventListener(event, handleClickOutside, capture)
 
     return () => {
-      document.removeEventListener(event, handleClickOutside)
+      document.removeEventListener(event, handleClickOutside, capture)
     }
-  }, [node, ignoredNodes, event])
+  }, [node, ignoredNodes, event, capture])
 }
 
 /**

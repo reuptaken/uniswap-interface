@@ -1,15 +1,16 @@
 import { createListenerMiddleware, createSlice } from '@reduxjs/toolkit'
-import { createOnSetCapabilitiesByChainEffect } from 'state/walletCapabilities/effects'
-import {
-  isAtomicBatchingSupported,
-  isAtomicBatchingSupportedByChainId,
-} from 'state/walletCapabilities/lib/handleGetCapabilities'
-import type { GetCapabilitiesResult } from 'state/walletCapabilities/lib/types'
-import { GetCapabilitiesStatus, WalletCapabilitiesState } from 'state/walletCapabilities/types'
+import { hexToNumber } from '@universe/encoding'
 import { InterfaceEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { InterfaceUserPropertyName, setUserProperty } from 'uniswap/src/features/telemetry/user'
-import { hexToNumber } from 'utilities/src/addresses/hex'
+import { createOnSetCapabilitiesByChainEffect } from '~/state/walletCapabilities/effects'
+import {
+  isAlternateGasFeesSupportedByChainId,
+  isAtomicBatchingSupported,
+  isAtomicBatchingSupportedByChainId,
+} from '~/state/walletCapabilities/lib/handleGetCapabilities'
+import type { GetCapabilitiesResult } from '~/state/walletCapabilities/lib/types'
+import { GetCapabilitiesStatus, WalletCapabilitiesState } from '~/state/walletCapabilities/types'
 
 const initialState: WalletCapabilitiesState = {
   getCapabilitiesStatus: GetCapabilitiesStatus.Unknown,
@@ -61,6 +62,18 @@ export const selectIsAtomicBatchingSupportedByChainId = (state: {
     }
     const areCapabilitiesSupported = selectWalletCapabilitiesSupported(state)
     return areCapabilitiesSupported && isAtomicBatchingSupportedByChainId(state.walletCapabilities.byChain, chainId)
+  }
+}
+
+export const selectHasAlternateGasFeesByChainId = (state: {
+  walletCapabilities: WalletCapabilitiesState
+}): ((chainId: number) => boolean | undefined) => {
+  return (chainId: number) => {
+    if (selectNeedsToCheckCapabilities(state)) {
+      return undefined
+    }
+    const areCapabilitiesSupported = selectWalletCapabilitiesSupported(state)
+    return areCapabilitiesSupported && isAlternateGasFeesSupportedByChainId(state.walletCapabilities.byChain, chainId)
   }
 }
 

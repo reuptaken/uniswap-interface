@@ -1,13 +1,12 @@
+import { Flex, Text, TouchableArea, UniversalImage, UniversalImageResizeMode, AnimatedFlex } from '@universe/mycelium'
+import { useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
 import React, { useCallback } from 'react'
 import { FlatList, ListRenderItemInfo } from 'react-native'
 import { FadeIn, FadeOut } from 'react-native-reanimated'
 import { navigate } from 'src/app/navigation/rootNavigation'
-import { Flex, Text, TouchableArea, useIsDarkMode } from 'ui/src'
-import { AnimatedFlex } from 'ui/src/components/layout/AnimatedFlex'
 import { iconSizes } from 'ui/src/theme'
-import { RemoteImage } from 'uniswap/src/components/nfts/images/RemoteImage'
 import { FORServiceProvider } from 'uniswap/src/features/fiatOnRamp/types'
-import { getServiceProviderLogo } from 'uniswap/src/features/fiatOnRamp/utils'
+import { getOptionalServiceProviderLogo } from 'uniswap/src/features/fiatOnRamp/utils'
 import { ModalName } from 'uniswap/src/features/telemetry/constants'
 
 function key(item: FORServiceProvider): string {
@@ -27,7 +26,7 @@ function CEXItemWrapper({
   const onPress = (): void => onSelectServiceProvider(serviceProvider)
 
   const isDarkMode = useIsDarkMode()
-  const logoUrl = getServiceProviderLogo(serviceProvider.logos, isDarkMode)
+  const logoUrl = getOptionalServiceProviderLogo(serviceProvider.logos, isDarkMode) ?? ''
 
   return (
     <TouchableArea onPress={onPress}>
@@ -44,12 +43,10 @@ function CEXItemWrapper({
         p="$spacing16"
       >
         <Flex grow row alignItems="center" flexShrink={1} gap="$spacing12">
-          <RemoteImage
-            borderRadius={CEX_ICON_BORDER_RADIUS}
-            height={CEX_ICON_SIZE}
-            resizeMode="cover"
+          <UniversalImage
             uri={logoUrl}
-            width={CEX_ICON_SIZE}
+            size={{ height: CEX_ICON_SIZE, width: CEX_ICON_SIZE, resizeMode: UniversalImageResizeMode.Cover }}
+            style={{ image: { borderRadius: CEX_ICON_BORDER_RADIUS } }}
           />
           <Text flexShrink={1} variant="body2">
             {serviceProvider.name}

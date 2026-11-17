@@ -1,5 +1,5 @@
+import { Flex, Text } from '@universe/mycelium'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text } from 'ui/src'
 import { ParsedWarnings } from 'uniswap/src/components/modals/WarningModal/types'
 import { WarningModal } from 'uniswap/src/components/modals/WarningModal/WarningModal'
 import { LearnMoreLink } from 'uniswap/src/components/text/LearnMoreLink'
@@ -39,6 +39,7 @@ export function SwapWarningModal({
       modalName={ModalName.SwapWarning}
       severity={warning.severity}
       title={warning.title ?? ''}
+      analyticsProperties={{ warning_type: warning.type }}
       onClose={onClose}
       onAcknowledge={onClose}
     />

@@ -1,35 +1,36 @@
-/* eslint-disable complexity */
-import dayjs from 'dayjs'
-import { useTranslation } from 'react-i18next'
-import { useDispatch } from 'react-redux'
 import {
   Flex,
   FlexProps,
   Loader,
   Text,
-  TouchableArea,
-  UniswapXText,
   UniversalImage,
   UniversalImageResizeMode,
   useIsDarkMode,
-} from 'ui/src'
+} from '@universe/mycelium'
+import dayjs from 'dayjs'
+import { useTranslation } from 'react-i18next'
+import { useDispatch } from 'react-redux'
+import { UniswapXText } from 'ui/src'
+import { RotatableChevron } from 'ui/src/components/icons'
 import { CopyAlt } from 'ui/src/components/icons/CopyAlt'
 import { ExternalLink } from 'ui/src/components/icons/ExternalLink'
 import { UniswapX } from 'ui/src/components/icons/UniswapX'
 import { borderRadii, fonts, iconSizes } from 'ui/src/theme'
 import { InfoRow } from 'uniswap/src/components/activity/details/InfoRow'
+import { InfoRowActionButton } from 'uniswap/src/components/activity/details/InfoRowActionButton'
+import { getVisiblePlanSteps } from 'uniswap/src/components/activity/details/plan/getVisiblePlanSteps'
+import { getActivityDisplayVaultRows } from 'uniswap/src/components/activity/details/TransactionDetailsInfoRowsVaultRows'
 import { TransactionParticipantRow } from 'uniswap/src/components/activity/details/TransactionParticipantRow'
 import { SwapTypeTransactionInfo } from 'uniswap/src/components/activity/details/types'
 import { NetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
+import { ContentRow } from 'uniswap/src/components/transactions/requests/ContentRow'
 import { useNetworkFee } from 'uniswap/src/features/activity/hooks/useNetworkFee'
-import { getFormattedSwapRatio, hasInterfaceFees } from 'uniswap/src/features/activity/utils/swapInfo'
+import { getFormattedSwapRatio } from 'uniswap/src/features/activity/utils/swapInfo'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
 import { FORMAT_DATE_TIME_MEDIUM, useFormattedDateTime } from 'uniswap/src/features/language/localizedDayjs'
 import { pushNotification } from 'uniswap/src/features/notifications/slice/slice'
 import { AppNotificationType, CopyNotificationType } from 'uniswap/src/features/notifications/slice/types'
-import { getCurrencyAmount, ValueType } from 'uniswap/src/features/tokens/getCurrencyAmount'
 import { useCurrencyInfo } from 'uniswap/src/features/tokens/useCurrencyInfo'
-import { getAmountsFromTrade } from 'uniswap/src/features/transactions/swap/utils/getAmountsFromTrade'
 import { isUniswapX } from 'uniswap/src/features/transactions/swap/utils/routing'
 import {
   BridgeTransactionInfo,
@@ -38,27 +39,34 @@ import {
   OnRampPurchaseInfo,
   OnRampTransferInfo,
   TransactionDetails,
+  TransactionStatus,
   TransactionType,
+  UnknownTransactionInfo,
 } from 'uniswap/src/features/transactions/types/transactionDetails'
-import { setClipboard } from 'uniswap/src/utils/clipboard'
+import { isPlanTransactionDetails } from 'uniswap/src/features/transactions/types/utils'
 import { ExplorerDataType, getExplorerLink, openTransactionLink, openUri } from 'uniswap/src/utils/linking'
 import { shortenAddress, shortenHash } from 'utilities/src/addresses'
-import { NumberType } from 'utilities/src/format/types'
-
-const UNISWAP_FEE = 0.0025
+import { setClipboard } from 'utilities/src/clipboard/clipboard'
 
 export function TransactionDetailsInfoRows({
   transactionDetails,
   isShowingMore,
   pt,
+  openPlanView,
   onClose,
 }: {
   transactionDetails: TransactionDetails
   isShowingMore: boolean
   pt?: FlexProps['pt']
+  openPlanView: () => void
   onClose: () => void
 }): JSX.Element {
-  const rows = useTransactionDetailsInfoRows({ transactionDetails, isShowingMore, onClose })
+  const rows = useTransactionDetailsInfoRows({
+    transactionDetails,
+    isShowingMore,
+    onClose,
+    openPlanView,
+  })
 
   return (
     <Flex gap="$spacing8" px="$spacing8" pt={pt}>
@@ -70,10 +78,12 @@ export function TransactionDetailsInfoRows({
 function useTransactionDetailsInfoRows({
   transactionDetails,
   isShowingMore,
+  openPlanView,
   onClose,
 }: {
   transactionDetails: TransactionDetails
   isShowingMore: boolean
+  openPlanView: () => void
   onClose: () => void
 }): JSX.Element[] {
   const { t } = useTranslation()
@@ -84,12 +94,20 @@ function useTransactionDetailsInfoRows({
 
   const defaultRows = [
     <NetworkFeeRow key="networkFee" transactionDetails={transactionDetails} />,
-    <TransactionHashRow key="transactionId" transactionDetails={transactionDetails} />,
+    <TransactionHashRow key="transactionId" transactionDetails={transactionDetails} openPlanView={openPlanView} />,
     <InfoRow key="submittedOn" label={t('transaction.submittedOn')}>
       <Text variant="body3">{dateString}</Text>
     </InfoRow>,
   ]
   const specificRows: JSX.Element[] = []
+  const vaultRows = getActivityDisplayVaultRows({
+    transactionDetails,
+    typeInfo,
+  })
+
+  if (vaultRows) {
+    specificRows.push(...vaultRows)
+  }
 
   switch (typeInfo.type) {
     case TransactionType.Approve:
@@ -100,7 +118,7 @@ function useTransactionDetailsInfoRows({
         specificRows.push(
           <DappInfoRow
             key="dappInfo"
-            label={t('transaction.details.dappName')}
+            label={t('common.protocol')}
             iconUrl={typeInfo.dappInfo.icon}
             name={typeInfo.dappInfo.name}
           />,
@@ -146,7 +164,7 @@ function useTransactionDetailsInfoRows({
           const dappInfo = (
             <DappInfoRow
               key="dappInfo"
-              label={t('swap.details.orderRouting')}
+              label={t('common.bestRoute')}
               iconUrl={typeInfo.routingDappInfo.icon}
               name={typeInfo.routingDappInfo.name}
             />
@@ -159,14 +177,6 @@ function useTransactionDetailsInfoRows({
     case TransactionType.Swap:
       if (isShowingMore) {
         specificRows.push(<SwapRateRow key="swapRate" typeInfo={typeInfo} />)
-        // TODO (WALL-4189): blocked on backend. This is hard-coded to always return false for now
-        if (
-          hasInterfaceFees({
-            swapTimestampMs: transactionDetails.addedTime,
-          })
-        ) {
-          specificRows.push(<UniswapFeeRow key="uniswapFee" typeInfo={typeInfo} />)
-        }
       }
       break
     case TransactionType.LiquidityIncrease:
@@ -178,43 +188,19 @@ function useTransactionDetailsInfoRows({
       break
     case TransactionType.Wrap:
     case TransactionType.NFTTrade:
+    case TransactionType.UniswapXCancel:
       // For now, these cases don't add any specific rows
       break
 
     case TransactionType.Unknown:
-      if (typeInfo.dappInfo) {
-        if (typeInfo.dappInfo.name) {
-          specificRows.push(
-            <DappInfoRow
-              key="dappInfo"
-              label={t('transaction.details.dappName')}
-              iconUrl={typeInfo.dappInfo.icon}
-              name={typeInfo.dappInfo.name}
-            />,
-          )
-        }
-        const address = typeInfo.dappInfo.address
-        if (address) {
-          specificRows.push(
-            <InfoRow key="contract" label={t('common.text.contract')}>
-              <Text variant="body3">{shortenAddress({ address })}</Text>
-              <TouchableArea
-                onPress={async (): Promise<void> => {
-                  await openUri({
-                    uri: getExplorerLink({
-                      chainId: transactionDetails.chainId,
-                      data: address,
-                      type: ExplorerDataType.ADDRESS,
-                    }),
-                  })
-                }}
-              >
-                <ExternalLink color="$neutral3" size="$icon.16" />
-              </TouchableArea>
-            </InfoRow>,
-          )
-        }
-      }
+      specificRows.push(
+        ...getUnknownTransactionInfoRows({
+          protocolLabel: t('common.protocol'),
+          chainId: transactionDetails.chainId,
+          contractLabel: t('common.text.contract'),
+          typeInfo,
+        }),
+      )
       break
     default:
       break
@@ -225,16 +211,103 @@ function useTransactionDetailsInfoRows({
   return [...specificRows, ...defaultRows]
 }
 
+function getUnknownTransactionInfoRows({
+  protocolLabel,
+  typeInfo,
+  chainId,
+  contractLabel,
+}: {
+  protocolLabel: string
+  typeInfo: UnknownTransactionInfo
+  chainId: TransactionDetails['chainId']
+  contractLabel: string
+}): JSX.Element[] {
+  const rows: JSX.Element[] = []
+
+  if (!typeInfo.dappInfo) {
+    return rows
+  }
+
+  if (typeInfo.dappInfo.name) {
+    rows.push(
+      <DappInfoRow
+        key="dappInfo"
+        label={protocolLabel}
+        iconUrl={typeInfo.dappInfo.icon}
+        name={typeInfo.dappInfo.name}
+      />,
+    )
+  }
+
+  const address = typeInfo.dappInfo.address
+  if (address) {
+    rows.push(
+      <InfoRow key="contract" label={contractLabel}>
+        <InfoRowActionButton
+          icon={<ExternalLink color="$neutral3" size="$icon.16" />}
+          onPress={async (): Promise<void> => {
+            await openUri({
+              uri: getExplorerLink({
+                chainId,
+                data: address,
+                type: ExplorerDataType.ADDRESS,
+              }),
+            })
+          }}
+        >
+          {shortenAddress({ address })}
+        </InfoRowActionButton>
+      </InfoRow>,
+    )
+  }
+
+  return rows
+}
+
+/**
+ * Row shown in the transaction details screen for the network fee.
+ * If gas is paid on multiple chains, the logo will be hidden.
+ * If it's a uniswapx transaction, the uniswapx UI will be shown.
+ * If the tx was sponsored by an ERC-4337 paymaster, the sponsorship UI will be shown.
+ */
 function NetworkFeeRow({ transactionDetails }: { transactionDetails: TransactionDetails }): JSX.Element {
   const { t } = useTranslation()
-  const { value: networkFeeValue } = useNetworkFee(transactionDetails)
-  const isLoading = networkFeeValue === '-'
+  const { value: networkFeeValue, isLoading } = useNetworkFee(transactionDetails)
 
-  const Logo = isUniswapX(transactionDetails) ? UniswapX : NetworkLogo
+  const isPlanTransaction = isPlanTransactionDetails(transactionDetails)
   const GasText = isUniswapX(transactionDetails) ? UniswapXText : Text
+  const chainIds = isPlanTransaction
+    ? [...new Set(transactionDetails.typeInfo.stepDetails.map((step) => step.chainId))]
+    : [transactionDetails.chainId]
+  const showNetworkLogo = chainIds.length === 1
+  const Logo = isUniswapX(transactionDetails) ? UniswapX : showNetworkLogo ? NetworkLogo : undefined
+
+  const paymaster = 'paymaster' in transactionDetails ? transactionDetails.paymaster : undefined
+  const sponsorInfo = 'sponsorInfo' in transactionDetails ? transactionDetails.sponsorInfo : undefined
+
+  // Prefer the resolved sponsor name (e.g. "Sponsored by Uniswap"); fall back to the paymaster address.
+  const sponsorName = sponsorInfo?.name ?? (paymaster ? shortenAddress({ address: paymaster }) : undefined)
+
+  if (sponsorName) {
+    return (
+      <InfoRow key="networkFee" label={t('transaction.details.networkFee')}>
+        <Flex row centered gap="$spacing4">
+          {sponsorInfo?.icon && (
+            <UniversalImage
+              size={{ width: iconSizes.icon16, height: iconSizes.icon16 }}
+              style={{ image: { borderRadius: borderRadii.roundedFull } }}
+              uri={sponsorInfo.icon}
+            />
+          )}
+          <Text variant="body3">{t('transaction.details.sponsoredBy', { name: sponsorName })}</Text>
+        </Flex>
+      </InfoRow>
+    )
+  }
+
   return (
     <InfoRow key="networkFee" label={t('transaction.details.networkFee')}>
-      <Logo chainId={transactionDetails.chainId} size={iconSizes.icon16} />
+      {Logo && <Logo chainId={chainIds[0] ?? null} size={iconSizes.icon16} />}
       {isLoading ? (
         <Loader.Box height={fonts.body3.lineHeight} width={iconSizes.icon36} />
       ) : (
@@ -244,26 +317,54 @@ function NetworkFeeRow({ transactionDetails }: { transactionDetails: Transaction
   )
 }
 
-function TransactionHashRow({ transactionDetails }: { transactionDetails: TransactionDetails }): JSX.Element | null {
-  const { hash, chainId } = transactionDetails
+function TransactionHashRow({
+  transactionDetails,
+  openPlanView,
+}: {
+  transactionDetails: TransactionDetails
+  openPlanView: () => void
+}): JSX.Element | null {
+  const { hash, chainId, typeInfo } = transactionDetails
   const { t } = useTranslation()
+
+  const stepDetails = typeInfo.type === TransactionType.Plan ? typeInfo.stepDetails : undefined
+
+  const stepInfosLength = stepDetails ? getVisiblePlanSteps(stepDetails).length : 0
+  if (stepInfosLength > 1) {
+    return (
+      <InfoRow key="transactionId" label={t('transaction.details.transactions')}>
+        <InfoRowActionButton
+          icon={<RotatableChevron color="$neutral3" direction="right" size="$icon.16" />}
+          onPress={openPlanView}
+        >
+          {t('transaction.details.transactions.actions', {
+            actionCount: stepInfosLength,
+          })}
+        </InfoRowActionButton>
+      </InfoRow>
+    )
+  }
 
   if (!hash) {
     return null
   }
 
+  if (
+    'batchInfo' in transactionDetails &&
+    transactionDetails.batchInfo &&
+    transactionDetails.status === TransactionStatus.Pending
+  ) {
+    return null
+  }
+
   return (
     <InfoRow key="transactionId" label={t('transaction.details.transaction')}>
-      <TouchableArea
-        alignItems="center"
-        flexDirection="row"
-        gap="$spacing6"
-        justifyContent="center"
+      <InfoRowActionButton
+        icon={<ExternalLink color="$neutral3" size="$icon.16" />}
         onPress={() => openTransactionLink(hash, chainId)}
       >
-        <Text variant="body3">{shortenHash(hash)}</Text>
-        <ExternalLink color="$neutral3" size="$icon.16" />
-      </TouchableArea>
+        {shortenHash(hash)}
+      </InfoRowActionButton>
     </InfoRow>
   )
 }
@@ -278,11 +379,8 @@ function TransactionOfframpRow({ transactionId }: { transactionId?: string }): J
 
   return (
     <InfoRow key="forTransactionId" label={t('common.transactionId')}>
-      <TouchableArea
-        alignItems="center"
-        flexDirection="row"
-        gap="$spacing6"
-        justifyContent="center"
+      <InfoRowActionButton
+        icon={<CopyAlt color="$neutral3" size="$icon.16" />}
         onPress={async (): Promise<void> => {
           await setClipboard(transactionId)
           dispatch(
@@ -293,33 +391,36 @@ function TransactionOfframpRow({ transactionId }: { transactionId?: string }): J
           )
         }}
       >
-        <Text variant="body3">{shortenAddress({ address: transactionId })}</Text>
-        <CopyAlt color="$neutral3" size="$icon.16" />
-      </TouchableArea>
+        {shortenAddress({ address: transactionId })}
+      </InfoRowActionButton>
     </InfoRow>
   )
 }
 
 function DappInfoRow({ label, name, iconUrl }: { label: string; name: string; iconUrl?: string | null }): JSX.Element {
   return (
-    <InfoRow label={label}>
-      {iconUrl && (
-        <UniversalImage
-          size={{
-            width: iconSizes.icon16,
-            height: iconSizes.icon16,
-            resizeMode: UniversalImageResizeMode.Contain,
-          }}
-          style={{
-            image: {
-              borderRadius: borderRadii.roundedFull,
-            },
-          }}
-          uri={iconUrl}
-        />
-      )}
-      <Text variant="body3">{name}</Text>
-    </InfoRow>
+    <ContentRow alignItems="flex-start" gap="$spacing16" label={label} variant="body3">
+      <Flex row alignItems="flex-start" justifyContent="flex-end" maxWidth="70%" gap="$gap4">
+        {iconUrl && (
+          <UniversalImage
+            size={{
+              width: iconSizes.icon20,
+              height: iconSizes.icon20,
+              resizeMode: UniversalImageResizeMode.Contain,
+            }}
+            style={{
+              image: {
+                borderRadius: borderRadii.roundedFull,
+              },
+            }}
+            uri={iconUrl}
+          />
+        )}
+        <Text textAlign="right" variant="body3" flexShrink={1}>
+          {name}
+        </Text>
+      </Flex>
+    </ContentRow>
   )
 }
 
@@ -343,40 +444,6 @@ function SwapRateRow({ typeInfo }: { typeInfo: SwapTypeTransactionInfo | BridgeT
   return (
     <InfoRow label={t('transaction.details.swapRate')}>
       <Text variant="body3">{formattedLine}</Text>
-    </InfoRow>
-  )
-}
-
-function UniswapFeeRow({ typeInfo }: { typeInfo: SwapTypeTransactionInfo }): JSX.Element {
-  const { t } = useTranslation()
-  const formatter = useLocalizationContext()
-
-  const outputCurrency = useCurrencyInfo(typeInfo.outputCurrencyId)
-  const { outputCurrencyAmountRaw } = getAmountsFromTrade(typeInfo)
-
-  const currencyAmount = getCurrencyAmount({
-    value: outputCurrencyAmountRaw,
-    valueType: ValueType.Raw,
-    currency: outputCurrency?.currency,
-  })
-
-  const amountExact = currencyAmount ? parseFloat(currencyAmount.toExact()) : null
-
-  // Using the equation (1 - 0.25 / 100) * (actualOutputValue + uniswapFee) = actualOutputValue
-  const approximateFee = amountExact ? (UNISWAP_FEE / (1 - UNISWAP_FEE)) * amountExact : null
-  const feeSymbol = outputCurrency?.currency.symbol ? ' ' + outputCurrency.currency.symbol : ''
-  const formattedApproximateFee = approximateFee
-    ? '~' +
-      formatter.formatNumberOrString({
-        value: approximateFee,
-        type: NumberType.TokenTx,
-      }) +
-      feeSymbol
-    : '-'
-
-  return (
-    <InfoRow label={t('transaction.details.uniswapFee', { feePercent: UNISWAP_FEE * 100 })}>
-      <Text variant="body3">{formattedApproximateFee}</Text>
     </InfoRow>
   )
 }

@@ -1,21 +1,34 @@
 import { Token } from '@uniswap/sdk-core'
+import { UniverseChainId } from '@universe/chains'
 import {
-  NFTCollectionOption,
+  AuctionOption,
+  CategoryOption,
+  MultichainTokenOption,
   OnchainItemListOptionType,
+  RwaCollectionOption,
   TokenOption,
   UnitagOption,
   WalletOption,
 } from 'uniswap/src/components/lists/items/types'
 import { OnchainItemSection, OnchainItemSectionName } from 'uniswap/src/components/lists/OnchainItemList/types'
+import { ProtectionResult } from 'uniswap/src/features/dataApi/safety'
+import type { SafetyInfo } from 'uniswap/src/features/dataApi/types'
 import { sendSearchOptionItemClickedAnalytics } from 'uniswap/src/features/search/SearchModal/analytics/analytics'
 import { SearchFilterContext } from 'uniswap/src/features/search/SearchModal/analytics/SearchContext'
 import { SearchTab } from 'uniswap/src/features/search/SearchModal/types'
 import { InterfaceEventName, MobileEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
+import { tokenCategory } from 'uniswap/src/test/fixtures/tokenCategory'
+import type { Mock } from 'vitest'
 
-jest.mock('uniswap/src/features/telemetry/send')
-jest.mock('utilities/src/platform', () => ({
-  isMobileApp: false,
+// Use vi.hoisted to create a mutable mock value that can be changed between tests
+const mockPlatformState = vi.hoisted(() => ({ isMobileApp: false }))
+
+vi.mock('uniswap/src/features/telemetry/send')
+vi.mock('@universe/environment', () => ({
+  get isMobileApp(): boolean {
+    return mockPlatformState.isMobileApp
+  },
 }))
 
 const MOCK_TOKEN1: TokenOption = {
@@ -50,25 +63,102 @@ const MOCK_TOKEN2: TokenOption = {
   balanceUSD: undefined,
 }
 
-const MOCK_NFT: NFTCollectionOption = {
-  type: OnchainItemListOptionType.NFTCollection,
-  chainId: 1,
-  address: '0x789',
-  name: 'Test Collection',
-  imageUrl: 'https://example.com/nft.png',
+const MOCK_MULTICHAIN_TOKEN: MultichainTokenOption = {
+  type: OnchainItemListOptionType.MultichainToken,
+  multichainResult: {
+    id: 'usdc',
+    name: 'USD Coin',
+    symbol: 'USDC',
+    logoUrl: 'https://example.com/usdc.png',
+    tokens: [
+      {
+        currency: {
+          chainId: 1,
+          address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+          name: 'USD Coin',
+          decimals: 6,
+        } as Token,
+        currencyId: '1_0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+        logoUrl: 'https://example.com/usdc.png',
+      },
+      {
+        currency: {
+          chainId: 130,
+          address: '0x345',
+          name: 'USD Coin',
+          decimals: 6,
+        } as Token,
+        currencyId: '130_0x345',
+        logoUrl: 'https://example.com/usdc.png',
+      },
+    ],
+  },
+  primaryCurrencyInfo: {
+    currency: {
+      chainId: 1,
+      address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+      name: 'USD Coin',
+      decimals: 6,
+    } as Token,
+    currencyId: '1_0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    logoUrl: 'https://example.com/usdc.png',
+  },
+}
+
+const MOCK_RWA_COLLECTION: RwaCollectionOption = {
+  type: OnchainItemListOptionType.RwaCollection,
+  showCategoryTag: true,
+  rwa: {
+    symbol: 'TSLA',
+    name: 'Tesla',
+    logoUrl: '',
+    priceUsd: 0,
+    volume24hUsd: 0,
+    sparkline1d: { points: [] },
+    issuerTokens: [
+      {
+        symbol: 'TSLAON',
+        name: 'Tesla',
+        logoUrl: '',
+        issuer: 'ondo',
+        priceUsd: 0,
+        volume24hUsd: 0,
+        sparkline1d: { points: [] },
+        chainTokens: [{ chainId: 1, address: '0xaaa' }],
+      },
+    ],
+  },
+}
+
+const MOCK_AUCTION: AuctionOption = {
+  type: OnchainItemListOptionType.Auction,
+  auctionId: '1_0xauction',
+  auctionAddress: '0xauction',
+  chainId: UniverseChainId.Mainnet,
+  tokenAddress: '0xtoken',
+  tokenSymbol: 'AUCT',
+  tokenName: 'Auction Token',
+  tokenLogoUrl: undefined,
+  currencyInfo: null,
+  committedVolumeUsd: undefined,
   isVerified: true,
 }
 
+const MOCK_CATEGORY: CategoryOption = {
+  type: OnchainItemListOptionType.Category,
+  category: tokenCategory({ id: 'stablecoins', name: 'Stablecoins' }),
+}
+
 describe('sendSearchOptionItemClickedAnalytics', () => {
-  const mockSendAnalyticsEvent = sendAnalyticsEvent as jest.Mock
-  const platformModule = require('utilities/src/platform')
+  const mockSendAnalyticsEvent = sendAnalyticsEvent as Mock
 
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
+    mockPlatformState.isMobileApp = false
   })
 
   it('sends token analytics event on mobile', () => {
-    platformModule.isMobileApp = true
+    mockPlatformState.isMobileApp = true
 
     const mockSection: OnchainItemSection<TokenOption> = {
       sectionKey: OnchainItemSectionName.TrendingTokens,
@@ -105,7 +195,7 @@ describe('sendSearchOptionItemClickedAnalytics', () => {
   })
 
   it('sends token analytics event on web', () => {
-    platformModule.isMobileApp = false
+    mockPlatformState.isMobileApp = false
 
     const mockSection: OnchainItemSection<TokenOption> = {
       sectionKey: OnchainItemSectionName.Tokens,
@@ -134,6 +224,7 @@ describe('sendSearchOptionItemClickedAnalytics', () => {
       query: 'test',
       chainId: 1,
       suggestion_type: 'token-suggestion',
+      token_type: 'token',
       total_suggestions: 2,
       query_text: 'test',
       selected_search_result_name: 'Test Token 1',
@@ -143,8 +234,184 @@ describe('sendSearchOptionItemClickedAnalytics', () => {
     })
   })
 
+  it('carries the Blockaid verdict, suppressed bucket, and hosting page on a web token pick', () => {
+    mockPlatformState.isMobileApp = false
+
+    const spamToken: TokenOption = {
+      ...MOCK_TOKEN1,
+      currencyInfo: {
+        ...MOCK_TOKEN1.currencyInfo,
+        safetyInfo: { protectionResult: ProtectionResult.Spam } as SafetyInfo,
+        searchMultichainParent: { id: 'spam', tokenCurrencyIds: ['1_0x123'], isSuppressed: true },
+      },
+    }
+    sendSearchOptionItemClickedAnalytics({
+      item: spamToken,
+      section: { sectionKey: OnchainItemSectionName.Tokens, data: [spamToken] },
+      rowIndex: 1,
+      sectionIndex: 0,
+      searchFilters: { query: 'test', searchChainFilter: null, searchTabFilter: SearchTab.All },
+      trace: { page: 'swap-page', modal: 'search-modal' },
+    })
+
+    expect(mockSendAnalyticsEvent).toHaveBeenCalledWith(
+      InterfaceEventName.NavbarResultSelected,
+      expect.objectContaining({
+        blockaid_status: ProtectionResult.Spam,
+        is_suppressed: true,
+        page: 'swap-page',
+        modal: 'search-modal',
+      }),
+    )
+  })
+
+  it('reads a multichain pick’s verdict and bucket off the parent result', () => {
+    mockPlatformState.isMobileApp = false
+
+    const suppressedMultichain: MultichainTokenOption = {
+      ...MOCK_MULTICHAIN_TOKEN,
+      multichainResult: {
+        ...MOCK_MULTICHAIN_TOKEN.multichainResult,
+        safetyInfo: { protectionResult: ProtectionResult.Warning } as SafetyInfo,
+        isSuppressed: true,
+      },
+    }
+    sendSearchOptionItemClickedAnalytics({
+      item: suppressedMultichain,
+      section: { sectionKey: OnchainItemSectionName.Tokens, data: [suppressedMultichain] },
+      rowIndex: 1,
+      sectionIndex: 0,
+      searchFilters: { query: 'usdc', searchChainFilter: null, searchTabFilter: SearchTab.All },
+    })
+
+    expect(mockSendAnalyticsEvent).toHaveBeenCalledWith(
+      InterfaceEventName.NavbarResultSelected,
+      expect.objectContaining({ blockaid_status: ProtectionResult.Warning, is_suppressed: true }),
+    )
+  })
+
+  it('sends multichain token analytics event on web', () => {
+    mockPlatformState.isMobileApp = false
+
+    const mockSection: OnchainItemSection<MultichainTokenOption> = {
+      sectionKey: OnchainItemSectionName.Tokens,
+      data: [MOCK_MULTICHAIN_TOKEN],
+    }
+    const mockSearchFilters: SearchFilterContext = {
+      query: 'usdc',
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.Tokens,
+    }
+
+    sendSearchOptionItemClickedAnalytics({
+      item: MOCK_MULTICHAIN_TOKEN,
+      section: mockSection,
+      rowIndex: 1,
+      sectionIndex: 0,
+      searchFilters: mockSearchFilters,
+    })
+
+    expect(mockSendAnalyticsEvent).toHaveBeenCalledWith(InterfaceEventName.NavbarResultSelected, {
+      category: OnchainItemSectionName.Tokens,
+      isHistory: false,
+      position: 1,
+      sectionPosition: 1,
+      suggestionCount: 1,
+      query: 'usdc',
+      chainId: 1,
+      suggestion_type: 'token-suggestion',
+      token_type: 'multichain_token',
+      total_suggestions: 1,
+      query_text: 'usdc',
+      selected_search_result_name: 'USD Coin',
+      selected_search_result_address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.Tokens,
+    })
+  })
+
+  it('sends rwa collection analytics event on web, keyed on the tapped issuer (NavbarResultSelected)', () => {
+    mockPlatformState.isMobileApp = false
+
+    const mockSection: OnchainItemSection<RwaCollectionOption> = {
+      sectionKey: OnchainItemSectionName.Tokens,
+      data: [MOCK_RWA_COLLECTION],
+    }
+    const mockSearchFilters: SearchFilterContext = {
+      query: 'tesla',
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.Tokens,
+    }
+
+    sendSearchOptionItemClickedAnalytics({
+      item: MOCK_RWA_COLLECTION,
+      section: mockSection,
+      rowIndex: 1,
+      sectionIndex: 0,
+      searchFilters: mockSearchFilters,
+      // A different issuer than issuerTokens[0] (address 0xaaa) was tapped: analytics must reflect 0xbbb.
+      rwaSelection: { chainId: UniverseChainId.Mainnet, address: '0xbbb' },
+    })
+
+    expect(mockSendAnalyticsEvent).toHaveBeenCalledWith(InterfaceEventName.NavbarResultSelected, {
+      category: OnchainItemSectionName.Tokens,
+      isHistory: false,
+      position: 1,
+      sectionPosition: 1,
+      suggestionCount: 1,
+      query: 'tesla',
+      chainId: UniverseChainId.Mainnet,
+      suggestion_type: 'token-suggestion',
+      token_type: 'token',
+      total_suggestions: 1,
+      query_text: 'tesla',
+      selected_search_result_name: 'Tesla',
+      selected_search_result_address: '0xbbb',
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.Tokens,
+    })
+  })
+
+  it('sends rwa collection analytics event on mobile (ExploreSearchResultClicked)', () => {
+    mockPlatformState.isMobileApp = true
+
+    const mockSection: OnchainItemSection<RwaCollectionOption> = {
+      sectionKey: OnchainItemSectionName.Tokens,
+      data: [MOCK_RWA_COLLECTION],
+    }
+    const mockSearchFilters: SearchFilterContext = {
+      query: 'tesla',
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.Tokens,
+    }
+
+    sendSearchOptionItemClickedAnalytics({
+      item: MOCK_RWA_COLLECTION,
+      section: mockSection,
+      rowIndex: 1,
+      sectionIndex: 0,
+      searchFilters: mockSearchFilters,
+      rwaSelection: { chainId: UniverseChainId.Mainnet, address: '0xbbb' },
+    })
+
+    expect(mockSendAnalyticsEvent).toHaveBeenCalledWith(MobileEventName.ExploreSearchResultClicked, {
+      category: OnchainItemSectionName.Tokens,
+      isHistory: false,
+      position: 1,
+      sectionPosition: 1,
+      suggestionCount: 1,
+      query: 'tesla',
+      name: 'Tesla',
+      chain: UniverseChainId.Mainnet,
+      address: '0xbbb',
+      type: 'token',
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.Tokens,
+    })
+  })
+
   it('sends wallet address analytics event', () => {
-    platformModule.isMobileApp = true
+    mockPlatformState.isMobileApp = true
     const mockWallet: UnitagOption = {
       type: OnchainItemListOptionType.Unitag,
       address: '0x456',
@@ -184,20 +451,131 @@ describe('sendSearchOptionItemClickedAnalytics', () => {
     })
   })
 
-  it('sends nft analytics event', () => {
-    platformModule.isMobileApp = true
-    const mockSection: OnchainItemSection<NFTCollectionOption> = {
-      sectionKey: OnchainItemSectionName.NFTCollections,
-      data: [MOCK_NFT],
+  it('sends top auction analytics event on web', () => {
+    mockPlatformState.isMobileApp = false
+
+    const mockSection: OnchainItemSection<AuctionOption> = {
+      sectionKey: OnchainItemSectionName.TopAuctions,
+      data: [MOCK_AUCTION],
     }
     const mockSearchFilters: SearchFilterContext = {
-      query: 'test',
       searchChainFilter: null,
-      searchTabFilter: SearchTab.NFTCollections,
+      searchTabFilter: SearchTab.All,
     }
 
     sendSearchOptionItemClickedAnalytics({
-      item: MOCK_NFT,
+      item: MOCK_AUCTION,
+      section: mockSection,
+      rowIndex: 1,
+      sectionIndex: 4,
+      searchFilters: mockSearchFilters,
+    })
+
+    expect(mockSendAnalyticsEvent).toHaveBeenCalledWith(InterfaceEventName.NavbarResultSelected, {
+      category: OnchainItemSectionName.TopAuctions,
+      isHistory: false,
+      position: 1,
+      sectionPosition: 5,
+      suggestionCount: 1,
+      chainId: UniverseChainId.Mainnet,
+      suggestion_type: 'auction-trending',
+      total_suggestions: 1,
+      query_text: '',
+      selected_search_result_name: 'Auction Token',
+      selected_search_result_address: '0xauction',
+      token_address: '0xtoken',
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.All,
+    })
+  })
+
+  it('sends a query-matched category row as a category suggestion on web, with the category id', () => {
+    mockPlatformState.isMobileApp = false
+
+    const mockSection: OnchainItemSection<CategoryOption | TokenOption> = {
+      sectionKey: OnchainItemSectionName.Tokens,
+      data: [MOCK_CATEGORY, MOCK_TOKEN1],
+    }
+    const mockSearchFilters: SearchFilterContext = {
+      query: 'stable',
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.All,
+    }
+
+    sendSearchOptionItemClickedAnalytics({
+      item: MOCK_CATEGORY,
+      section: mockSection,
+      rowIndex: 1,
+      sectionIndex: 0,
+      searchFilters: mockSearchFilters,
+    })
+
+    expect(mockSendAnalyticsEvent).toHaveBeenCalledWith(InterfaceEventName.NavbarResultSelected, {
+      category: OnchainItemSectionName.Tokens,
+      isHistory: false,
+      position: 1,
+      sectionPosition: 1,
+      suggestionCount: 2,
+      query: 'stable',
+      suggestion_type: 'category-suggestion',
+      total_suggestions: 2,
+      query_text: 'stable',
+      selected_search_result_name: 'Stablecoins',
+      selected_search_result_address: 'stablecoins',
+      category_id: 'stablecoins',
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.All,
+    })
+  })
+
+  it('sends a resting-state spotlit header press as a category spotlight pick on web', () => {
+    mockPlatformState.isMobileApp = false
+
+    const mockSection: OnchainItemSection<CategoryOption | TokenOption> = {
+      sectionKey: OnchainItemSectionName.Category,
+      categoryId: 'stablecoins',
+      data: [MOCK_TOKEN1, MOCK_TOKEN2],
+    }
+    const mockSearchFilters: SearchFilterContext = {
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.All,
+    }
+
+    sendSearchOptionItemClickedAnalytics({
+      item: MOCK_CATEGORY,
+      section: mockSection,
+      rowIndex: 2,
+      sectionIndex: -1,
+      searchFilters: mockSearchFilters,
+    })
+
+    expect(mockSendAnalyticsEvent).toHaveBeenCalledWith(
+      InterfaceEventName.NavbarResultSelected,
+      expect.objectContaining({
+        category: OnchainItemSectionName.Category,
+        sectionPosition: 0,
+        suggestion_type: 'category-spotlight',
+        query_text: '',
+        category_id: 'stablecoins',
+      }),
+    )
+  })
+
+  it('sends a category row with type category on mobile, with the category id', () => {
+    mockPlatformState.isMobileApp = true
+
+    const mockSection: OnchainItemSection<CategoryOption | TokenOption> = {
+      sectionKey: OnchainItemSectionName.Tokens,
+      data: [MOCK_CATEGORY, MOCK_TOKEN1],
+    }
+    const mockSearchFilters: SearchFilterContext = {
+      query: 'stable',
+      searchChainFilter: null,
+      searchTabFilter: SearchTab.All,
+    }
+
+    sendSearchOptionItemClickedAnalytics({
+      item: MOCK_CATEGORY,
       section: mockSection,
       rowIndex: 1,
       sectionIndex: 0,
@@ -205,18 +583,18 @@ describe('sendSearchOptionItemClickedAnalytics', () => {
     })
 
     expect(mockSendAnalyticsEvent).toHaveBeenCalledWith(MobileEventName.ExploreSearchResultClicked, {
-      category: OnchainItemSectionName.NFTCollections,
+      category: OnchainItemSectionName.Tokens,
       isHistory: false,
       position: 1,
       sectionPosition: 1,
-      suggestionCount: 1,
-      query: 'test',
-      name: 'Test Collection',
-      chain: 1,
-      address: '0x789',
-      type: 'collection',
+      suggestionCount: 2,
+      query: 'stable',
+      name: 'Stablecoins',
+      address: 'stablecoins',
+      category_id: 'stablecoins',
+      type: 'category',
       searchChainFilter: null,
-      searchTabFilter: SearchTab.NFTCollections,
+      searchTabFilter: SearchTab.All,
     })
   })
 })

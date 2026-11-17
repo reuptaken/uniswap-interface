@@ -1,11 +1,13 @@
 import type { Currency, CurrencyAmount } from '@uniswap/sdk-core'
-import { Text } from 'ui/src'
+import { Flex, Text, type TextCompatProps, TouchableArea } from '@universe/mycelium'
+import type { TouchableAreaCompatEvent } from '@universe/mycelium/touchable-area'
 import { useConnectionStatus } from 'uniswap/src/features/accounts/store/hooks'
 import type { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
 import { CurrencyField } from 'uniswap/src/types/currency'
 import { getSymbolDisplayText } from 'uniswap/src/utils/currency'
 import { NumberType } from 'utilities/src/format/types'
+import { useEvent } from 'utilities/src/react/hooks'
 
 interface CurrencyInputBalanceProps {
   currencyBalance: Maybe<CurrencyAmount<Currency>>
@@ -13,6 +15,8 @@ interface CurrencyInputBalanceProps {
   showInsufficientBalanceWarning: boolean
   currencyField: CurrencyField
   hideBalance: boolean
+  variant?: TextCompatProps['variant']
+  onPressBalance?: () => void
 }
 export function CurrencyInputPanelBalance({
   currencyBalance,
@@ -20,6 +24,8 @@ export function CurrencyInputPanelBalance({
   currencyField,
   showInsufficientBalanceWarning,
   hideBalance,
+  variant = 'body3',
+  onPressBalance,
 }: CurrencyInputBalanceProps): JSX.Element | null {
   const { formatCurrencyAmount } = useLocalizationContext()
   const { isDisconnected } = useConnectionStatus()
@@ -28,11 +34,26 @@ export function CurrencyInputPanelBalance({
   // Hide balance if panel is output, and no balance, or disconnected or the token selector is hidden
   const hideCurrencyBalance = (isOutput && currencyBalance?.equalTo(0)) || isDisconnected || hideBalance
 
+  const color = showInsufficientBalanceWarning ? '$statusCritical' : '$neutral2'
+  const hoverColor = showInsufficientBalanceWarning ? '$statusCriticalHovered' : '$neutral2Hovered'
+
+  const handlePress = useEvent((event: TouchableAreaCompatEvent) => {
+    event.stopPropagation()
+    onPressBalance?.()
+  })
+
   if (!currencyInfo || hideCurrencyBalance) {
     return null
   }
-  return (
-    <Text color={showInsufficientBalanceWarning ? '$statusCritical' : '$neutral2'} variant="body3">
+
+  const balanceText = (
+    <Text
+      color={color}
+      variant={variant}
+      {...(onPressBalance && {
+        '$group-item-hover': { color: hoverColor },
+      })}
+    >
       {formatCurrencyAmount({
         value: currencyBalance,
         type: NumberType.TokenTx,
@@ -40,4 +61,16 @@ export function CurrencyInputPanelBalance({
       {getSymbolDisplayText(currencyInfo.currency.symbol)}
     </Text>
   )
+
+  if (onPressBalance) {
+    return (
+      <TouchableArea group="item" cursor="pointer" onPress={handlePress}>
+        <Flex row maxContent>
+          {balanceText}
+        </Flex>
+      </TouchableArea>
+    )
+  }
+
+  return balanceText
 }

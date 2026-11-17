@@ -1,7 +1,8 @@
+import { AnimatedFlex } from '@universe/mycelium'
+import { HeartWithFill } from '@universe/mycelium/icons/HeartWithFill'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useAnimatedStyle, useDerivedValue, withSequence, withTiming } from 'react-native-reanimated'
-import { Flex, useSporeColors } from 'ui/src'
-import { HeartWithFill } from 'ui/src/components/icons'
 
 interface FavoriteButtonProps {
   isFavorited: boolean
@@ -22,7 +23,6 @@ export const Favorite = ({ isFavorited, size }: FavoriteButtonProps): JSX.Elemen
 
   const [color, setColor] = useState(getColor())
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: we want to recalculate this when isFavorited changes
   useEffect(() => {
     const timer = setTimeout(() => {
       setColor(getColor())
@@ -32,13 +32,14 @@ export const Favorite = ({ isFavorited, size }: FavoriteButtonProps): JSX.Elemen
 
   const scale = useDerivedValue(() => {
     return withSequence(withTiming(0, ANIMATION_CONFIG), withTiming(1, ANIMATION_CONFIG))
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- isFavorited triggers animation re-derivation even though it's not read in the worklet
   }, [isFavorited])
 
   const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }), [scale])
 
   return (
-    <Flex animation={null} style={animatedStyle}>
+    <AnimatedFlex style={animatedStyle}>
       <HeartWithFill color={color} height={size} width={size} />
-    </Flex>
+    </AnimatedFlex>
   )
 }

@@ -1,32 +1,17 @@
+import { isMobileApp, isWebApp } from '@universe/environment'
+import { borderRadii, Button, Flex, type FlexCompatProps, Text, LinearGradient, IconButton } from '@universe/mycelium'
+import { useIsDarkMode, useMedia } from '@universe/mycelium/theme-hooks-compat'
 import { ReactNode } from 'react'
-import {
-  Button,
-  Flex,
-  FlexProps,
-  IconButton,
-  Image,
-  LinearGradient,
-  styled,
-  Text,
-  useIsDarkMode,
-  useMedia,
-} from 'ui/src'
-import type { GeneratedIcon } from 'ui/src/components/factories/createIcon'
-import { Chart } from 'ui/src/components/icons/Chart'
-import { CoinConvert } from 'ui/src/components/icons/CoinConvert'
-import { EthMini } from 'ui/src/components/icons/EthMini'
-import { Gas } from 'ui/src/components/icons/Gas'
-import { Lightning } from 'ui/src/components/icons/Lightning'
-import { Wallet } from 'ui/src/components/icons/Wallet'
+import { Image, type ImageProps } from 'ui/src'
 import { X } from 'ui/src/components/icons/X'
 import { Modal } from 'uniswap/src/components/modals/Modal'
+import { parseCustomIconLink } from 'uniswap/src/components/notifications/iconUtils'
 import { ElementName, type ModalNameType } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
-import { isMobileApp, isWebApp } from 'utilities/src/platform'
 
 const MODAL_MAX_WIDTH = 440
 
-const GradientStyles: FlexProps = {
+const GradientStyles = {
   position: 'absolute',
   top: 0,
   left: 0,
@@ -35,20 +20,44 @@ const GradientStyles: FlexProps = {
   backgroundSize: 'cover',
   backgroundPosition: 'center',
   backgroundRepeat: 'no-repeat',
-} satisfies FlexProps
+} satisfies FlexCompatProps
 
-const GradientContainer = styled(Flex, {
-  ...GradientStyles,
-  mask: 'linear-gradient(180deg, rgba(0,0,0,0.48) 0%, rgba(0,0,0,0) 100%)',
-  overflow: 'hidden',
-})
+function GradientContainer({ children, ...rest }: FlexCompatProps): JSX.Element {
+  return (
+    <Flex
+      {...GradientStyles}
+      mask="linear-gradient(180deg, rgba(0,0,0,0.48) 0%, rgba(0,0,0,0) 100%)"
+      overflow="hidden"
+      {...rest}
+    >
+      {children}
+    </Flex>
+  )
+}
 
-export const GradientImage = styled(Image, {
-  ...GradientStyles,
-  borderTopLeftRadius: '$rounded16',
-  borderTopRightRadius: '$rounded16',
-  opacity: 0.48,
-})
+// Renders only on native (the isMobileApp branch): the legacy styled(Image)'s background*
+// declarations never applied there, so only the layout/radius/opacity styles carry over.
+export function GradientImage({ style, ...rest }: ImageProps): JSX.Element {
+  return (
+    <Image
+      position="absolute"
+      top={0}
+      left={0}
+      right={0}
+      opacity={0.48}
+      // Array entry keeps a caller's style merging per-key over the base, as legacy styled(Image) did.
+      style={[
+        {
+          minHeight: 120,
+          borderTopLeftRadius: borderRadii.rounded16,
+          borderTopRightRadius: borderRadii.rounded16,
+        },
+        style,
+      ]}
+      {...rest}
+    />
+  )
+}
 
 const IconStyles = {
   width: 40,
@@ -57,28 +66,43 @@ const IconStyles = {
   backgroundPosition: 'center',
   backgroundRepeat: 'no-repeat',
   borderRadius: '$rounded6',
-} satisfies FlexProps
+} satisfies FlexCompatProps
 
-const IconContainer = styled(Flex, IconStyles)
-const IconImage = styled(Image, IconStyles)
+function IconContainer({ children, ...rest }: FlexCompatProps): JSX.Element {
+  return (
+    <Flex {...IconStyles} {...rest}>
+      {children}
+    </Flex>
+  )
+}
 
-const FeatureRow = styled(Flex, {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: '$spacing12',
-})
+// Native-only render (isMobileApp branch), same background* carve-out as GradientImage.
+function IconImage(props: ImageProps): JSX.Element {
+  return <Image width={40} height={40} borderRadius="$rounded6" {...props} />
+}
 
-const FeatureIcon = styled(Flex, {
-  width: 24,
-  height: 24,
-  alignItems: 'center',
-  justifyContent: 'center',
-})
+function FeatureRow({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <Flex flexDirection="row" alignItems="center" gap="$spacing12">
+      {children}
+    </Flex>
+  )
+}
+
+function FeatureIcon({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <Flex width={24} height={24} alignItems="center" justifyContent="center">
+      {children}
+    </Flex>
+  )
+}
 
 export interface ModalFeatureItem {
   icon?: ReactNode
   text: string
   iconUrl?: string
+  /** Optional dark mode variant for iconUrl. Falls back to iconUrl if not provided. */
+  darkModeIconUrl?: string
 }
 
 export interface ModalTemplateButton {
@@ -89,43 +113,18 @@ export interface ModalTemplateButton {
   elementName?: ElementName
 }
 
-const CUSTOM_ICON_MAP: Record<string, GeneratedIcon> = {
-  lightning: Lightning,
-  wallet: Wallet,
-  chart: Chart,
-  gas: Gas,
-  'coin-convert': CoinConvert,
-  ethereum: EthMini,
-}
-
 /**
- * Helper function to check if iconUrl is a custom icon string (format: "custom:<iconName>-<colorToken>")
- * and return the corresponding React component instead of using a background image.
+ * Helper function to render a custom icon from a notification icon link.
+ * Supports format: "custom:<iconName>-$<colorToken>" (e.g., "custom:lightning-$accent1")
  *
  * TODO: remove client hard-coding when notification images are uploaded to backend and they start sending valid image URLs.
- *
- * @example
- * getCustomIconComponent("custom:lightning-$accent1") // Returns <Lightning size={20} color="$accent1" />
- * getCustomIconComponent("custom:wallet-$neutral2") // Returns <Wallet size={20} color="$neutral2" />
  */
-function getCustomIconComponent(iconUrl?: string): ReactNode {
-  if (!iconUrl || typeof iconUrl !== 'string' || !iconUrl.startsWith('custom:')) {
+function renderCustomIcon(iconUrl?: string): ReactNode {
+  const { IconComponent, colorToken } = parseCustomIconLink(iconUrl)
+  if (!IconComponent || !colorToken) {
     return null
   }
-
-  // Parse the format: custom:<iconName>-<colorToken>
-  const customPart = iconUrl.slice(7) // Remove "custom:" prefix
-  const lastDashIndex = customPart.lastIndexOf('-')
-
-  if (lastDashIndex === -1) {
-    return null
-  }
-
-  const iconName = customPart.slice(0, lastDashIndex)
-  const colorToken = customPart.slice(lastDashIndex + 1)
-
-  const IconComponent = CUSTOM_ICON_MAP[iconName]
-  return IconComponent ? <IconComponent size={20} color={colorToken} /> : null
+  return <IconComponent size={20} color={colorToken} />
 }
 
 interface ModalTemplateProps {
@@ -133,8 +132,12 @@ interface ModalTemplateProps {
   name: ModalNameType | string
   onClose: () => void
   backgroundImageUrl?: string
+  /** Optional dark mode variant for backgroundImageUrl. Falls back to backgroundImageUrl if not provided. */
+  darkModeBackgroundImageUrl?: string
   onBackgroundPress?: () => void
   iconUrl?: string
+  /** Optional dark mode variant for iconUrl. Falls back to iconUrl if not provided. */
+  darkModeIconUrl?: string
   title: string
   subtitle?: string
   features?: ModalFeatureItem[]
@@ -147,7 +150,6 @@ interface ModalTemplateProps {
  * ModalTemplate component
  *
  * A reusable template for rendering modal notifications.
- * Extracted from SolanaPromoModal to be shared across the notification system.
  *
  * Features:
  * - Centered modal with gradient background
@@ -157,17 +159,17 @@ interface ModalTemplateProps {
  * - Close button in top-right corner
  * - Fully customizable layout via children prop
  *
- * Used by:
- * - ModalNotification (notification API-driven modals)
- * - SolanaPromoModal (hardcoded promotional modal)
+ * Used by ModalNotification (notification API-driven modals).
  */
 export function ModalTemplate({
   isOpen,
   name,
   onClose,
   backgroundImageUrl,
+  darkModeBackgroundImageUrl,
   onBackgroundPress,
   iconUrl,
+  darkModeIconUrl,
   title,
   subtitle,
   features = [],
@@ -180,11 +182,17 @@ export function ModalTemplate({
   const hideCloseButton = (isWebApp && sm) || isMobileApp
   const isDarkMode = useIsDarkMode()
   const gradientStartColor = isDarkMode ? 'transparent' : 'rgba(255, 255, 255, 0)'
+  const effectiveBackgroundUrl =
+    isDarkMode && darkModeBackgroundImageUrl ? darkModeBackgroundImageUrl : backgroundImageUrl
+  const effectiveIconUrl = isDarkMode && darkModeIconUrl ? darkModeIconUrl : iconUrl
 
   return (
     <Modal
       hideHandlebar
       renderBehindTopInset
+      // hideHandlebar + renderBehindTopInset nulls the handle and hideCloseButton hides the X on
+      // mobile, so the content pan is this card's only swipe-to-dismiss.
+      enableContentPanningGesture
       isModalOpen={isOpen}
       name={name as ModalNameType}
       maxWidth={maxWidth}
@@ -193,11 +201,11 @@ export function ModalTemplate({
       onClose={onClose}
     >
       <Flex p="$spacing24" gap="$spacing24">
-        {backgroundImageUrl &&
+        {effectiveBackgroundUrl &&
           (isMobileApp ? (
             <>
               <GradientImage
-                source={{ uri: backgroundImageUrl }}
+                source={{ uri: effectiveBackgroundUrl }}
                 cursor={onBackgroundPress ? 'pointer' : undefined}
                 onPress={onBackgroundPress}
               />
@@ -217,7 +225,7 @@ export function ModalTemplate({
             </>
           ) : (
             <GradientContainer
-              backgroundImage={`url(${backgroundImageUrl})`}
+              backgroundImage={`url(${effectiveBackgroundUrl})`}
               cursor={onBackgroundPress ? 'pointer' : undefined}
               onPress={onBackgroundPress}
             />
@@ -227,11 +235,11 @@ export function ModalTemplate({
           <>
             {/* Header */}
             <Flex alignItems="flex-start" gap="$spacing16" pt="$spacing16">
-              {iconUrl &&
+              {effectiveIconUrl &&
                 (isMobileApp ? (
-                  <IconImage source={{ uri: iconUrl }} />
+                  <IconImage source={{ uri: effectiveIconUrl }} />
                 ) : (
-                  <IconContainer backgroundImage={`url(${iconUrl})`} />
+                  <IconContainer backgroundImage={`url(${effectiveIconUrl})`} />
                 ))}
               <Flex gap="$spacing4">
                 <Text variant="subheading1" color="$neutral1">
@@ -249,17 +257,19 @@ export function ModalTemplate({
             {features.length > 0 && (
               <Flex gap="$spacing8" mx="$spacing8">
                 {features.map((feature, index) => {
-                  const customIcon = getCustomIconComponent(feature.iconUrl)
+                  const effectiveFeatureIconUrl =
+                    isDarkMode && feature.darkModeIconUrl ? feature.darkModeIconUrl : feature.iconUrl
+                  const customIcon = renderCustomIcon(effectiveFeatureIconUrl)
                   return (
                     <FeatureRow key={index}>
-                      {(feature.icon || feature.iconUrl) && (
+                      {(feature.icon || effectiveFeatureIconUrl) && (
                         <FeatureIcon>
                           {customIcon ||
-                            (feature.iconUrl ? (
+                            (effectiveFeatureIconUrl ? (
                               <Flex
                                 width={20}
                                 height={20}
-                                backgroundImage={`url(${feature.iconUrl})`}
+                                backgroundImage={`url(${effectiveFeatureIconUrl})`}
                                 backgroundSize="cover"
                                 backgroundPosition="center"
                               />
@@ -290,7 +300,6 @@ export function ModalTemplate({
                       <Button
                         size="medium"
                         emphasis={button.emphasis ?? (button.isPrimary ? 'primary' : 'secondary')}
-                        width="100%"
                         minHeight="$spacing48"
                         onPress={button.onPress}
                       >

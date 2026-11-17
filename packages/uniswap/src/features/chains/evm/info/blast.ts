@@ -1,22 +1,18 @@
 import { Token } from '@uniswap/sdk-core'
-import { GraphQLApi } from '@universe/api'
-import { BLAST_LOGO, ETH_LOGO } from 'ui/src/assets'
+import { GraphQLApi, TradingApi } from '@universe/api'
+import { UniverseChainId, Platform } from '@universe/chains'
+import { BLAST_LOGO, ETH_LOGO } from '@universe/mycelium/assets'
 import { config } from 'uniswap/src/config'
+import { ALL_APPS_CHAIN_SUPPORTED_APPS } from 'uniswap/src/features/chains/chainAppSupport'
+import { CHAIN_ID_TO_URL_PARAM } from 'uniswap/src/features/chains/chainUrlParam'
 import {
   DEFAULT_NATIVE_ADDRESS_LEGACY,
   DEFAULT_RETRY_OPTIONS,
-  getQuicknodeEndpointUrl,
+  getUniRpcEndpointUrl,
 } from 'uniswap/src/features/chains/evm/rpc'
 import { buildChainTokens } from 'uniswap/src/features/chains/evm/tokens'
 import { GENERIC_L2_GAS_CONFIG } from 'uniswap/src/features/chains/gasDefaults'
-import {
-  GqlChainId,
-  NetworkLayer,
-  RPCType,
-  UniverseChainId,
-  UniverseChainInfo,
-} from 'uniswap/src/features/chains/types'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
+import { GqlChainId, NetworkLayer, RPCType, UniverseChainInfo } from 'uniswap/src/features/chains/types'
 import { ElementName } from 'uniswap/src/features/telemetry/constants'
 import { blast } from 'wagmi/chains'
 
@@ -30,6 +26,7 @@ export const BLAST_CHAIN_INFO = {
   ...blast,
   id: UniverseChainId.Blast,
   platform: Platform.EVM,
+  supportedApps: ALL_APPS_CHAIN_SUPPORTED_APPS,
   assetRepoNetworkName: 'blast',
   backendChain: {
     chain: GraphQLApi.Chain.Blast as GqlChainId,
@@ -42,21 +39,22 @@ export const BLAST_CHAIN_INFO = {
   docs: 'https://docs.blast.io',
   elementName: ElementName.ChainBlast,
   explorer: {
-    name: 'BlastScan',
+    name: 'Blastscan',
     url: 'https://blastscan.io/',
-    apiURL: 'https://api.blastscan.io',
   },
   openseaName: 'blast',
   interfaceName: 'blast',
   label: 'Blast',
   logo: BLAST_LOGO,
   networkLayer: NetworkLayer.L2,
+  blockTimeMs: 2000,
   pendingTransactionsRetryOptions: DEFAULT_RETRY_OPTIONS,
   tokens,
   statusPage: undefined,
+  supportedURVersions: [TradingApi.UniversalRouterVersion._2_0, TradingApi.UniversalRouterVersion._2_1_1],
   supportsV4: true,
   supportsNFTs: true,
-  urlParam: 'blast',
+  urlParam: CHAIN_ID_TO_URL_PARAM[UniverseChainId.Blast],
   nativeCurrency: {
     name: 'Blast ETH',
     symbol: 'ETH',
@@ -65,7 +63,7 @@ export const BLAST_CHAIN_INFO = {
     logo: ETH_LOGO,
   },
   rpcUrls: {
-    [RPCType.Public]: { http: [getQuicknodeEndpointUrl(UniverseChainId.Blast)] },
+    [RPCType.Public]: { http: [getUniRpcEndpointUrl(UniverseChainId.Blast)] },
     [RPCType.Default]: { http: ['https://rpc.blast.io/'] },
     [RPCType.Interface]: { http: [`https://blast-mainnet.infura.io/v3/${config.infuraKey}`] },
   },

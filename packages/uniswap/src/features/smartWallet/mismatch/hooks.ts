@@ -1,7 +1,8 @@
 import { UseMutationResult, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { UniverseChainId } from '@universe/chains'
+import { useStatsigClientStatus } from '@universe/gating'
 import { useEffect, useMemo, useRef } from 'react'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { useMismatchContext } from 'uniswap/src/features/smartWallet/mismatch/MismatchContext'
+import { useMismatchContext } from 'uniswap/src/features/smartWallet/mismatch/MismatchContextValue'
 import {
   getIsMismatchAccountQueryOptions,
   MisMatchQueryOptions,
@@ -102,6 +103,36 @@ export function useCurrentAccountChainMismatchEffect(): void {
 }
 
 /**
+ * [public] useRefetchMismatchOnStatsigReadyEffect -- re-runs the mismatch checks once Statsig values load,
+ * since the mismatch result can depend on dynamic config values that arrive after the on-connect check
+ * NB: only call this once per app instance, eg in the root component
+ */
+export function useRefetchMismatchOnStatsigReadyEffect(): void {
+  const { isStatsigReady } = useStatsigClientStatus()
+  const wasStatsigReady = usePrevious(isStatsigReady)
+  const { onHasAnyMismatch } = useMismatchContext()
+  const queryOptions = useGetMismatchQueryOptions()
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    if (isStatsigReady && wasStatsigReady === false) {
+      // refetchType 'all': the swap path reads the cache without a mounted observer,
+      // so an 'active'-only refetch would leave the stale pre-Statsig result in place
+      queryClient
+        .invalidateQueries({ queryKey: queryOptions.queryKey, refetchType: 'all' })
+        .then(() => {
+          const data = queryClient.getQueryData(queryOptions.queryKey)
+          // the on-connect mutation only notifies once, so re-notify if the refetch surfaced a mismatch
+          if (data && Object.values(data).some(Boolean)) {
+            onHasAnyMismatch()
+          }
+        })
+        .catch(() => {})
+    }
+  }, [isStatsigReady, wasStatsigReady, queryOptions.queryKey, queryClient, onHasAnyMismatch])
+}
+
+/**
  * [public] useAllAccountChainMismatchEffect -- checks all account chain mismatch queries on wallet connect
  * NB: only call this once per app instance, eg in the root component
  */
@@ -171,6 +202,7 @@ const useAllAcountChainMismatchMutation = (ctx: {
         return
       }
       let hasMismatch = false
+      // oxlint-disable-next-line guard-for-in -- biome-parity: oxlint is stricter here
       for (const chainId in data) {
         const result = data[String(chainId)]
         if (result) {

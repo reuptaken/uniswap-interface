@@ -1,0 +1,18 @@
+import { createPrivyBlobStore } from '@universe/embedded-wallet/src/features/passkey/privyBlobStore.shared'
+import { UniswapStaticUrls } from 'uniswap/src/constants/urls'
+
+/**
+ * React Native's `fetch` does not set `Origin` automatically, so Privy 403s with
+ * `missing_origin` on mobile. Set it explicitly to the canonical prod origin, which
+ * is whitelisted across all Privy tenants.
+ */
+export const { storeEncryptedBlob, fetchEncryptedBlob } = createPrivyBlobStore({
+  fileTag: 'privyBlobStore.native.ts',
+  buildHeaders: ({ accessToken, privyAppId, privyClientId }) => ({
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json',
+    'privy-app-id': privyAppId,
+    'privy-client-id': privyClientId,
+    Origin: UniswapStaticUrls.requestOriginUrl,
+  }),
+})

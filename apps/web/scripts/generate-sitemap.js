@@ -1,10 +1,8 @@
-/* eslint-env node */
-
 const fs = require('fs')
 const { parseStringPromise, Builder } = require('xml2js')
 
 // Inline version of normalizeTokenAddressForCache to avoid PNG import issues
-// Copied from uniswap/src/data/cache.ts
+// Copied from uniswap/src/data/graphql/cache.ts
 function normalizeTokenAddressForCache(address) {
   if (address === 'NATIVE' || address === 'native') {
     return 'native'

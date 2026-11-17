@@ -1,8 +1,13 @@
 import { TradeType } from '@uniswap/sdk-core'
+import { TradingApi } from '@universe/api'
+import { UniverseChainId } from '@universe/chains'
 import { AssetType } from 'uniswap/src/entities/assets'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
-import { FinalizedTransactionStatus, TransactionType } from 'uniswap/src/features/transactions/types/transactionDetails'
+import {
+  FinalizedTransactionStatus,
+  TransactionStatus,
+  TransactionType,
+} from 'uniswap/src/features/transactions/types/transactionDetails'
 import { WrapType } from 'uniswap/src/features/transactions/types/wrap'
 import { WalletConnectEvent } from 'uniswap/src/types/walletConnect'
 
@@ -28,6 +33,7 @@ export enum AppNotificationType {
   NotSupportedNetwork = 18,
   PasswordChanged = 19,
   SmartWalletDisabled = 20,
+  EarnSwapUpsell = 21,
 }
 
 export interface AppNotificationBase {
@@ -57,7 +63,7 @@ export interface WalletConnectNotification extends AppNotificationBase {
 export interface TransactionNotificationBase extends AppNotificationBase {
   type: AppNotificationType.Transaction
   txType: TransactionType
-  txStatus: FinalizedTransactionStatus
+  txStatus: FinalizedTransactionStatus | TransactionStatus.AwaitingAction
   txId: string
   chainId: UniverseChainId
   tokenAddress?: string
@@ -67,6 +73,7 @@ export interface ApproveTxNotification extends TransactionNotificationBase {
   txType: TransactionType.Approve
   tokenAddress: string
   spender: string
+  tokenSymbol?: string
 }
 
 export interface BridgeTxNotification extends TransactionNotificationBase {
@@ -124,6 +131,15 @@ export interface SendNFTNotification extends TransferNFTNotificationBase {
 export interface ReceiveNFTNotification extends TransferNFTNotificationBase {
   txType: TransactionType.Receive
   sender: Address
+}
+
+export interface PlanTxNotification extends TransactionNotificationBase {
+  txType: TransactionType.Plan
+  inputCurrencyId: string
+  outputCurrencyId: string
+  inputCurrencyAmountRaw: string
+  outputCurrencyAmountRaw: string
+  earnAction?: TradingApi.EarnAction
 }
 
 export interface UnknownTxNotification extends TransactionNotificationBase {
@@ -235,6 +251,13 @@ export interface PasswordChangedNotification extends AppNotificationBase {
   type: AppNotificationType.PasswordChanged
 }
 
+export interface EarnSwapUpsellNotification extends AppNotificationBase {
+  type: AppNotificationType.EarnSwapUpsell
+  outputCurrencyId: string
+  swapAmountUsd?: number
+  transactionId: string
+}
+
 export type AppNotification =
   | AppNotificationDefault
   | AppErrorNotification
@@ -256,3 +279,5 @@ export type AppNotification =
   | NotSupportedNetworkNotification
   | TransactionPendingNotification
   | PasswordChangedNotification
+  | PlanTxNotification
+  | EarnSwapUpsellNotification

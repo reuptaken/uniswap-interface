@@ -2,7 +2,7 @@ import { BigNumberish } from '@ethersproject/bignumber'
 import { useMemo } from 'react'
 import { useActiveAddresses } from 'uniswap/src/features/accounts/store/hooks'
 import { usePendingTransactions } from 'uniswap/src/features/transactions/hooks/usePendingTransactions'
-import { isClassic, isUniswapX } from 'uniswap/src/features/transactions/swap/utils/routing'
+import { isChained, isClassic, isUniswapX } from 'uniswap/src/features/transactions/swap/utils/routing'
 import { TransactionDetails } from 'uniswap/src/features/transactions/types/transactionDetails'
 
 function useLowestPendingNonce(): BigNumberish | undefined {
@@ -24,7 +24,7 @@ function useLowestPendingNonce(): BigNumberish | undefined {
     }
     pending.map((txn: TransactionDetails) => {
       if (isClassic(txn)) {
-        const currentNonce = txn.options.request.nonce
+        const currentNonce = txn.options.request?.nonce
         min = min ? (currentNonce ? (min < currentNonce ? min : currentNonce) : min) : currentNonce
       }
     })
@@ -35,10 +35,10 @@ function useLowestPendingNonce(): BigNumberish | undefined {
 export function useIsQueuedTransaction(tx: TransactionDetails): boolean {
   const lowestPendingNonce = useLowestPendingNonce()
 
-  if (isUniswapX(tx)) {
+  if (isUniswapX(tx) || isChained(tx)) {
     return false
   }
 
-  const nonce = tx.options.request.nonce
+  const nonce = tx.options.request?.nonce
   return nonce && lowestPendingNonce ? nonce > lowestPendingNonce : false
 }

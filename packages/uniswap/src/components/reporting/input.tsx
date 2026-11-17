@@ -1,28 +1,15 @@
-import { fonts } from 'ui/src/theme'
-import { TextInput, TextInputProps } from 'uniswap/src/components/input/TextInput'
-import { isMobileApp } from 'utilities/src/platform'
+import { PlatformSplitStubError } from 'utilities/src/errors'
 
-export function ReportInput({
-  setReportText,
-  placeholder,
-}: {
-  placeholder: TextInputProps['placeholder']
-  setReportText: TextInputProps['onChangeText']
-}): JSX.Element {
-  return (
-    <TextInput
-      multiline={!isMobileApp}
-      fontFamily="$body"
-      fontSize={fonts.body3.fontSize}
-      fontWeight={fonts.body3.fontWeight}
-      borderRadius="$rounded12"
-      placeholder={placeholder}
-      py="$spacing12"
-      backgroundColor="$surface2"
-      numberOfLines={3}
-      width="100%"
-      returnKeyType="done"
-      onChangeText={setReportText}
-    />
-  )
+export interface ReportInputProps {
+  placeholder?: string
+  setReportText: (text: string) => void
+}
+
+/**
+ * Free-text field for report flows.
+ * - Native: sheet-registered `BottomSheetTextInput` so the bottom sheet tracks the keyboard.
+ * - Web/extension: plain `TextInput`.
+ */
+export function ReportInput(_props: ReportInputProps): JSX.Element {
+  throw new PlatformSplitStubError('ReportInput')
 }

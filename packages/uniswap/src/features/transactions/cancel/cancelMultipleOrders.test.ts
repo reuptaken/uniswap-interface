@@ -1,6 +1,6 @@
+import 'utilities/src/logger/mocks'
 import { TradingApi } from '@universe/api'
 import { ContractTransaction, providers } from 'ethers/lib/ethers'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { InterfaceEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import {
@@ -15,26 +15,24 @@ import {
 import { buildBatchCancellation } from 'uniswap/src/features/transactions/cancel/cancelOrderFactory'
 import { UniswapXOrderDetails } from 'uniswap/src/features/transactions/types/transactionDetails'
 import { uniswapXOrderDetails } from 'uniswap/src/test/fixtures'
+import type { Mock, Mocked } from 'vitest'
 
-jest.mock('uniswap/src/features/telemetry/send')
-jest.mock('uniswap/src/features/transactions/cancel/cancelOrderFactory', () => ({
-  buildBatchCancellation: jest.fn(),
+vi.mock('uniswap/src/features/telemetry/send')
+vi.mock('uniswap/src/features/transactions/cancel/cancelOrderFactory', () => ({
+  buildBatchCancellation: vi.fn(),
 }))
-jest.mock('uniswap/src/features/transactions/swap/orders', () => ({
-  getOrders: jest.fn(),
+vi.mock('uniswap/src/features/transactions/swap/orders', () => ({
+  getOrders: vi.fn(),
 }))
-jest.mock('utilities/src/logger/logger', () => ({
-  logger: {
-    debug: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  },
-}))
+
+import { UniverseChainId } from '@universe/chains'
+import { getOrders } from 'uniswap/src/features/transactions/swap/orders'
+
+const mockGetOrders = getOrders as Mock
 
 describe('useCancelMultipleOrders', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   describe('trackOrderCancellation', () => {
@@ -106,10 +104,8 @@ describe('useCancelMultipleOrders', () => {
   })
 
   describe('fetchEncodedOrderData', () => {
-    const { getOrders } = jest.requireMock('uniswap/src/features/transactions/swap/orders')
-
     beforeEach(() => {
-      jest.clearAllMocks()
+      vi.clearAllMocks()
     })
 
     it('should fetch limit orders with injected fetcher', async () => {
@@ -126,7 +122,7 @@ describe('useCancelMultipleOrders', () => {
         }),
       ]
 
-      const mockLimitOrdersFetcher: LimitOrdersFetcher = jest.fn().mockResolvedValue([
+      const mockLimitOrdersFetcher: LimitOrdersFetcher = vi.fn().mockResolvedValue([
         {
           orderHash: '0xlimit1',
           encodedOrder: '0xencodedLimit1',
@@ -186,7 +182,7 @@ describe('useCancelMultipleOrders', () => {
         }),
       ]
 
-      getOrders.mockRejectedValue(new Error('API error'))
+      mockGetOrders.mockRejectedValue(new Error('API error'))
 
       const result = await fetchLimitOrdersEncodedOrderData(orders)
 
@@ -195,7 +191,7 @@ describe('useCancelMultipleOrders', () => {
   })
 
   describe('getCancelMultipleUniswapXOrdersTransaction', () => {
-    const mockBuildBatchCancellation = buildBatchCancellation as jest.Mock
+    const mockBuildBatchCancellation = buildBatchCancellation as Mock
 
     beforeEach(() => {
       mockBuildBatchCancellation.mockClear()
@@ -268,20 +264,20 @@ describe('useCancelMultipleOrders', () => {
   })
 
   describe('cancelMultipleUniswapXOrders', () => {
-    const mockBuildBatchCancellation = buildBatchCancellation as jest.Mock
+    const mockBuildBatchCancellation = buildBatchCancellation as Mock
     let mockSigner: {
-      sendTransaction: jest.Mock
+      sendTransaction: Mock
     }
-    let mockProvider: jest.Mocked<providers.Web3Provider>
+    let mockProvider: Mocked<providers.Web3Provider>
 
     beforeEach(() => {
       mockSigner = {
-        sendTransaction: jest.fn(),
+        sendTransaction: vi.fn(),
       }
 
       mockProvider = {
-        getSigner: jest.fn().mockReturnValue(mockSigner),
-      } as unknown as jest.Mocked<providers.Web3Provider>
+        getSigner: vi.fn().mockReturnValue(mockSigner),
+      } as unknown as Mocked<providers.Web3Provider>
 
       mockBuildBatchCancellation.mockClear()
     })
@@ -374,17 +370,35 @@ describe('useCancelMultipleOrders', () => {
       expect(result).toBeUndefined()
     })
 
-    it('should handle errors gracefully', async () => {
-      mockBuildBatchCancellation.mockRejectedValue(new Error('Build failed'))
+    // Errors must propagate raw (never resolve undefined) so callers can classify them
+    // (didUserReject) — a swallowed rejection is indistinguishable from a silent no-op
+    it('should propagate build errors to the caller', async () => {
+      const buildError = new Error('Build failed')
+      mockBuildBatchCancellation.mockRejectedValue(buildError)
 
-      const result = await cancelMultipleUniswapXOrders({
-        orders: [{ encodedOrder: '0xencoded', routing: TradingApi.Routing.DUTCH_V2 }],
-        chainId: UniverseChainId.Mainnet,
-        signerAddress: '0xuser',
-        provider: mockProvider,
-      })
+      await expect(
+        cancelMultipleUniswapXOrders({
+          orders: [{ encodedOrder: '0xencoded', routing: TradingApi.Routing.DUTCH_V2 }],
+          chainId: UniverseChainId.Mainnet,
+          signerAddress: '0xuser',
+          provider: mockProvider,
+        }),
+      ).rejects.toBe(buildError)
+    })
 
-      expect(result).toBeUndefined()
+    it('should propagate the raw user-rejection error from sendTransaction', async () => {
+      const rejectionError = { code: 4001, message: 'User rejected the request' }
+      mockBuildBatchCancellation.mockResolvedValue({ to: '0xpermit2', data: '0xcancel' })
+      mockSigner.sendTransaction.mockRejectedValue(rejectionError)
+
+      await expect(
+        cancelMultipleUniswapXOrders({
+          orders: [{ encodedOrder: '0xencoded', routing: TradingApi.Routing.DUTCH_V2 }],
+          chainId: UniverseChainId.Mainnet,
+          signerAddress: '0xuser',
+          provider: mockProvider,
+        }),
+      ).rejects.toBe(rejectionError)
     })
   })
 })

@@ -1,14 +1,14 @@
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { StyleProp, ViewStyle } from 'react-native'
-import { useAnimatedStyle, useSharedValue } from 'react-native-reanimated'
-import { errorShakeAnimation } from 'ui/src/animations/errorShakeAnimation'
+import { useShakeAnimation } from 'ui/src/animations'
 import { PlusMinusButtonType } from 'ui/src/components/buttons/PlusMinusButton'
 import {
   MAX_AUTO_SLIPPAGE_TOLERANCE,
   MAX_CUSTOM_SLIPPAGE_TOLERANCE,
   SLIPPAGE_CRITICAL_TOLERANCE,
 } from 'uniswap/src/constants/transactions'
+import { formatSlippage } from 'uniswap/src/features/transactions/components/settings/settingsConfigurations/slippage/utils'
 import {
   useTransactionSettingsActions,
   useTransactionSettingsAutoSlippageToleranceStore,
@@ -44,14 +44,14 @@ export function useSlippageSettings(params?: SlippageSettingsProps): {
   const { customSlippageTolerance } = useTransactionSettingsStore((s) => ({
     customSlippageTolerance: s.customSlippageTolerance,
   }))
-  const { setCustomSlippageTolerance } = useTransactionSettingsActions()
+  const { setCustomSlippageTolerance, setIsSlippageDirty } = useTransactionSettingsActions()
   const derivedAutoSlippageTolerance = useTransactionSettingsAutoSlippageToleranceStore((s) => s.autoSlippageTolerance)
   const actualAutoSlippageTolerance = isZeroSlippage ? 0 : derivedAutoSlippageTolerance
 
   const [isEditingSlippage, setIsEditingSlippage] = useState<boolean>(false)
   const [autoSlippageEnabled, setAutoSlippageEnabled] = useState<boolean>(!customSlippageTolerance)
   const [inputSlippageTolerance, setInputSlippageTolerance] = useState<string>(
-    customSlippageTolerance?.toFixed(2).toString() ?? '',
+    customSlippageTolerance?.toString() ?? '',
   )
   const [inputWarning, setInputWarning] = useState<string | undefined>()
 
@@ -70,19 +70,14 @@ export function useSlippageSettings(params?: SlippageSettingsProps): {
   // Make input text the warning color if user is setting custom slippage higher than auto slippage value or 0
   const showSlippageWarning = parsedInputSlippageTolerance > autoSlippageTolerance
 
-  const inputShakeX = useSharedValue(0)
-  const inputAnimatedStyle = useAnimatedStyle(
-    () => ({
-      transform: [{ translateX: inputShakeX.value }],
-    }),
-    [inputShakeX],
-  )
+  const { shakeStyle: inputAnimatedStyle, triggerShakeAnimation: triggerInputShake } = useShakeAnimation()
 
   const onPressAutoSlippage = (): void => {
     setAutoSlippageEnabled(true)
     setInputWarning(undefined)
     setInputSlippageTolerance('')
     setCustomSlippageTolerance(undefined)
+    setIsSlippageDirty(false)
   }
 
   const updateInputWarning = useCallback(
@@ -132,7 +127,7 @@ export function useSlippageSettings(params?: SlippageSettingsProps): {
       const overMaxTolerance = parsedValue > MAX_CUSTOM_SLIPPAGE_TOLERANCE
       const decimalParts = value.split('.')
       const moreThanOneDecimalSymbol = decimalParts.length > 2
-      const moreThanTwoDecimals = decimalParts[1] && decimalParts[1].length > 2
+      const moreThanFourDecimals = decimalParts[1] && decimalParts[1].length > 4
       const isZero = parsedValue === 0
 
       updateInputWarning(parsedValue)
@@ -141,8 +136,8 @@ export function useSlippageSettings(params?: SlippageSettingsProps): {
        * isZero is intentionally left out here because the user should be able to type "0"
        * without the input shaking (ex. typing 0.x shouldn't shake after typing char)
        */
-      if (isInvalidNumber || overMaxTolerance || moreThanOneDecimalSymbol || moreThanTwoDecimals) {
-        inputShakeX.value = errorShakeAnimation(inputShakeX)
+      if (isInvalidNumber || overMaxTolerance || moreThanOneDecimalSymbol || moreThanFourDecimals) {
+        triggerInputShake()
         return
       }
 
@@ -150,9 +145,10 @@ export function useSlippageSettings(params?: SlippageSettingsProps): {
 
       if (!saveOnBlur && !isZero) {
         setCustomSlippageTolerance(parsedValue)
+        setIsSlippageDirty(true)
       }
     },
-    [updateInputWarning, saveOnBlur, setCustomSlippageTolerance],
+    [updateInputWarning, saveOnBlur, setCustomSlippageTolerance, setIsSlippageDirty, triggerInputShake],
   )
 
   const onFocusSlippageInput = useCallback((): void => {
@@ -175,11 +171,12 @@ export function useSlippageSettings(params?: SlippageSettingsProps): {
       return
     }
 
-    setInputSlippageTolerance(parsedInputSlippageTolerance.toFixed(2))
+    setInputSlippageTolerance(parsedInputSlippageTolerance.toString())
     if (saveOnBlur) {
       setCustomSlippageTolerance(parsedInputSlippageTolerance)
+      setIsSlippageDirty(true)
     }
-  }, [parsedInputSlippageTolerance, setCustomSlippageTolerance, saveOnBlur])
+  }, [parsedInputSlippageTolerance, setCustomSlippageTolerance, setIsSlippageDirty, saveOnBlur])
 
   const onPressPlusMinusButton = useCallback(
     (type: PlusMinusButtonType): void => {
@@ -196,14 +193,23 @@ export function useSlippageSettings(params?: SlippageSettingsProps): {
 
       const isZero = constrainedNewSlippage === 0
 
-      updateInputWarning(constrainedNewSlippage)
+      const formattedNewSlippage = formatSlippage(constrainedNewSlippage)
 
-      setInputSlippageTolerance(constrainedNewSlippage.toFixed(2).toString())
+      updateInputWarning(formattedNewSlippage)
+
+      setInputSlippageTolerance(formattedNewSlippage.toString())
       if (!isZero) {
-        setCustomSlippageTolerance(constrainedNewSlippage)
+        setCustomSlippageTolerance(formattedNewSlippage)
+        setIsSlippageDirty(true)
       }
     },
-    [autoSlippageEnabled, currentSlippageToleranceNum, updateInputWarning, setCustomSlippageTolerance],
+    [
+      autoSlippageEnabled,
+      currentSlippageToleranceNum,
+      updateInputWarning,
+      setCustomSlippageTolerance,
+      setIsSlippageDirty,
+    ],
   )
 
   return {
@@ -211,9 +217,7 @@ export function useSlippageSettings(params?: SlippageSettingsProps): {
     autoSlippageEnabled,
     showSlippageWarning,
     showSlippageCritical: parsedInputSlippageTolerance >= SLIPPAGE_CRITICAL_TOLERANCE,
-    inputSlippageTolerance: autoSlippageEnabled
-      ? currentSlippageToleranceNum.toFixed(2).toString()
-      : inputSlippageTolerance,
+    inputSlippageTolerance: autoSlippageEnabled ? currentSlippageToleranceNum.toString() : inputSlippageTolerance,
     inputWarning,
     autoSlippageTolerance,
     currentSlippageTolerance: currentSlippageToleranceNum,

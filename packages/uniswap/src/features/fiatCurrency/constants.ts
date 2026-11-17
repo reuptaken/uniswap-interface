@@ -12,11 +12,13 @@ export enum FiatCurrency {
   IndianRupee = 'INR',
   JapaneseYen = 'JPY',
   MexicanPeso = 'MXN',
+  NewZealandDollar = 'NZD',
   NigerianNaira = 'NGN',
   PakistaniRupee = 'PKR',
   RussianRuble = 'RUB',
   SingaporeDollar = 'SGD',
   SouthKoreanWon = 'KRW',
+  SwedishKrona = 'SEK',
   TurkishLira = 'TRY',
   UkrainianHryvnia = 'UAH',
   UnitedStatesDollar = 'USD',
@@ -24,6 +26,7 @@ export enum FiatCurrency {
 }
 
 export const DEFAULT_LOCAL_CURRENCY: FiatCurrency = FiatCurrency.UnitedStatesDollar
+export const SOURCE_CURRENCY: FiatCurrency = FiatCurrency.UnitedStatesDollar
 
 export const ORDERED_CURRENCIES: FiatCurrency[] = [
   FiatCurrency.UnitedStatesDollar,
@@ -41,10 +44,12 @@ export const ORDERED_CURRENCIES: FiatCurrency[] = [
   FiatCurrency.JapaneseYen,
   FiatCurrency.SouthKoreanWon,
   FiatCurrency.MexicanPeso,
+  FiatCurrency.NewZealandDollar,
   FiatCurrency.NigerianNaira,
   FiatCurrency.PakistaniRupee,
   FiatCurrency.RussianRuble,
   FiatCurrency.SingaporeDollar,
+  FiatCurrency.SwedishKrona,
   FiatCurrency.TurkishLira,
   FiatCurrency.UkrainianHryvnia,
   FiatCurrency.VietnameseDong,

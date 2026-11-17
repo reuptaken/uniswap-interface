@@ -1,6 +1,8 @@
-import { PricePoint } from 'appGraphql/data/util'
-import { PriceChartData } from 'components/Charts/PriceChart'
 import { CandlestickData } from 'lightweight-charts'
+import { getFiatCurrencyCode } from 'uniswap/src/features/fiatCurrency/hooks'
+import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
+import { NumberType } from 'utilities/src/format/types'
+import { PricePoint } from '~/data/util'
 
 /**
  * Returns the minimum and maximum values in the given array of PricePoints.
@@ -49,17 +51,43 @@ export function getCandlestickPriceBounds(data: CandlestickData[]): { min: numbe
 }
 
 /**
- * Returns the currentPrice or the most recent price from the data array.
+ * Formats a y-axis price label, undoing the low-price scale factor applied to the chart data.
+ * When `decimals` is set (low-variance / stablecoin fiat ranges) it forces that precision so the
+ * gridlines don't all collapse to the same "$1.00" label.
  */
-export function getEffectivePrice({
-  currentPrice,
-  data,
+export function formatPriceAxisLabel({
+  scaledPrice,
+  scaleFactor,
+  decimals,
+  format,
+  locale,
+  yAxisFormatter,
+  tokenFormatType,
 }: {
-  currentPrice: number | undefined
-  data: PriceChartData[]
-}): number {
-  if (currentPrice) {
-    return currentPrice
+  scaledPrice: number
+  scaleFactor: number
+  decimals: number | undefined
+  format: ReturnType<typeof useLocalizationContext>
+  locale: string
+  yAxisFormatter?: (price: number) => string
+  tokenFormatType?: NumberType
+}): string {
+  const price = scaledPrice / scaleFactor
+
+  if (yAxisFormatter) {
+    return yAxisFormatter(price)
   }
-  return data[data.length - 1]?.value ?? 0
+  if (tokenFormatType) {
+    return format.formatNumberOrString({ value: price, type: tokenFormatType })
+  }
+  if (decimals !== undefined) {
+    const { amount, currency } = format.convertFiatAmount(price)
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: getFiatCurrencyCode(currency),
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(amount)
+  }
+  return format.convertFiatAmountFormatted(price, NumberType.FiatTokenPrice)
 }

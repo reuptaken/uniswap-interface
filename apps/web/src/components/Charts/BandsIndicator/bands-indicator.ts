@@ -1,19 +1,19 @@
-import { ClosestTimeIndexFinder } from 'components/Charts/BandsIndicator/helpers/closest-index'
-import { UpperLowerInRange } from 'components/Charts/BandsIndicator/helpers/min-max-in-range'
-import { cloneReadonly } from 'components/Charts/BandsIndicator/helpers/simple-clone'
-import { PluginBase } from 'components/Charts/BandsIndicator/plugin-base'
 import { CanvasRenderingTarget2D } from 'fancy-canvas'
 import {
   Coordinate,
   DataChangedScope,
   ISeriesPrimitive,
-  ISeriesPrimitivePaneRenderer,
-  ISeriesPrimitivePaneView,
+  IPrimitivePaneRenderer,
+  IPrimitivePaneView,
   SeriesAttachedParameter,
   SeriesDataItemTypeMap,
   SeriesType,
   Time,
 } from 'lightweight-charts'
+import { ClosestTimeIndexFinder } from '~/components/Charts/BandsIndicator/helpers/closest-index'
+import { UpperLowerInRange } from '~/components/Charts/BandsIndicator/helpers/min-max-in-range'
+import { cloneReadonly } from '~/components/Charts/BandsIndicator/helpers/simple-clone'
+import { PluginBase } from '~/components/Charts/BandsIndicator/plugin-base'
 
 interface BandRendererData {
   x: Coordinate | number
@@ -21,7 +21,7 @@ interface BandRendererData {
   lower: Coordinate | number
 }
 
-class BandsIndicatorPaneRenderer implements ISeriesPrimitivePaneRenderer {
+class BandsIndicatorPaneRenderer implements IPrimitivePaneRenderer {
   _viewData: BandViewData
   constructor(data: BandViewData) {
     this._viewData = data
@@ -65,7 +65,7 @@ interface BandViewData {
   options: Required<BandsIndicatorOptions>
 }
 
-class BandsIndicatorPaneView implements ISeriesPrimitivePaneView {
+class BandsIndicatorPaneView implements IPrimitivePaneView {
   _source: BandsIndicator
   _data: BandViewData
 

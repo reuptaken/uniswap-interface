@@ -1,7 +1,6 @@
 import {
   ChallengeResponse,
   ChallengeType,
-  DeleteSessionResponse,
   GetChallengeTypesResponse,
   InitSessionResponse,
   IntrospectSessionResponse,
@@ -55,9 +54,6 @@ describe('Session Lifecycle Integration Tests', () => {
           retry: false,
         })
       },
-      '/uniswap.platformservice.v1.SessionService/DeleteSession': async (): Promise<DeleteSessionResponse> => {
-        return new DeleteSessionResponse({})
-      },
       '/uniswap.platformservice.v1.SessionService/IntrospectSession': async (): Promise<IntrospectSessionResponse> => {
         return new IntrospectSessionResponse({})
       },
@@ -65,7 +61,7 @@ describe('Session Lifecycle Integration Tests', () => {
         return new UpdateSessionResponse({})
       },
       '/uniswap.platformservice.v1.SessionService/GetChallengeTypes': async (): Promise<GetChallengeTypesResponse> => {
-        return new GetChallengeTypesResponse({ challengeTypes: [] })
+        return new GetChallengeTypesResponse({ challengeTypeConfig: [] })
       },
       '/uniswap.platformservice.v1.SessionService/Signout': async (): Promise<SignoutResponse> => {
         return new SignoutResponse({})
@@ -237,8 +233,9 @@ describe('Session Lifecycle Integration Tests', () => {
       async (): Promise<InitSessionResponse> => {
         return new InitSessionResponse({
           sessionId: 'device-test-session',
+          deviceId: 'new-device-123',
           needChallenge: false,
-          extra: { device_id: 'new-device-123' },
+          extra: {},
         })
       }
 

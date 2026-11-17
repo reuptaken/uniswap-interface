@@ -1,202 +1,212 @@
+/* oxlint-disable typescript/prefer-enum-initializers -- preserve the order */
+import { isWebApp } from '@universe/environment'
 import { logger } from 'utilities/src/logger/logger'
-import { isWebApp } from 'utilities/src/platform'
 
-// only disable for this enum
 /**
  * Feature flag names.
  * Add in alphabetical order for each section to decrease probability of merge conflicts.
  */
-/* biome-ignore-start lint/style/useEnumInitializers: preserve the order */
 export enum FeatureFlags {
   // Shared
   AllowUniswapXOnlyRoutesInSwapSettings,
-  ArbitrumDutchV3,
+  Arc,
   BlockaidFotLogging,
-  BridgedAssetsBannerV2,
   ChainedActions,
+  ComplexRouteDiagram,
+  DisableBlast,
   DisableSwap7702,
+  DisableSessionsForPlan,
   EmbeddedWallet,
   EnablePermitMismatchUX,
-  EthAsErc20UniswapX,
-  FiatOffRamp,
   ForceDisableWalletGetCapabilities,
   ForcePermitTransactions,
-  Monad,
+  GasFeeOverrides,
+  HashcashSolverEnabled,
+  Ink,
+  LimitCancelTimeout,
+  Linea,
+  MegaETH,
   NoUniswapInterfaceFees,
+  PermissionedPositions,
+  PoolCategories,
+  PortfolioPoolsBalances,
   PortionFields,
-  ServiceBasedSwapTransactionInfo,
-  SessionsServiceEnabled,
-  SessionsUpgradeAutoEnabled,
+  RandomizeQuotePolling,
+  RequestSwapSteps,
+  Robinhood,
   SmartWallet,
   SmartWalletDisableVideo,
-  Solana,
-  Soneium,
+  Tempo,
+  TempoFeeTokenPreference,
+  TokenCategories,
+  TokenSelectorUxRevamp,
+  TurnstileSolverEnabled,
   TwoSecondSwapQuotePollingInterval,
-  UnichainFlashblocks,
   UniquoteEnabled,
-  UniswapWrapped2025,
+  UniRpcEnabled,
   UniswapX,
-  UniswapXPriorityOrdersBase,
-  UniswapXPriorityOrdersOptimism,
-  UniswapXPriorityOrdersUnichain,
+  UseUniversalRouterVersion211,
+  ViemEnabled,
   ViemProviderEnabled,
-  ViewExternalWalletsOnWeb,
-  DisableAztecToken,
+  XLayer,
 
   // Wallet
-  BlockaidTransactionScanning,
-  BlurredLockScreen,
-  BottomTabs,
-  BridgedAssetsBanner,
-  DisableFiatOnRampKorea,
   Eip5792Methods,
   EnableExportPrivateKeys,
   EnableRestoreSeedPhrase,
   EnableTransactionSpacingForDelegatedAccounts,
-  MonadAnnouncement,
+
+  NitroFetchEnabled,
+  NotificationApiDataSource,
   NotificationOnboardingCard,
-  OnboardingKeyring,
-  PrivateRpc,
+  NotificationService,
+
   Scantastic,
   SelfReportSpamNFTs,
   SmartWalletSettings,
-  TradingApiSwapConfirmation,
-  UwULink,
+  SmartWalletUpgradeNotice,
+  Support7677GasSponsorship,
 
   // Web
   AATestWeb,
+  AuctionSearch,
   BatchedSwaps,
-  ClaimRewardsLiquidityApi,
-  ConversionApiMigration,
-  ConversionTracking,
-  D3LiquidityRangeChart,
-  DisableExtensionDeeplinks,
+  DisableV1EwRotation,
   DummyFlagTest,
-  GoogleConversionTracking,
-  GqlTokenLists,
+  EnablePoolsXyzBanner,
+  EnablePoolsXyzTeaser,
   LimitsFees,
-  LpIncentives,
-  MigrateLiquidityApi,
-  MigrateV2,
-  NotificationApiDataSource,
-  NotificationService,
-  PoolInfoEndpoint,
-  PoolSearch,
+  LiquidityBatchedTransactions,
+  Margin,
+  PdpRevamp,
   PortfolioDefiTab,
-  PortfolioPage,
-  PortfolioTokensAllocationChart,
-  PortoWalletConnector,
-  PriceRangeInputV2,
-  SolanaPromo,
-  Toucan,
+  QuickLaunch,
+  TokenProvenance,
+  ToucanTickDetailsTooltip,
   TraceJsonRpc,
-  TwitterConversionTracking,
   UnificationCopy,
   UnirouteEnabled,
   UniversalSwap,
 }
-/* biome-ignore-end lint/style/useEnumInitializers: preserve the order */
+/* oxlint-enable typescript/prefer-enum-initializers */
 
 // These names must match the gate name on statsig.
 // Add in alphabetical order to decrease probability of merge conflicts.
-export const SHARED_FEATURE_FLAG_NAMES = new Map<FeatureFlags, string>([
-  [FeatureFlags.AllowUniswapXOnlyRoutesInSwapSettings, 'allow_uniswapx_only_routes_in_swap_settings'],
-  [FeatureFlags.ArbitrumDutchV3, 'uniswapx_dutchv3_orders_arbitrum'],
-  [FeatureFlags.BlockaidFotLogging, 'blockaid_fot_logging'],
-  [FeatureFlags.BridgedAssetsBannerV2, 'bridged_assets_banner_v2'],
-  [FeatureFlags.ChainedActions, 'enable_chained_actions'],
-  [FeatureFlags.DisableSwap7702, 'disable-swap-7702'],
-  [FeatureFlags.EmbeddedWallet, 'embedded_wallet'],
-  [FeatureFlags.EnablePermitMismatchUX, 'enable_permit2_mismatch_ux'],
-  [FeatureFlags.DisableAztecToken, 'disable_aztec_token'],
-  [FeatureFlags.EthAsErc20UniswapX, 'eth_as_erc20_uniswapx'],
-  [FeatureFlags.FiatOffRamp, 'fiat_offramp_web'],
-  [FeatureFlags.ForceDisableWalletGetCapabilities, 'force_disable_wallet_get_capabilities'],
-  [FeatureFlags.ForcePermitTransactions, 'force_permit_transactions'],
-  [FeatureFlags.Monad, 'monad'],
-  [FeatureFlags.NoUniswapInterfaceFees, 'no_uniswap_interface_fees'],
-  [FeatureFlags.NotificationApiDataSource, 'notification_api_data_source'],
-  [FeatureFlags.PortionFields, 'portion-fields'],
-  [FeatureFlags.SelfReportSpamNFTs, 'self-report-spam-nfts'],
-  [FeatureFlags.ServiceBasedSwapTransactionInfo, 'new_swap_transaction_info_arch'],
-  [FeatureFlags.SessionsServiceEnabled, 'sessions_service_enabled'],
-  [FeatureFlags.SessionsUpgradeAutoEnabled, 'sessions_upgrade_auto_enabled'],
-  [FeatureFlags.SmartWallet, 'smart-wallet'],
-  [FeatureFlags.SmartWalletDisableVideo, 'smart_wallet_disable_video'],
-  [FeatureFlags.Solana, 'solana'],
-  [FeatureFlags.Soneium, 'soneium'],
-  [FeatureFlags.TradingApiSwapConfirmation, 'trading_api_swap_confirmation'],
-  [FeatureFlags.TwoSecondSwapQuotePollingInterval, 'two_second_swap_quote_polling_interval'],
-  [FeatureFlags.UnichainFlashblocks, 'unichain_flashblocks'],
-  [FeatureFlags.UniquoteEnabled, 'uniquote_enabled'],
-  [FeatureFlags.UnirouteEnabled, 'uniroute_rollout'],
-  [FeatureFlags.UniswapWrapped2025, 'uniswap_wrapped_2025'],
-  [FeatureFlags.UniswapX, 'uniswapx'],
-  [FeatureFlags.UniswapXPriorityOrdersBase, 'uniswapx_priority_orders_base'],
-  [FeatureFlags.UniswapXPriorityOrdersOptimism, 'uniswapx_priority_orders_optimism'],
-  [FeatureFlags.UniswapXPriorityOrdersUnichain, 'uniswapx_priority_orders_unichain'],
-  [FeatureFlags.ViemProviderEnabled, 'viem_provider_enabled'],
-  [FeatureFlags.ViewExternalWalletsOnWeb, 'view_external_wallets_on_web'],
-])
+const SHARED_FEATURE_FLAG_NAMES_RECORD = {
+  [FeatureFlags.AllowUniswapXOnlyRoutesInSwapSettings]: 'allow_uniswapx_only_routes_in_swap_settings',
+  [FeatureFlags.Arc]: 'arc',
+  [FeatureFlags.BlockaidFotLogging]: 'blockaid_fot_logging',
+  [FeatureFlags.ChainedActions]: 'enable_chained_actions',
+  [FeatureFlags.ComplexRouteDiagram]: 'complex_route_diagram',
+  [FeatureFlags.DisableBlast]: 'disable_blast',
+  [FeatureFlags.DisableSessionsForPlan]: 'disable_sessions_for_plan',
+  [FeatureFlags.DisableSwap7702]: 'disable-swap-7702',
+  [FeatureFlags.EmbeddedWallet]: 'embedded_wallet',
+  [FeatureFlags.EnablePermitMismatchUX]: 'enable_permit2_mismatch_ux',
+  [FeatureFlags.ForceDisableWalletGetCapabilities]: 'force_disable_wallet_get_capabilities',
+  [FeatureFlags.ForcePermitTransactions]: 'force_permit_transactions',
+  [FeatureFlags.GasFeeOverrides]: 'gas_fee_overrides',
+  [FeatureFlags.HashcashSolverEnabled]: 'sessions_hashcash_solver_enabled',
+  [FeatureFlags.Ink]: 'ink',
+  [FeatureFlags.LimitCancelTimeout]: 'limit_cancel_timeout',
+  [FeatureFlags.Linea]: 'linea',
+  [FeatureFlags.MegaETH]: 'megaeth',
+  [FeatureFlags.NoUniswapInterfaceFees]: 'no_uniswap_interface_fees',
+  [FeatureFlags.NotificationApiDataSource]: 'notification_api_data_source',
+  [FeatureFlags.PermissionedPositions]: 'permissioned_positions',
+  [FeatureFlags.PoolCategories]: 'pool_categories',
+  [FeatureFlags.PortfolioPoolsBalances]: 'portfolio_pools_balances',
+  [FeatureFlags.PortionFields]: 'portion-fields',
+  [FeatureFlags.RandomizeQuotePolling]: 'randomize_quote_polling',
+  [FeatureFlags.RequestSwapSteps]: 'request_swap_steps',
+  [FeatureFlags.Robinhood]: 'robinhood',
+  [FeatureFlags.SelfReportSpamNFTs]: 'self-report-spam-nfts',
+  [FeatureFlags.SmartWallet]: 'smart-wallet',
+  [FeatureFlags.SmartWalletDisableVideo]: 'smart_wallet_disable_video',
+  [FeatureFlags.SmartWalletUpgradeNotice]: 'smart_wallet_upgrade_notice',
+  [FeatureFlags.Support7677GasSponsorship]: 'support_7677_gas_sponsorship',
+  [FeatureFlags.Tempo]: 'tempo',
+  [FeatureFlags.TempoFeeTokenPreference]: 'tempo_fee_token_preference',
+  [FeatureFlags.TokenCategories]: 'token_categories',
+  [FeatureFlags.TokenSelectorUxRevamp]: 'token_selector_ux_revamp',
+  [FeatureFlags.TurnstileSolverEnabled]: 'sessions_turnstile_solver_enabled',
+  [FeatureFlags.TwoSecondSwapQuotePollingInterval]: 'two_second_swap_quote_polling_interval',
+  [FeatureFlags.UniRpcEnabled]: 'unirpc_enabled',
+  [FeatureFlags.UniquoteEnabled]: 'uniquote_enabled',
+  [FeatureFlags.UnirouteEnabled]: 'uniroute_rollout',
+  [FeatureFlags.UniswapX]: 'uniswapx',
+  [FeatureFlags.UseUniversalRouterVersion211]: 'use_ur_version_2.1.1',
+  [FeatureFlags.ViemEnabled]: 'viem_enabled',
+  [FeatureFlags.ViemProviderEnabled]: 'viem_provider_enabled',
+  [FeatureFlags.XLayer]: 'x_layer',
+} as const satisfies Partial<Record<FeatureFlags, string>>
 
 // These names must match the gate name on statsig.
 // Add in alphabetical order to decrease probability of merge conflicts.
-export const WEB_FEATURE_FLAG_NAMES = new Map<FeatureFlags, string>([
-  ...SHARED_FEATURE_FLAG_NAMES,
-  [FeatureFlags.AATestWeb, 'aatest_web'],
-  [FeatureFlags.BatchedSwaps, 'batched_swaps'],
-  [FeatureFlags.ClaimRewardsLiquidityApi, 'claim_rewards_liquidity_api'],
-  [FeatureFlags.ConversionApiMigration, 'conversion_api_migration'],
-  [FeatureFlags.ConversionTracking, 'conversion-tracking'],
-  [FeatureFlags.D3LiquidityRangeChart, 'd3_liquidity_range_chart'],
-  [FeatureFlags.DisableExtensionDeeplinks, 'disable_extension_deeplinks'],
-  [FeatureFlags.DummyFlagTest, 'dummy_flag_test'],
-  [FeatureFlags.GoogleConversionTracking, 'google_conversion_tracking'],
-  [FeatureFlags.GqlTokenLists, 'gql_token_lists'],
-  [FeatureFlags.LimitsFees, 'limits_fees'],
-  [FeatureFlags.LpIncentives, 'lp_incentives'],
-  [FeatureFlags.MigrateLiquidityApi, 'migrate_liquidity_api'],
-  [FeatureFlags.MigrateV2, 'migrate_v2'],
-  [FeatureFlags.NotificationApiDataSource, 'notification_api_data_source'],
-  [FeatureFlags.NotificationService, 'notification_system'],
-  [FeatureFlags.PoolInfoEndpoint, 'pool_info_endpoint'],
-  [FeatureFlags.PoolSearch, 'pool_search'],
-  [FeatureFlags.PortfolioDefiTab, 'portfolio_defi_tab'],
-  [FeatureFlags.PortfolioPage, 'portfolio_page'],
-  [FeatureFlags.PortfolioTokensAllocationChart, 'portfolio_tokens_allocation_chart'],
-  [FeatureFlags.PortoWalletConnector, 'porto_wallet_connector'],
-  [FeatureFlags.PriceRangeInputV2, 'price_range_input_v2'],
-  [FeatureFlags.SolanaPromo, 'solana_promo'],
-  [FeatureFlags.Toucan, 'toucan'],
-  [FeatureFlags.TraceJsonRpc, 'traceJsonRpc'],
-  [FeatureFlags.TwitterConversionTracking, 'twitter_conversion_tracking'],
-  [FeatureFlags.UnichainFlashblocks, 'unichain_flashblocks'],
-  [FeatureFlags.UnificationCopy, 'unification_copy'],
-  [FeatureFlags.UniversalSwap, 'universal_swap'],
-])
+const WEB_ONLY_FEATURE_FLAG_NAMES_RECORD = {
+  [FeatureFlags.AATestWeb]: 'aatest_web',
+  [FeatureFlags.AuctionSearch]: 'auction_search',
+  [FeatureFlags.BatchedSwaps]: 'batched_swaps',
+  [FeatureFlags.DisableV1EwRotation]: 'disable_v1_ew_rotation',
+  [FeatureFlags.DummyFlagTest]: 'dummy_flag_test',
+  [FeatureFlags.EnablePoolsXyzBanner]: 'enable_pools_xyz_banner',
+  [FeatureFlags.EnablePoolsXyzTeaser]: 'enable_pools_xyz_teaser',
+  [FeatureFlags.LimitsFees]: 'limits_fees',
+  [FeatureFlags.LiquidityBatchedTransactions]: 'liquidity_batched_transactions',
+  [FeatureFlags.Margin]: 'margin',
+  [FeatureFlags.PdpRevamp]: 'pdp_revamp',
+  [FeatureFlags.PortfolioDefiTab]: 'portfolio_defi_tab',
+  [FeatureFlags.QuickLaunch]: 'quick_launch',
+  [FeatureFlags.TokenProvenance]: 'token_provenance',
+  [FeatureFlags.ToucanTickDetailsTooltip]: 'toucan_tick_details_tooltip',
+  [FeatureFlags.TraceJsonRpc]: 'traceJsonRpc',
+  [FeatureFlags.UnificationCopy]: 'unification_copy',
+  [FeatureFlags.UniversalSwap]: 'universal_swap',
+} as const satisfies Partial<Record<FeatureFlags, string>>
 
 // These names must match the gate name on statsig.
 // Add in alphabetical order to decrease probability of merge conflicts.
-export const WALLET_FEATURE_FLAG_NAMES = new Map<FeatureFlags, string>([
-  ...SHARED_FEATURE_FLAG_NAMES,
-  [FeatureFlags.BlockaidTransactionScanning, 'blockaid_transaction_scanning'],
-  [FeatureFlags.BlurredLockScreen, 'blurred_lock_screen'],
-  [FeatureFlags.BottomTabs, 'bottom_tabs'],
-  [FeatureFlags.BridgedAssetsBanner, 'bridged_assets_banner'],
-  [FeatureFlags.DisableFiatOnRampKorea, 'disable-fiat-onramp-korea'],
-  [FeatureFlags.Eip5792Methods, 'eip_5792_methods'],
-  [FeatureFlags.EnableExportPrivateKeys, 'enable-export-private-keys'],
-  [FeatureFlags.EnableRestoreSeedPhrase, 'enable-restore-seed-phrase'],
-  [FeatureFlags.EnableTransactionSpacingForDelegatedAccounts, 'enable_transaction_spacing_for_delegated_accounts'],
-  [FeatureFlags.MonadAnnouncement, 'monad_announcement'],
-  [FeatureFlags.NotificationOnboardingCard, 'notification_onboarding_card'],
-  [FeatureFlags.NotificationService, 'notification_system'],
-  [FeatureFlags.OnboardingKeyring, 'onboarding-keyring'],
-  [FeatureFlags.PrivateRpc, 'mev-blocker'],
-  [FeatureFlags.Scantastic, 'scantastic'],
-  [FeatureFlags.SmartWalletSettings, 'smart_wallet_settings'],
-  [FeatureFlags.UwULink, 'uwu-link'],
-])
+const WALLET_ONLY_FEATURE_FLAG_NAMES_RECORD = {
+  [FeatureFlags.Eip5792Methods]: 'eip_5792_methods',
+  [FeatureFlags.EnableExportPrivateKeys]: 'enable-export-private-keys',
+  [FeatureFlags.EnableRestoreSeedPhrase]: 'enable-restore-seed-phrase',
+  [FeatureFlags.EnableTransactionSpacingForDelegatedAccounts]: 'enable_transaction_spacing_for_delegated_accounts',
+  [FeatureFlags.NitroFetchEnabled]: 'nitro_fetch_enabled',
+  [FeatureFlags.NotificationOnboardingCard]: 'notification_onboarding_card',
+  [FeatureFlags.NotificationService]: 'notification_system',
+  [FeatureFlags.Scantastic]: 'scantastic',
+  [FeatureFlags.SmartWalletSettings]: 'smart_wallet_settings',
+} as const satisfies Partial<Record<FeatureFlags, string>>
+
+const WEB_FEATURE_FLAG_NAMES_RECORD = {
+  ...SHARED_FEATURE_FLAG_NAMES_RECORD,
+  ...WEB_ONLY_FEATURE_FLAG_NAMES_RECORD,
+} as const
+
+const WALLET_FEATURE_FLAG_NAMES_RECORD = {
+  ...SHARED_FEATURE_FLAG_NAMES_RECORD,
+  ...WALLET_ONLY_FEATURE_FLAG_NAMES_RECORD,
+} as const
+
+/**
+ * Compile-time exhaustiveness check: every `FeatureFlags` member must have a statsig gate
+ * name on at least one platform. Adding an enum member without adding its gate name to one
+ * of the records above is a typecheck error on this declaration.
+ */
+export const ALL_FEATURE_FLAG_NAMES_RECORD = {
+  ...WALLET_FEATURE_FLAG_NAMES_RECORD,
+  ...WEB_FEATURE_FLAG_NAMES_RECORD,
+} as const satisfies Record<FeatureFlags, string>
+
+function toFeatureFlagNameMap(record: Readonly<Record<number, string>>): Map<FeatureFlags, string> {
+  return new Map(Object.entries(record).map(([flag, name]) => [Number(flag) as FeatureFlags, name]))
+}
+
+export const SHARED_FEATURE_FLAG_NAMES = toFeatureFlagNameMap(SHARED_FEATURE_FLAG_NAMES_RECORD)
+
+export const WEB_FEATURE_FLAG_NAMES = toFeatureFlagNameMap(WEB_FEATURE_FLAG_NAMES_RECORD)
+
+export const WALLET_FEATURE_FLAG_NAMES = toFeatureFlagNameMap(WALLET_FEATURE_FLAG_NAMES_RECORD)
 
 export enum FeatureFlagClient {
   Web = 0,
@@ -217,6 +227,9 @@ export function getFeatureFlagName(flag: FeatureFlags, client?: FeatureFlagClien
         : FEATURE_FLAG_NAMES[FeatureFlagClient.Wallet]
   const name = names.get(flag)
   if (!name) {
+    // Every flag has a name on at least one platform (enforced at compile time via
+    // ALL_FEATURE_FLAG_NAMES_RECORD), but a flag can still be looked up on a platform
+    // it is not mapped for (e.g. a wallet-only flag on web).
     const err = new Error(`Feature ${FeatureFlags[flag]} does not have a name mapped for this application`)
 
     logger.error(err, {

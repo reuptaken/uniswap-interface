@@ -1,6 +1,6 @@
+import { ElementAfterText } from '@universe/mycelium'
 import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ElementAfterText } from 'ui/src'
 import { Unitag } from 'ui/src/components/icons/Unitag'
 import { TransactionSummaryLayout } from 'uniswap/src/components/activity/summaries/TransactionSummaryLayout'
 import { SummaryItemProps } from 'uniswap/src/components/activity/types'
@@ -21,7 +21,7 @@ import { getFormattedCurrencyAmount, getSymbolDisplayText } from 'uniswap/src/ut
 import { buildCurrencyId } from 'uniswap/src/utils/currencyId'
 import { shortenAddress } from 'utilities/src/addresses'
 
-function _TransferTokenSummaryItem({
+function TransferTokenSummaryItemInner({
   transactionType,
   otherAddress,
   transaction,
@@ -149,4 +149,4 @@ function _TransferTokenSummaryItem({
   )
 }
 
-export const TransferTokenSummaryItem = memo(_TransferTokenSummaryItem)
+export const TransferTokenSummaryItem = memo(TransferTokenSummaryItemInner)

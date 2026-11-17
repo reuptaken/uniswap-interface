@@ -1,4 +1,4 @@
-/* eslint-disable max-lines */
+/* oxlint-disable max-lines */
 // Number formatting in our app should follow the guide in this doc:
 // https://www.notion.so/uniswaplabs/Number-standards-fbb9f533f10e4e22820722c2f66d23c0
 
@@ -28,6 +28,20 @@ function getNumberFormat({
   format = new Intl.NumberFormat(locale, props)
   numberFormatCache[key] = format
   return format
+}
+
+/**
+ * Clears the cached Intl.NumberFormat instances.
+ *
+ * Needed on mobile where Intl locale data is loaded lazily (see the mobile
+ * `intl-delayed` polyfill): a formatter created before its locale data was
+ * available is cached using the English fallback, so once new locale data is
+ * loaded the cache must be invalidated to pick up the correct separators.
+ */
+export function clearNumberFormatCache(): void {
+  for (const key of Object.keys(numberFormatCache)) {
+    delete numberFormatCache[key]
+  }
 }
 
 export const StandardCurrency: FormatCreator = {
@@ -162,6 +176,22 @@ export const TwoDecimalsCurrency: FormatCreator = {
   },
 }
 
+export const SixDecimalsCurrency: FormatCreator = {
+  createFormat: (locale: string, currencyCode: string): Intl.NumberFormat => {
+    return getNumberFormat({
+      name: 'SixDecimalsCurrency',
+      locale,
+      props: {
+        notation: 'standard',
+        maximumFractionDigits: 6,
+        minimumFractionDigits: 6,
+        currency: currencyCode,
+        style: 'currency',
+      },
+    })
+  },
+}
+
 export const ShorthandTwoDecimalsCurrency: FormatCreator = {
   createFormat: (locale: string, currencyCode: string): Intl.NumberFormat => {
     return getNumberFormat({
@@ -187,6 +217,23 @@ export const ShorthandOneDecimalsCurrency: FormatCreator = {
         notation: 'compact',
         minimumFractionDigits: 1,
         maximumFractionDigits: 1,
+        currency: currencyCode,
+        style: 'currency',
+      },
+    })
+  },
+}
+
+export const ShorthandNoDecimalsCurrency: FormatCreator = {
+  createFormat: (locale: string, currencyCode: string): Intl.NumberFormat => {
+    return getNumberFormat({
+      name: 'ShorthandNoDecimalsCurrency',
+      locale,
+      props: {
+        notation: 'compact',
+        maximumFractionDigits: 0,
+        // The Android Intl polyfill throws a RangeError without this for 2-decimal currencies.
+        minimumFractionDigits: 0,
         currency: currencyCode,
         style: 'currency',
       },
@@ -392,6 +439,32 @@ const TwoDecimalsPercentages: FormatCreator = {
   },
 }
 
+function isWholePercentValue(value: number, twoDecimals: Intl.NumberFormat): boolean {
+  const fraction = twoDecimals.formatToParts(value).find((part) => part.type === 'fraction')
+  return fraction === undefined || /^0+$/.test(fraction.value)
+}
+
+/** Shows whole percentages without decimals but keeps two decimals otherwise. */
+const WholeOrTwoDecimalsPercentages: FormatCreator = {
+  createFormat: (locale, _currencyCode): Intl.NumberFormat => {
+    const noDecimals = getNumberFormat({
+      name: 'NoDecimalPercentages',
+      locale,
+      props: { notation: 'standard', style: 'percent', minimumFractionDigits: 0, maximumFractionDigits: 0 },
+    })
+    const twoDecimals = getNumberFormat({
+      name: 'TwoDecimalsPercentages',
+      locale,
+      props: { notation: 'standard', style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2 },
+    })
+    return {
+      format(value: number): string {
+        return isWholePercentValue(value, twoDecimals) ? noDecimals.format(value) : twoDecimals.format(value)
+      },
+    } as Intl.NumberFormat
+  },
+}
+
 export interface FormatCreator {
   /**
    * Creates a Intl.NumberFormat based off of locale and currency
@@ -406,6 +479,8 @@ export type Format = string | FormatCreator
 // each rule must contain either an `upperBound` or an `exact` value.
 // upperBound => number will use that formatter as long as it is < upperBound
 // exact => number will use that formatter if it is === exact
+// A rule that renders a bound ("<$0.01", ">$999T") puts the `<`/`>` marker first: formatNumber flips it for
+// negative inputs (localeBased.test.ts pins this for every rule).
 export type FormatterRule =
   | {
       upperBound?: undefined
@@ -435,6 +510,7 @@ export type Formatter = {
 }
 
 const lessThanPostFormatModifier: FormatterRule['postFormatModifier'] = (formatted: string) => `<${formatted}`
+const greaterThanPostFormatModifier: FormatterRule['postFormatModifier'] = (formatted: string) => `>${formatted}`
 
 // these formatter objects dictate which formatter rule to use based on the interval that
 // the number falls into. for example, based on the rule set below, if your number
@@ -482,6 +558,11 @@ export const swapTradeAmountFormatter: Formatter = {
   defaultFormat: SixSigFigsTwoDecimalsNoCommas,
 }
 
+// Above this magnitude, `swapPriceFormatter` abbreviates (e.g. "1.24B") instead of printing the
+// full digit string. Matches `tokenNonTxFormatter`'s own tier boundary. Exported so callers can
+// tell whether a given rate was abbreviated (see `getRateToDisplay`'s tooltip fallback).
+export const SWAP_PRICE_COMPACT_THRESHOLD = 1e6
+
 export const swapPriceFormatter: Formatter = {
   rules: [
     { exact: 0, formatter: '0' },
@@ -491,13 +572,34 @@ export const swapPriceFormatter: Formatter = {
       formatter: FiveDecimals,
       postFormatModifier: lessThanPostFormatModifier,
     },
-    ...swapTradeAmountFormatter.rules,
+    { upperBound: 0.1, formatter: SixSigFigsNoCommas },
+    { upperBound: 1, formatter: FiveDecimalsMaxTwoDecimalsMinNoCommas },
+    { upperBound: SWAP_PRICE_COMPACT_THRESHOLD, formatter: SixSigFigsTwoDecimalsNoCommas },
+    // Above the threshold the full digit string (e.g. a low-value memecoin's ETH-denominated rate)
+    // gets long enough to overlap adjacent UI, so switch to the same compact-notation convention
+    // used for large token quantities elsewhere (see `tokenNonTxFormatter`'s use of
+    // `ShorthandTwoDecimals`).
+    { upperBound: Infinity, formatter: ShorthandTwoDecimals },
   ],
-  defaultFormat: SixSigFigsTwoDecimalsNoCommas,
+  defaultFormat: ShorthandTwoDecimals,
+}
+
+// Full-precision counterpart to `swapPriceFormatter`, used only to render the exact value in a
+// hover tooltip once the main display abbreviates. Only ever invoked above
+// `SWAP_PRICE_COMPACT_THRESHOLD` (see `getRateToDisplay`), so it needs no lower tiers -- just the
+// same non-compact, comma-grouped formatting `swapPriceFormatter` used before it gained the
+// `ShorthandTwoDecimals` tier.
+export const swapPriceFullFormatter: Formatter = {
+  rules: [
+    { exact: 0, formatter: '0' },
+    { upperBound: Infinity, formatter: SixSigFigsTwoDecimals },
+  ],
+  defaultFormat: SixSigFigsTwoDecimals,
 }
 
 export const fiatTokenDetailsFormatter: Formatter = {
   rules: [
+    { exact: 0, formatter: NoDecimalsCurrency },
     {
       upperBound: 0.00000001,
       overrideValue: 0.00000001,
@@ -507,13 +609,15 @@ export const fiatTokenDetailsFormatter: Formatter = {
     { upperBound: 0.1, formatter: ThreeSigFigsCurrency },
     { upperBound: 1.05, formatter: ThreeDecimalsCurrency },
     { upperBound: 1e6, formatter: TwoDecimalsCurrency },
-    { upperBound: Infinity, formatter: ShorthandTwoDecimalsCurrency },
+    { upperBound: 1e15, formatter: ShorthandTwoDecimalsCurrency },
+    { upperBound: Infinity, formatter: '>$999T' },
   ],
   defaultFormat: TwoDecimalsCurrency,
 }
 
 export const fiatTokenPricesFormatter: Formatter = {
   rules: [
+    { exact: 0, formatter: NoDecimalsCurrency },
     {
       upperBound: 0.00000001,
       overrideValue: 0.00000001,
@@ -522,7 +626,8 @@ export const fiatTokenPricesFormatter: Formatter = {
     },
     { upperBound: 1, formatter: ThreeSigFigsCurrency },
     { upperBound: 1e6, formatter: TwoDecimalsCurrency },
-    { upperBound: Infinity, formatter: ShorthandTwoDecimalsCurrency },
+    { upperBound: 1e15, formatter: ShorthandTwoDecimalsCurrency },
+    { upperBound: Infinity, formatter: '>$999T' },
   ],
   defaultFormat: TwoDecimalsCurrency,
 }
@@ -538,7 +643,19 @@ export const fiatTokenStatsFormatter: Formatter = {
       postFormatModifier: lessThanPostFormatModifier,
     },
     { upperBound: 1000, formatter: TwoDecimalsCurrency },
-    { upperBound: Infinity, formatter: ShorthandOneDecimalsCurrency },
+    // Cap at ~1e18 in the displayed currency: KRW/VND stats legitimately reach thousands of trillions,
+    // so only garbage magnitudes should trip it. 999,999.95T would round up to "1,000,000.0T".
+    { upperBound: 999_999.95e12, formatter: ShorthandOneDecimalsCurrency },
+    // Built through Intl rather than a '>$999,999T' literal so the cap carries the converted
+    // currency's symbol and the locale's compact suffix. Known gap: the Android Intl polyfill
+    // (@formatjs/intl-numberformat 7.4.1) mis-formats compact values above 1e14, so on Android this
+    // reads '>$10,000'. The one-decimal rule above is equally off there past 1e14.
+    {
+      upperBound: Infinity,
+      overrideValue: 999_999e12,
+      formatter: ShorthandNoDecimalsCurrency,
+      postFormatModifier: greaterThanPostFormatModifier,
+    },
   ],
   defaultFormat: ShorthandOneDecimalsCurrency,
 }
@@ -569,7 +686,8 @@ export const fiatGasPriceFormatter: Formatter = {
       postFormatModifier: lessThanPostFormatModifier,
     },
     { upperBound: 1e6, formatter: TwoDecimalsCurrency },
-    { upperBound: Infinity, formatter: ShorthandTwoDecimalsCurrency },
+    { upperBound: 1e15, formatter: ShorthandTwoDecimalsCurrency },
+    { upperBound: Infinity, formatter: '>$999T' },
   ],
   defaultFormat: TwoDecimalsCurrency,
 }
@@ -603,42 +721,19 @@ export const portfolioBalanceFormatter: Formatter = {
   defaultFormat: TwoDecimalsCurrency,
 }
 
-export const ntfTokenFloorPriceFormatter: Formatter = {
-  rules: [
-    { exact: 0, formatter: '0' },
-    {
-      upperBound: 0.001,
-      overrideValue: 0.001,
-      formatter: ThreeDecimals,
-      postFormatModifier: lessThanPostFormatModifier,
-    },
-    { upperBound: 1, formatter: ThreeDecimals },
-    { upperBound: 1000, formatter: TwoDecimals },
-    { upperBound: 1e15, formatter: ShorthandTwoDecimals },
-    { upperBound: Infinity, formatter: '>999T' },
-  ],
-  defaultFormat: TwoDecimals,
+const percentagesFormatter: Formatter = {
+  rules: [{ upperBound: Infinity, formatter: WholeOrTwoDecimalsPercentages }],
+  defaultFormat: WholeOrTwoDecimalsPercentages,
 }
 
-export const ntfCollectionStatsFormatter: Formatter = {
-  rules: [
-    { upperBound: 1000, formatter: NoDecimals },
-    { upperBound: Infinity, formatter: ShorthandOneDecimal },
-  ],
-  defaultFormat: ShorthandOneDecimal,
+const percentagesTwoDecimalsFormatter: Formatter = {
+  rules: [{ upperBound: Infinity, formatter: TwoDecimalsPercentages }],
+  defaultFormat: TwoDecimalsPercentages,
 }
 
 const percentagesOneDecimalFormatter: Formatter = {
   rules: [{ upperBound: Infinity, formatter: OneDecimalPercentages }],
   defaultFormat: OneDecimalPercentages,
-}
-
-const percentagesFormatter: Formatter = {
-  rules: [
-    { upperBound: 0.01, formatter: TwoDecimalsPercentages },
-    { upperBound: Infinity, formatter: NoTrailingTwoDecimalsPercentages },
-  ],
-  defaultFormat: NoTrailingTwoDecimalsPercentages,
 }
 
 const percentagesThreeDecimalsFormatter: Formatter = {
@@ -672,11 +767,18 @@ const fiatRewardsFormatter: Formatter = {
   defaultFormat: SevenSigFigsSciNotationCurrency,
 }
 
+// Fixed six decimals so a live-ticking rewards value keeps a stable shape between ticks.
+const fiatRewardsPreciseFormatter: Formatter = {
+  rules: [{ upperBound: Infinity, formatter: SixDecimalsCurrency }],
+  defaultFormat: SixDecimalsCurrency,
+}
+
 export const TYPE_TO_FORMATTER_RULES = {
   [NumberType.TokenNonTx]: tokenNonTxFormatter,
   [NumberType.TokenTx]: tokenTxFormatter,
   [NumberType.TokenQuantityStats]: tokenQuantityStatsFormatter,
   [NumberType.SwapPrice]: swapPriceFormatter,
+  [NumberType.SwapPriceFull]: swapPriceFullFormatter,
   [NumberType.SwapTradeAmount]: swapTradeAmountFormatter,
   [NumberType.FiatStandard]: fiatStandardFormatter,
   [NumberType.FiatTokenQuantity]: fiatTokenQuantityFormatter,
@@ -684,11 +786,11 @@ export const TYPE_TO_FORMATTER_RULES = {
   [NumberType.FiatTokenPrice]: fiatTokenPricesFormatter,
   [NumberType.FiatTokenStats]: fiatTokenStatsFormatter,
   [NumberType.FiatRewards]: fiatRewardsFormatter,
+  [NumberType.FiatRewardsPrecise]: fiatRewardsPreciseFormatter,
   [NumberType.FiatGasPrice]: fiatGasPriceFormatter,
   [NumberType.PortfolioBalance]: portfolioBalanceFormatter,
-  [NumberType.NFTTokenFloorPrice]: ntfTokenFloorPriceFormatter,
-  [NumberType.NFTCollectionStats]: ntfCollectionStatsFormatter,
   [NumberType.Percentage]: percentagesFormatter,
+  [NumberType.PercentageTwoDecimals]: percentagesTwoDecimalsFormatter,
   [NumberType.PercentageOneDecimal]: percentagesOneDecimalFormatter,
   [NumberType.PercentageThreeDecimals]: percentagesThreeDecimalsFormatter,
   [NumberType.PercentageFourDecimals]: percentagesFourDecimalsFormatter, // update to use 4 decimals

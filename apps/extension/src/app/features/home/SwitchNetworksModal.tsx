@@ -1,14 +1,15 @@
+import { UniverseChainId } from '@universe/chains'
+import { Flex, Text, TouchableArea } from '@universe/mycelium'
 import { useTranslation } from 'react-i18next'
 import { saveDappChain } from 'src/app/features/dapp/actions'
 import { useDappContext } from 'src/app/features/dapp/DappContext'
 import { useDappLastChainId } from 'src/app/features/dapp/hooks'
-import { Flex, Popover, Text, TouchableArea } from 'ui/src'
+import { Popover } from 'ui/src'
 import { CheckCircleFilled, RotatableChevron } from 'ui/src/components/icons'
 import { usePreventOverflowBelowFold } from 'ui/src/hooks/usePreventOverflowBelowFold'
 import { iconSizes } from 'ui/src/theme'
 import { NetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { getChainLabel } from 'uniswap/src/features/chains/utils'
 import { ExtensionEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
@@ -53,13 +54,7 @@ export function SwitchNetworksModal({ onPress }: SwitchNetworksModalProps): JSX.
       <Flex px="$spacing8">
         <Flex row alignItems="center" py="$spacing4" width="100%">
           <TouchableArea onPress={handlePress}>
-            <RotatableChevron
-              color="$neutral3"
-              direction="left"
-              flexShrink={1}
-              height={iconSizes.icon16}
-              width={iconSizes.icon16}
-            />
+            <RotatableChevron color="$neutral3" direction="left" flexShrink={1} size="$icon.16" />
           </TouchableArea>
           <Flex centered fill py="$spacing8">
             <Text color="$neutral1" variant="body3">

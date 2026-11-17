@@ -1,7 +1,8 @@
 import { UseQueryResult, useQuery } from '@tanstack/react-query'
+import { useMemo } from 'react'
 import { useTradeService } from 'uniswap/src/features/services'
 import { createIndicativeTradeServiceQueryOptions } from 'uniswap/src/features/transactions/swap/hooks/useTrade/useIndicativeTradeServiceQueryOptions'
-import { IndicativeTrade, type UseTradeArgs } from 'uniswap/src/features/transactions/swap/types/trade'
+import type { IndicativeTrade, UseTradeArgs } from 'uniswap/src/features/transactions/swap/types/trade'
 import { useEvent } from 'utilities/src/react/hooks'
 
 export function useIndicativeTradeQuery(params: UseTradeArgs): {
@@ -13,8 +14,6 @@ export function useIndicativeTradeQuery(params: UseTradeArgs): {
 
   const { data, isLoading }: UseQueryResult<IndicativeTrade | null> = useQuery(getIndicativeTradeQueryOptions(params))
 
-  return {
-    trade: data ?? undefined,
-    isLoading,
-  }
+  // Stable identity: `useTrade` memoizes on this result, and swap form state syncs derived info via an effect
+  return useMemo(() => ({ trade: data ?? undefined, isLoading }), [data, isLoading])
 }

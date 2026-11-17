@@ -1,4 +1,5 @@
-import { Flex, FlexProps, Text, TouchableArea, useShadowPropsShort } from 'ui/src'
+import { Flex, type FlexProps, Text, TouchableArea } from '@universe/mycelium'
+import { useShadowPropsShort } from '@universe/mycelium/theme-hooks-compat'
 import { ElementName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 
@@ -15,6 +16,7 @@ export interface ActionCardItem {
   onPress?: () => void
   backgroundImageWrapperCallback?: React.FC<{ children: React.ReactNode }>
   shadowProps?: ReturnType<typeof useShadowPropsShort>
+  testId?: string
 }
 
 export const ActionCard = ({
@@ -29,6 +31,7 @@ export const ActionCard = ({
   backgroundImageWrapperCallback,
   borderRadius,
   shadowProps,
+  testId,
 }: ActionCardItem): JSX.Element => (
   <Trace logPress element={elementName}>
     <TouchableArea
@@ -38,6 +41,7 @@ export const ActionCard = ({
       borderWidth="$spacing1"
       overflow="hidden"
       hoverStyle={hoverStyle}
+      testID={testId}
       onPress={onPress}
       {...shadowProps}
     >

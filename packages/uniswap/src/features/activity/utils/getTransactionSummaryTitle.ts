@@ -1,4 +1,4 @@
-import { AppTFunction } from 'ui/src/i18n/types'
+import { getEarnPlanStatusTitleKeyFromTransactionStatus } from 'uniswap/src/features/earn/planActivityTitles'
 import {
   NFTTradeType,
   REVOKE_APPROVAL_AMOUNT,
@@ -6,12 +6,27 @@ import {
   TransactionStatus,
   TransactionType,
 } from 'uniswap/src/features/transactions/types/transactionDetails'
+import { AppTFunction } from 'utilities/src/i18n/types'
 
-export function getTransactionSummaryTitle(tx: TransactionDetails, t: AppTFunction): string | undefined {
-  const { success, pending, failed, canceling, canceled, expired, insufficientFunds } = getTransactionTypeVerbs(
-    tx.typeInfo,
-    t,
-  )
+export function getTransactionSummaryTitle({
+  tx,
+  t,
+}: {
+  tx: Pick<TransactionDetails, 'typeInfo' | 'status'>
+  t: AppTFunction
+}): string | undefined {
+  // Earn plans share the canonical status→title mapping with notifications and the activity tables.
+  if (tx.typeInfo.type === TransactionType.Plan && tx.typeInfo.earnAction) {
+    return t(
+      getEarnPlanStatusTitleKeyFromTransactionStatus({
+        earnAction: tx.typeInfo.earnAction,
+        transactionStatus: tx.status,
+      }),
+    )
+  }
+
+  const { success, pending, failed, canceling, canceled, expired, insufficientFunds, awaitingAction } =
+    getTransactionTypeVerbs(tx.typeInfo, t)
 
   switch (tx.status) {
     case TransactionStatus.Pending:
@@ -28,6 +43,8 @@ export function getTransactionSummaryTitle(tx: TransactionDetails, t: AppTFuncti
       return failed
     case TransactionStatus.Success:
       return success
+    case TransactionStatus.AwaitingAction:
+      return awaitingAction
     default:
       return undefined
   }
@@ -40,7 +57,7 @@ export function getTransactionSummaryTitle(tx: TransactionDetails, t: AppTFuncti
  * [1]: Present verb form (e.g. 'Swapping') (optional)
  * [2]: Base verb form (e.g. 'swap') (optional)
  */
-// eslint-disable-next-line complexity
+// oxlint-disable-next-line complexity
 function getTransactionTypeVerbs(
   typeInfo: TransactionDetails['typeInfo'],
   t: AppTFunction,
@@ -52,6 +69,7 @@ function getTransactionTypeVerbs(
   canceled?: string
   expired?: string
   insufficientFunds?: string
+  awaitingAction?: string
 } {
   const externalDappName = typeInfo.externalDappInfo?.name
 
@@ -85,6 +103,16 @@ function getTransactionTypeVerbs(
         canceling: t('transaction.status.send.canceling'),
         canceled: t('transaction.status.send.canceled'),
       }
+    case TransactionType.Deposit:
+      return {
+        success: externalDappName
+          ? t('transaction.status.deposit.successDapp', { externalDappName })
+          : t('transaction.status.deposit.success'),
+        pending: t('transaction.status.deposit.pending'),
+        failed: t('transaction.status.deposit.failed'),
+        canceling: t('transaction.status.deposit.canceling'),
+        canceled: t('transaction.status.deposit.canceled'),
+      }
     case TransactionType.Wrap:
       if (typeInfo.unwrapped) {
         return {
@@ -106,6 +134,16 @@ function getTransactionTypeVerbs(
           canceling: t('transaction.status.wrap.canceling'),
           canceled: t('transaction.status.wrap.canceled'),
         }
+      }
+    case TransactionType.Withdraw:
+      return {
+        success: externalDappName
+          ? t('transaction.status.withdraw.successDapp', { externalDappName })
+          : t('transaction.status.withdraw.success'),
+        pending: t('transaction.status.withdraw.pending'),
+        failed: t('transaction.status.withdraw.failed'),
+        canceling: t('transaction.status.withdraw.canceling'),
+        canceled: t('transaction.status.withdraw.canceled'),
       }
     case TransactionType.Approve:
       if (typeInfo.approvalAmount === REVOKE_APPROVAL_AMOUNT) {
@@ -174,8 +212,12 @@ function getTransactionTypeVerbs(
     case TransactionType.OnRampPurchase: {
       const serviceProvider = typeInfo.serviceProvider.name
       return {
-        success: t('transaction.status.purchase.successOn', { serviceProvider }),
-        pending: t('transaction.status.purchase.pendingOn', { serviceProvider }),
+        success: t('transaction.status.purchase.successOn', {
+          serviceProvider,
+        }),
+        pending: t('transaction.status.purchase.pendingOn', {
+          serviceProvider,
+        }),
         failed: t('transaction.status.purchase.failedOn', { serviceProvider }),
         canceling: t('transaction.status.purchase.canceling'), // On ramp transactions are not cancellable
         canceled: t('transaction.status.purchase.canceled'), // On ramp transactions are not cancellable
@@ -184,8 +226,12 @@ function getTransactionTypeVerbs(
     case TransactionType.OnRampTransfer: {
       const serviceProvider = typeInfo.serviceProvider.name
       return {
-        success: t('transaction.status.receive.successFrom', { serviceProvider }),
-        pending: t('transaction.status.receive.pendingFrom', { serviceProvider }),
+        success: t('transaction.status.receive.successFrom', {
+          serviceProvider,
+        }),
+        pending: t('transaction.status.receive.pendingFrom', {
+          serviceProvider,
+        }),
         failed: t('transaction.status.receive.failedFrom', { serviceProvider }),
         canceling: t('transaction.status.receive.canceling'), // On ramp transactions are not cancellable
         canceled: t('transaction.status.receive.canceled'), // On ramp transactions are not cancellable
@@ -233,6 +279,49 @@ function getTransactionTypeVerbs(
         canceling: t('transaction.status.lpIncentivesClaim.canceling'),
         canceled: t('transaction.status.lpIncentivesClaim.canceled'),
       }
+    case TransactionType.ToucanBid:
+      return {
+        success: t('transaction.status.submitBid.success'),
+        pending: t('transaction.status.submitBid.pending'),
+        failed: t('transaction.status.submitBid.failed'),
+        canceling: t('transaction.status.submitBid.canceling'),
+        canceled: t('transaction.status.submitBid.canceled'),
+      }
+    case TransactionType.AuctionBid:
+      return {
+        success: t('transaction.status.submitBid.success'),
+        pending: t('transaction.status.submitBid.pending'),
+        failed: t('transaction.status.submitBid.failed'),
+      }
+    case TransactionType.AuctionClaimed:
+      return {
+        success: t('transaction.status.auctionClaimed.success'),
+        pending: t('transaction.status.auctionClaimed.pending'),
+        failed: t('transaction.status.auctionClaimed.failed'),
+      }
+    case TransactionType.AuctionExited:
+      return {
+        success: t('transaction.status.withdrawBid.success'),
+        pending: t('transaction.status.withdrawBid.pending'),
+        failed: t('transaction.status.withdrawBid.failed'),
+      }
+    case TransactionType.AuctionLaunch:
+      return {
+        success: t('toucan.createAuction.transaction.success'),
+        pending: t('toucan.createAuction.transaction.pending'),
+        failed: t('toucan.createAuction.transaction.failed'),
+        canceling: t('toucan.createAuction.transaction.canceling'),
+        canceled: t('toucan.createAuction.transaction.canceled'),
+      }
+    case TransactionType.UniswapXCancel:
+      // Suppressed in merged activity by default; defensive titles in case suppression regresses
+      return {
+        success: t('transaction.status.limitCancel.success'),
+        pending: t('transaction.status.limitCancel.pending'),
+        failed: t('transaction.status.limitCancel.failed'),
+        canceling: t('transaction.status.limitCancel.pending'),
+        canceled: t('transaction.status.limitCancel.success'),
+      }
     case TransactionType.CreatePair:
       return {
         success: t('transaction.status.createPair.success'),
@@ -248,6 +337,19 @@ function getTransactionTypeVerbs(
         failed: t('transaction.status.createPool.failed'),
         canceling: t('transaction.status.createPool.canceling'),
         canceled: t('transaction.status.createPool.canceled'),
+      }
+    case TransactionType.Plan:
+      return {
+        success: externalDappName
+          ? t('transaction.status.swap.successDapp', { externalDappName })
+          : t('transaction.status.swap.success'),
+        pending: t('transaction.status.swap.pending'),
+        failed: t('transaction.status.swap.failed'),
+        canceling: t('transaction.status.swap.canceling'),
+        canceled: t('transaction.status.swap.canceled'),
+        expired: t('transaction.status.swap.expired'),
+        insufficientFunds: t('transaction.status.swap.insufficientFunds'),
+        awaitingAction: t('transaction.status.plan.interrupted'),
       }
     case TransactionType.Unknown:
     case TransactionType.WCConfirm:

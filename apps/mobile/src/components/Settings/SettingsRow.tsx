@@ -1,4 +1,6 @@
 import { NavigatorScreenParams, useNavigation } from '@react-navigation/native'
+import { Flex, iconSizes, Skeleton, Switch, Text, TouchableArea } from '@universe/mycelium'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
 import { memo, useCallback } from 'react'
 import { ValueOf } from 'react-native-gesture-handler/lib/typescript/typeUtils'
 import { navigate } from 'src/app/navigation/rootNavigation'
@@ -12,13 +14,12 @@ import {
 import { ConnectionsDappsListModalState } from 'src/components/Settings/ConnectionsDappModal/ConnectionsDappsListModalState'
 import { EditWalletSettingsModalState } from 'src/components/Settings/EditWalletModal/EditWalletSettingsModalState'
 import { useIsScreenNavigationReady } from 'src/utils/useIsScreenNavigationReady'
-import { Flex, Skeleton, Switch, Text, TouchableArea, useSporeColors } from 'ui/src'
 import { Arrow } from 'ui/src/components/arrow/Arrow'
 import { RotatableChevron } from 'ui/src/components/icons'
-import { iconSizes } from 'ui/src/theme'
 import { ModalName } from 'uniswap/src/features/telemetry/constants'
 import { MobileScreens } from 'uniswap/src/types/screens/mobile'
 import { openUri } from 'uniswap/src/utils/linking'
+import { AboutModalState } from 'wallet/src/components/settings/about/AboutModal'
 import { SmartWalletAdvancedSettingsModalState } from 'wallet/src/components/smartWallet/modals/SmartWalletAdvancedSettingsModal'
 
 export const SETTINGS_ROW_HEIGHT = 60
@@ -46,6 +47,7 @@ type SettingsNavigationModal =
   | typeof ModalName.SettingsAppearance
   | typeof ModalName.PermissionsModal
   | typeof ModalName.PortfolioBalanceModal
+  | typeof ModalName.About
   | typeof ModalName.LanguageSelector
 
 export interface SettingsSectionItem {
@@ -57,6 +59,7 @@ export interface SettingsSectionItem {
     | ConnectionsDappsListModalState
     | EditWalletSettingsModalState
     | SmartWalletAdvancedSettingsModalState
+    | AboutModalState
   externalLink?: string
   action?: JSX.Element
   disabled?: boolean
@@ -68,6 +71,7 @@ export interface SettingsSectionItem {
   onToggle?: () => void
   isToggleEnabled?: boolean
   checkIfCanProceed?: () => boolean
+  cantProceedFallback?: () => void
   count?: number
 }
 
@@ -75,6 +79,7 @@ interface SettingsRowProps {
   page: SettingsSectionItem
   navigation: SettingsStackNavigationProp & OnboardingStackNavigationProp
   checkIfCanProceed?: SettingsSectionItem['checkIfCanProceed']
+  cantProceedFallback?: SettingsSectionItem['cantProceedFallback']
   testID?: string
 }
 
@@ -99,11 +104,13 @@ export const SettingsRow = memo(
     },
     navigation,
     checkIfCanProceed,
+    cantProceedFallback,
   }: SettingsRowProps): JSX.Element => {
     const colors = useSporeColors()
 
     const handleRow = useCallback(async (): Promise<void> => {
       if (checkIfCanProceed && !checkIfCanProceed()) {
+        cantProceedFallback?.()
         return
       }
 
@@ -113,14 +120,24 @@ export const SettingsRow = memo(
         // Type assignment to `any` is a workaround until we figure out how to
         // properly type screen param. `navigate` function also brings some issues,
         // where it accepts other screen's params, and not throws an error on required ones.
-        // biome-ignore lint/suspicious/noExplicitAny: Navigation types don't properly handle dynamic screen names
+        // oxlint-disable-next-line typescript/no-explicit-any -- Navigation types don't properly handle dynamic screen names
         navigation.navigate(screen as any, screenProps)
       } else if (navigationModal) {
         navigate(navigationModal, navigationProps)
       } else if (externalLink) {
         await openUri({ uri: externalLink })
       }
-    }, [checkIfCanProceed, onToggle, screen, navigation, screenProps, navigationProps, navigationModal, externalLink])
+    }, [
+      checkIfCanProceed,
+      cantProceedFallback,
+      onToggle,
+      screen,
+      navigation,
+      screenProps,
+      navigationProps,
+      navigationModal,
+      externalLink,
+    ])
 
     return (
       <TouchableArea disabled={Boolean(action)} testID={testID} onPress={handleRow}>
@@ -227,7 +244,14 @@ const RowRightContent = memo(
           {currentSetting &&
             (shouldRender ? (
               <Flex shrink alignItems="flex-end" flexBasis="35%" justifyContent="flex-end">
-                <Text adjustsFontSizeToFit color="$neutral2" mr="$spacing8" numberOfLines={2} variant="body3">
+                <Text
+                  adjustsFontSizeToFit
+                  color="$neutral2"
+                  mr="$spacing8"
+                  numberOfLines={2}
+                  textAlign="right"
+                  variant="body3"
+                >
                   {currentSetting}
                 </Text>
               </Flex>
@@ -241,7 +265,7 @@ const RowRightContent = memo(
                 />
               </Skeleton>
             ))}
-          <RotatableChevron color="$neutral3" direction="end" height={iconSizes.icon24} width={iconSizes.icon24} />
+          <RotatableChevron color="$neutral3" direction="end" size="$icon.24" />
         </Flex>
       )
     }

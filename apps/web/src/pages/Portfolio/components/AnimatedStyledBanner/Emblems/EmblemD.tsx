@@ -1,5 +1,5 @@
-import { EmblemProps } from 'pages/Portfolio/components/AnimatedStyledBanner/Emblems/types'
-import { useSporeColors } from 'ui/src'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
+import { EmblemProps } from '~/pages/Portfolio/components/AnimatedStyledBanner/Emblems/types'
 
 export function EmblemD({ fill = '#FF37C7', opacity = 1, ...props }: EmblemProps): JSX.Element {
   const colors = useSporeColors()

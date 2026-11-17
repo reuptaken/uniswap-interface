@@ -1,4 +1,5 @@
 import { UseQueryResult, useQuery } from '@tanstack/react-query'
+import { UniverseChainId } from '@universe/chains'
 import { providers } from 'ethers'
 import { useCallback } from 'react'
 import ERC20_ABI from 'uniswap/src/abis/erc20.json'
@@ -8,7 +9,6 @@ import { Erc20, Erc721, Erc1155 } from 'uniswap/src/abis/types'
 import { AssetType } from 'uniswap/src/entities/assets'
 import { SignerMnemonicAccountMeta } from 'uniswap/src/features/accounts/types'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { toSupportedChainId } from 'uniswap/src/features/chains/utils'
 import { DerivedSendInfo } from 'uniswap/src/features/transactions/send/types'
 import { CurrencyField } from 'uniswap/src/types/currency'
@@ -45,7 +45,7 @@ export function useSendTransactionRequest(
   )
 }
 
-// eslint-disable-next-line consistent-return
+// oxlint-disable-next-line typescript/consistent-return
 async function getSendTransaction({
   provider,
   contractManager,
@@ -69,19 +69,21 @@ async function getSendTransaction({
     case AssetType.ERC721:
       return getErc721SendRequest({ params, provider, contractManager })
     case AssetType.Currency:
-      return isNativeCurrencyAddress(chainId, tokenAddress)
+      // On Tempo, CALLVALUE always returns 0, so native sends via the value field
+      // silently fail. Always use the ERC-20 transfer path for Tempo.
+      return isNativeCurrencyAddress(chainId, tokenAddress) && chainId !== UniverseChainId.Tempo
         ? getNativeSendRequest(params)
         : getTokenSendRequest({ params, provider, contractManager })
   }
 }
 
-// eslint-disable-next-line consistent-return
+// oxlint-disable-next-line typescript/consistent-return
 function getSendParams(
   account: SignerMnemonicAccountMeta,
   derivedSendInfo: DerivedSendInfo,
 ): SendTokenParams | undefined {
   const { currencyAmounts, currencyTypes, chainId, recipient, currencyInInfo, nftIn } = derivedSendInfo
-  const tokenAddress = currencyInInfo ? currencyAddress(currencyInInfo.currency) : nftIn?.nftContract?.address
+  const tokenAddress = currencyInInfo ? currencyAddress(currencyInInfo.currency) : nftIn?.contractAddress
   const amount = currencyAmounts[CurrencyField.INPUT]?.quotient.toString()
   const assetType = currencyTypes[CurrencyField.INPUT]
 
@@ -102,7 +104,7 @@ function getSendParams(
         toAddress: recipient,
         tokenAddress,
         type: assetType,
-        tokenId: nftIn.tokenId,
+        tokenId: nftIn.tokenId ?? '',
       }
     }
 

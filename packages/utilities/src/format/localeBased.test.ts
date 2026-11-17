@@ -1,5 +1,14 @@
-import { formatNumber } from 'utilities/src/format/localeBased'
+import { formatNumber, formatNumberOrString } from 'utilities/src/format/localeBased'
+import { TYPE_TO_FORMATTER_RULES } from 'utilities/src/format/localeBasedFormats'
 import { NumberType } from 'utilities/src/format/types'
+
+const { mockLogger } = vi.hoisted(() => ({
+  mockLogger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), setDatadogEnabled: vi.fn() },
+}))
+
+vi.mock('utilities/src/logger/logger', () => ({
+  logger: mockLogger,
+}))
 
 it('formats token reference numbers correctly', () => {
   expect(formatNumber({ input: 1234567000000000, type: NumberType.TokenNonTx, locale: 'en-US' })).toBe('>999T')
@@ -60,10 +69,6 @@ it('formats small token amounts with locale-aware decimal separators', () => {
   expect(formatNumber({ input: 1e-9, type: NumberType.SwapPrice, locale: 'en-US' })).toBe('<0.00001')
   expect(formatNumber({ input: 1e-9, type: NumberType.SwapPrice, locale: 'es-ES' })).toBe('<0,00001')
   expect(formatNumber({ input: 1e-9, type: NumberType.SwapPrice, locale: 'fr-FR' })).toBe('<0,00001')
-
-  // NFTTokenFloorPrice - uses '<0.001' format
-  expect(formatNumber({ input: 0.00001, type: NumberType.NFTTokenFloorPrice, locale: 'en-US' })).toBe('<0.001')
-  expect(formatNumber({ input: 0.00001, type: NumberType.NFTTokenFloorPrice, locale: 'es-ES' })).toBe('<0,001')
 })
 
 it('formats fiat estimates on token details pages correctly', () => {
@@ -76,9 +81,11 @@ it('formats fiat estimates on token details pages correctly', () => {
 
   expect(formatNumber({ input: 1.234e-7, type: NumberType.FiatTokenDetails, locale: 'en-US' })).toBe('$0.000000123')
   expect(formatNumber({ input: 9.876e-9, type: NumberType.FiatTokenDetails, locale: 'en-US' })).toBe('<$0.00000001')
+  expect(formatNumber({ input: 0, type: NumberType.FiatTokenDetails, locale: 'en-US' })).toBe('$0')
 })
 
 it('formats fiat estimates for tokens correctly', () => {
+  expect(formatNumber({ input: 1234567000000000, type: NumberType.FiatTokenPrice, locale: 'en-US' })).toBe('>$999T')
   expect(formatNumber({ input: 1234567.891, type: NumberType.FiatTokenPrice, locale: 'en-US' })).toBe('$1.23M')
   expect(formatNumber({ input: 1234.5678, type: NumberType.FiatTokenPrice, locale: 'en-US' })).toBe('$1,234.57')
 
@@ -88,9 +95,18 @@ it('formats fiat estimates for tokens correctly', () => {
 
   expect(formatNumber({ input: 1.234e-7, type: NumberType.FiatTokenPrice, locale: 'en-US' })).toBe('$0.000000123')
   expect(formatNumber({ input: 9.876e-9, type: NumberType.FiatTokenPrice, locale: 'en-US' })).toBe('<$0.00000001')
+  expect(formatNumber({ input: 0, type: NumberType.FiatTokenPrice, locale: 'en-US' })).toBe('$0')
 })
 
 it('formats fiat estimates for token stats correctly', () => {
+  expect(formatNumber({ input: 1e30, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe('>$999,999T')
+  expect(formatNumber({ input: 1e18, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe('>$999,999T')
+  expect(formatNumber({ input: 999_999.95e12, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe('>$999,999T')
+  // largest double below the cap
+  expect(formatNumber({ input: 999_999.95e12 - 128, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe(
+    '$999,999.9T',
+  )
+  expect(formatNumber({ input: 1e15, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe('$1000.0T')
   expect(formatNumber({ input: 1234576, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe('$1.2M')
   expect(formatNumber({ input: 234567, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe('$234.6K')
   expect(formatNumber({ input: 123.456, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe('$123.46')
@@ -100,15 +116,39 @@ it('formats fiat estimates for token stats correctly', () => {
   expect(formatNumber({ input: 0, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe('-')
 })
 
+it('formats high-denomination fiat token stats below the cap', () => {
+  expect(formatNumber({ input: 5.6e15, type: NumberType.FiatTokenStats, locale: 'en-US', currencyCode: 'KRW' })).toBe(
+    '₩5600.0T',
+  )
+  expect(formatNumber({ input: 5.6e15, type: NumberType.FiatTokenStats, locale: 'en-US', currencyCode: 'VND' })).toBe(
+    '₫5600.0T',
+  )
+})
+
+it('caps fiat token stats in the converted currency and locale', () => {
+  expect(formatNumber({ input: 2.6e19, type: NumberType.FiatTokenStats, locale: 'en-US', currencyCode: 'VND' })).toBe(
+    '>₫999,999T',
+  )
+  expect(formatNumber({ input: 2e18, type: NumberType.FiatTokenStats, locale: 'de-DE', currencyCode: 'EUR' })).toBe(
+    '>999.999\u00a0Bio.\u00a0€',
+  )
+  expect(formatNumber({ input: 2e18, type: NumberType.FiatTokenStats, locale: 'ja-JP', currencyCode: 'JPY' })).toBe(
+    '>￥100京',
+  )
+})
+
 it('formats gas USD prices correctly', () => {
   expect(formatNumber({ input: 1234567.891, type: NumberType.FiatGasPrice, locale: 'en-US' })).toBe('$1.23M')
   expect(formatNumber({ input: 18.448, type: NumberType.FiatGasPrice, locale: 'en-US' })).toBe('$18.45')
   expect(formatNumber({ input: 0.0099, type: NumberType.FiatGasPrice, locale: 'en-US' })).toBe('<$0.01')
   expect(formatNumber({ input: 0, type: NumberType.FiatGasPrice, locale: 'en-US' })).toBe('$0')
+  expect(formatNumber({ input: 4.14e15, type: NumberType.FiatGasPrice, locale: 'en-US' })).toBe('>$999T')
 })
 
 it('formats USD token quantities prices correctly', () => {
   expect(formatNumber({ input: 1234567.891, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('$1.23M')
+  expect(formatNumber({ input: 4.14e14, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('$414.00T')
+  expect(formatNumber({ input: 4.14e15, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('>$999T')
   expect(formatNumber({ input: 18.448, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('$18.45')
   expect(formatNumber({ input: 0.0099, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('<$0.01')
   expect(formatNumber({ input: 0, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('$0.00')
@@ -134,7 +174,10 @@ it('formats Swap text input/output numbers correctly', () => {
 })
 
 it('formats Swap prices correctly', () => {
-  expect(formatNumber({ input: 1234567.8901, type: NumberType.SwapPrice, locale: 'en-US' })).toBe('1234570')
+  // Above 1e6 the rate abbreviates (compact notation) instead of printing the full digit string,
+  // matching the convention used for large token quantities elsewhere (`tokenNonTxFormatter`).
+  expect(formatNumber({ input: 1241790000, type: NumberType.SwapPrice, locale: 'en-US' })).toBe('1.24B')
+  expect(formatNumber({ input: 1234567.8901, type: NumberType.SwapPrice, locale: 'en-US' })).toBe('1.23M')
   expect(formatNumber({ input: 765432.1, type: NumberType.SwapPrice, locale: 'en-US' })).toBe('765432')
 
   expect(formatNumber({ input: 7654.321, type: NumberType.SwapPrice, locale: 'en-US' })).toBe('7654.32')
@@ -152,18 +195,86 @@ it('formats Swap prices correctly', () => {
   expect(formatNumber({ input: 0, type: NumberType.SwapPrice, locale: 'en-US' })).toBe('0')
 })
 
-it('formats NFT numbers correctly', () => {
-  expect(formatNumber({ input: 1234567000000000, type: NumberType.NFTTokenFloorPrice, locale: 'en-US' })).toBe('>999T')
-  expect(formatNumber({ input: 1002345, type: NumberType.NFTTokenFloorPrice, locale: 'en-US' })).toBe('1.00M')
-  expect(formatNumber({ input: 1234, type: NumberType.NFTTokenFloorPrice, locale: 'en-US' })).toBe('1.23K')
-  expect(formatNumber({ input: 12.34467, type: NumberType.NFTTokenFloorPrice, locale: 'en-US' })).toBe('12.34')
-  expect(formatNumber({ input: 0.00909, type: NumberType.NFTTokenFloorPrice, locale: 'en-US' })).toBe('0.009')
-  expect(formatNumber({ input: 0.09001, type: NumberType.NFTTokenFloorPrice, locale: 'en-US' })).toBe('0.090')
-  expect(formatNumber({ input: 0.00099, type: NumberType.NFTTokenFloorPrice, locale: 'en-US' })).toBe('<0.001')
-  expect(formatNumber({ input: 0, type: NumberType.NFTTokenFloorPrice, locale: 'en-US' })).toBe('0')
+it('formats the full-precision swap price (tooltip fallback for an abbreviated rate) correctly', () => {
+  expect(formatNumber({ input: 1241790000, type: NumberType.SwapPriceFull, locale: 'en-US' })).toBe('1,241,790,000')
+  expect(formatNumber({ input: 1234567.8901, type: NumberType.SwapPriceFull, locale: 'en-US' })).toBe('1,234,570')
+  expect(formatNumber({ input: 0, type: NumberType.SwapPriceFull, locale: 'en-US' })).toBe('0')
+})
 
-  expect(formatNumber({ input: 1234576, type: NumberType.NFTCollectionStats, locale: 'en-US' })).toBe('1.2M')
-  expect(formatNumber({ input: 234567, type: NumberType.NFTCollectionStats, locale: 'en-US' })).toBe('234.6K')
-  expect(formatNumber({ input: 999, type: NumberType.NFTCollectionStats, locale: 'en-US' })).toBe('999')
-  expect(formatNumber({ input: 0, type: NumberType.NFTCollectionStats, locale: 'en-US' })).toBe('0')
+describe('formatNumber with negative input', () => {
+  it('formats the magnitude by the same rules and keeps the sign, instead of reading the "<" floor', () => {
+    expect(formatNumber({ input: -5, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('-$5.00')
+    expect(formatNumber({ input: -1234, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe('-$1.2K')
+    expect(formatNumber({ input: -0.5, type: NumberType.FiatTokenPrice, locale: 'en-US' })).toBe('-$0.500')
+    expect(formatNumber({ input: -1234, type: NumberType.TokenNonTx, locale: 'en-US' })).toBe('-1,234.00')
+    expect(formatNumber({ input: -5, type: NumberType.FiatTokenQuantity, locale: 'de-DE' })).toBe('-5,00\u00a0$')
+  })
+
+  it('flips a bound with the sign', () => {
+    expect(formatNumber({ input: -0.003, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('>-$0.01')
+    expect(formatNumber({ input: -0.0005, type: NumberType.TokenNonTx, locale: 'en-US' })).toBe('>-0.001')
+    expect(formatNumber({ input: -0.0005, type: NumberType.TokenNonTx, locale: 'de-DE' })).toBe('>-0,001')
+    expect(formatNumber({ input: -2e15, type: NumberType.TokenNonTx, locale: 'en-US' })).toBe('<-999T')
+    expect(formatNumber({ input: -2e18, type: NumberType.FiatTokenStats, locale: 'en-US' })).toBe('<-$999,999T')
+  })
+
+  it('leaves the single-rule types as Intl renders them', () => {
+    expect(formatNumber({ input: -5, type: NumberType.PortfolioBalance, locale: 'en-US' })).toBe('-$5.00')
+    expect(formatNumber({ input: -0.05, type: NumberType.Percentage, locale: 'en-US' })).toBe('-5%')
+  })
+
+  it('reads negative zero as zero', () => {
+    expect(formatNumber({ input: -0, type: NumberType.PortfolioBalance, locale: 'en-US' })).toBe('$0.00')
+  })
+})
+
+describe('formatNumber with non-finite input', () => {
+  it('renders the placeholder instead of "$NaN"', () => {
+    expect(formatNumber({ input: NaN, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('-')
+    expect(formatNumber({ input: NaN, type: NumberType.TokenNonTx, locale: 'en-US', placeholder: 'N/A' })).toBe('N/A')
+    expect(formatNumberOrString({ price: 'abc', type: NumberType.FiatTokenPrice, locale: 'en-US' })).toBe('-')
+  })
+
+  it('renders the placeholder for infinities', () => {
+    expect(formatNumber({ input: Infinity, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('-')
+    expect(formatNumber({ input: -Infinity, type: NumberType.FiatTokenQuantity, locale: 'en-US' })).toBe('-')
+  })
+
+  // The placeholder hides an upstream bug from users, so it must still reach Datadog.
+  it.each([NaN, Infinity, -Infinity])('warns for %s', (input) => {
+    formatNumber({ input, type: NumberType.FiatTokenQuantity, locale: 'en-US' })
+
+    expect(mockLogger.warn).toHaveBeenCalledOnce()
+    expect(mockLogger.warn).toHaveBeenCalledWith('localeBased', 'formatNumber', expect.any(String), {
+      type: NumberType.FiatTokenQuantity,
+      input: String(input),
+    })
+  })
+
+  it('does not warn for missing input', () => {
+    formatNumber({ input: null, type: NumberType.FiatTokenQuantity, locale: 'en-US' })
+    formatNumber({ input: undefined, type: NumberType.FiatTokenQuantity, locale: 'en-US' })
+
+    expect(mockLogger.warn).not.toHaveBeenCalled()
+  })
+})
+
+// formatNumber flips a bound for negative inputs by reading its leading `<`/`>`, so every rule that
+// renders a bound must put the marker first.
+describe('bounded formatter rules', () => {
+  const rules = Object.entries(TYPE_TO_FORMATTER_RULES).flatMap(([type, { rules: typeRules }]) =>
+    typeRules.map((rule, index) => ({ name: `${type} rule ${index}`, rule })),
+  )
+
+  it.each(rules)('$name puts any bound marker first', ({ rule }) => {
+    const renderings = [
+      typeof rule.formatter === 'string' ? rule.formatter : undefined,
+      rule.postFormatModifier?.('X'),
+    ].filter((rendering): rendering is string => rendering !== undefined)
+    for (const rendering of renderings) {
+      if (/[<>]/.test(rendering)) {
+        expect(rendering).toMatch(/^[<>]/)
+      }
+    }
+  })
 })

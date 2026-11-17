@@ -1,9 +1,9 @@
 import { useWallet as useSolanaWalletContext } from '@solana/wallet-adapter-react'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
+import { Platform } from '@universe/chains'
 import { tryCatch } from 'utilities/src/errors'
 import { logger } from 'utilities/src/logger/logger'
 import { useEvent } from 'utilities/src/react/hooks'
-// biome-ignore lint/style/noRestrictedImports: wagmi hook needed for wallet disconnection
+// oxlint-disable-next-line no-restricted-imports -- wagmi hook needed for wallet disconnection
 import { useDisconnect as useDisconnectWagmi } from 'wagmi'
 
 function useDisconnectEVM(): () => void {
@@ -15,7 +15,8 @@ function useDisconnectEVM(): () => void {
 }
 
 function useDisconnectSVM(): () => void {
-  return useSolanaWalletContext().disconnect
+  const wallet = useSolanaWalletContext()
+  return useEvent(() => wallet.disconnect())
 }
 
 export function useDisconnect(): () => void {

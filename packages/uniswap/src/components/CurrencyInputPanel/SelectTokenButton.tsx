@@ -1,14 +1,15 @@
+import { isMobileWeb, isWebApp, isWebPlatform } from '@universe/environment'
+import { Flex, Text, TouchableArea, useIsDarkMode } from '@universe/mycelium'
+import { PRESS_SCALE } from '@universe/mycelium/button-compat'
+import { TestIDType } from '@universe/test'
 import { ComponentProps, memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex, getContrastPassingTextColor, getHoverCssFilter, Text, TouchableArea, useIsDarkMode } from 'ui/src'
-import { PRESS_SCALE } from 'ui/src/components/buttons/Button/components/CustomButtonFrame/constants'
+import { getContrastPassingTextColor, getHoverCssFilter } from 'ui/src'
 import { RotatableChevron } from 'ui/src/components/icons/RotatableChevron'
 import { iconSizes, spacing, validColor } from 'ui/src/theme'
 import { CurrencyLogo } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
 import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
-import { TestIDType } from 'uniswap/src/test/fixtures/testIDs'
 import { getSymbolDisplayText } from 'uniswap/src/utils/currency'
-import { isMobileWeb, isWebApp, isWebPlatform } from 'utilities/src/platform'
 
 interface SelectTokenButtonProps {
   onPress?: () => void
@@ -17,7 +18,7 @@ interface SelectTokenButtonProps {
   tokenColor?: string
 }
 
-export const SelectTokenButton = memo(function _SelectTokenButton({
+export const SelectTokenButton = memo(function SelectTokenButtonInner({
   selectedCurrencyInfo,
   onPress,
   testID,
@@ -77,7 +78,7 @@ export const SelectTokenButton = memo(function _SelectTokenButton({
             : t('tokens.selector.button.choose')}
         </Text>
         {!isCompact && (
-          <RotatableChevron color={chevronColor} direction="down" height="$spacing24" mx={-spacing.spacing2} />
+          <RotatableChevron color={chevronColor} direction="down" size="$icon.24" mx={-spacing.spacing2} />
         )}
       </Flex>
     </TouchableArea>

@@ -1,5 +1,9 @@
-import { expect, getTest } from 'playwright/fixtures'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
+import type { Locator, Page } from '@playwright/test'
+import { TestID } from '@universe/test'
+import { UniswapStaticUrls } from 'uniswap/src/constants/urls'
+import { ElementName } from 'uniswap/src/features/telemetry/constants'
+import { IN_APP_BROWSER_CHROME_PX } from '~/constants/inAppBrowser'
+import { expect, getTest } from '~/playwright/fixtures'
 
 const test = getTest()
 
@@ -9,7 +13,7 @@ const companyMenu = [
     items: [
       { label: 'Wallet', href: 'https://wallet.uniswap.org/' },
       { label: 'UniswapX', href: 'https://x.uniswap.org/' },
-      { label: 'API', href: 'https://hub.uniswap.org/' },
+      { label: 'API', href: UniswapStaticUrls.tradingApiDocsUrl },
       { label: 'Unichain', href: 'https://www.unichain.org/' },
     ],
   },
@@ -54,11 +58,33 @@ const tabs = [
     path: '/positions',
     dropdown: [
       { label: 'View position', path: '/positions' },
-      { label: 'Create position', path: '/positions/create' },
+      { label: 'Create position', path: '/positions/add' },
     ],
   },
 ]
 const socialMediaLinks = ['https://github.com/Uniswap', 'https://x.com/Uniswap', 'https://discord.com/invite/uniswap']
+
+// Trust Wallet's Android in-app browser; `; wv)` is the token `isInAppBrowser()` keys on.
+const IN_APP_BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 13; SM-G991B Build/TP1A.220624.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.6099.230 Mobile Safari/537.36'
+
+/** The open sheet's content scroller, on either sheet leg (`.uw-sheet-frame` is ui/src, `.mc-sheet-frame` mycelium). */
+function openSheetContent(page: Page): Locator {
+  return page
+    .locator('.uw-sheet-frame[data-state="open"], .mc-sheet-frame[data-state="open"]')
+    .last()
+    .locator('[data-sheet-content]')
+}
+
+async function scrollEveryScrollerToEnd(root: Locator): Promise<void> {
+  await root.evaluate((el) => {
+    for (const node of [el, ...el.querySelectorAll('*')]) {
+      if (/(auto|scroll)/.test(window.getComputedStyle(node).overflowY)) {
+        node.scrollTo({ top: node.scrollHeight })
+      }
+    }
+  })
+}
 
 test.describe(
   'NavBar',
@@ -78,7 +104,7 @@ test.describe(
       })
 
       test('Company menu displays complete sections, links, and legal content', async ({ page }) => {
-        await page.goto('/?featureFlagOverride=conversion-tracking')
+        await page.goto('/')
         await page.getByTestId(TestID.NavCompanyMenu).hover()
         const dropdown = page.getByTestId(TestID.NavCompanyDropdown).first()
         await expect(dropdown).toBeVisible()
@@ -109,7 +135,7 @@ test.describe(
         await expect(page.getByTestId(TestID.NavCompanyDropdown).getByText('Terms of Service')).toBeVisible()
 
         await expect(
-          page.getByTestId(TestID.NavCompanyDropdown).locator('a[href="https://uniswap.org/terms-of-service"]'),
+          page.getByTestId(TestID.NavCompanyDropdown).locator(`a[href="${UniswapStaticUrls.termsOfServiceUrl}"]`),
         ).toBeVisible()
       })
 
@@ -122,11 +148,30 @@ test.describe(
       }
     })
 
+    test.describe('in-app browser bottom chrome on the explore network filter', () => {
+      test.use({ userAgent: IN_APP_BROWSER_USER_AGENT, hasTouch: true, viewport: { width: 449, height: 900 } })
+
+      test('keeps the last network option above the chrome band', async ({ page }) => {
+        await page.goto('/explore/tokens/ethereum')
+        await page.getByTestId(TestID.TokensNetworkFilterTrigger).tap()
+        const content = openSheetContent(page)
+        await expect(content).toHaveCSS('padding-bottom', `${IN_APP_BROWSER_CHROME_PX}px`)
+
+        await scrollEveryScrollerToEnd(content)
+        const lastOption = content.locator(`[data-testid^="${ElementName.NetworkButton}-"]`).last()
+        const { bottom, innerHeight } = await lastOption.evaluate((el) => ({
+          bottom: el.getBoundingClientRect().bottom,
+          innerHeight: window.innerHeight,
+        }))
+        expect(bottom).toBeLessThanOrEqual(innerHeight - IN_APP_BROWSER_CHROME_PX)
+      })
+    })
+
     test.describe('Mobile navigation', () => {
       test.beforeEach(async ({ page }) => {
         // Set a mobile viewport
         await page.setViewportSize({ width: 449, height: 900 })
-        await page.goto('/?featureFlagOverride=conversion-tracking')
+        await page.goto('/')
         await page.waitForTimeout(500)
         await page.getByTestId(TestID.NavCompanyMenu).click()
       })
@@ -145,11 +190,8 @@ test.describe(
 
         // Verify all menu sections and their links
         for (const section of companyMenu) {
-          // Products section is not expandable
-          if (section.label !== 'Products') {
-            // Expand the section
-            await drawer.getByText(section.label).click()
-          }
+          // Expand the section (Products, Protocol, and Company are all collapsible accordions)
+          await drawer.getByText(section.label).click()
           for (const item of section.items) {
             await expect(drawer.locator(`a:has-text("${item.label}")`)).toHaveAttribute('href', item.href)
           }
@@ -168,7 +210,63 @@ test.describe(
         await expect(drawer.getByText('Privacy Policy')).toBeVisible()
         await expect(drawer.getByText('Terms of Service')).toBeVisible()
 
-        await expect(drawer.locator('a[href="https://uniswap.org/terms-of-service"]')).toBeVisible()
+        await expect(drawer.locator(`a[href="${UniswapStaticUrls.termsOfServiceUrl}"]`)).toBeVisible()
+      })
+
+      test.describe('in-app browser bottom chrome', () => {
+        test.use({ userAgent: IN_APP_BROWSER_USER_AGENT })
+
+        test('keeps every footer row above the chrome band with Company expanded', async ({ page }) => {
+          const drawer = page.getByTestId(TestID.CompanyMenuMobileDrawer)
+          await expect(drawer).toBeVisible()
+
+          // Company is the last collapsible section, so expanding it pushes the footer rows furthest down.
+          const companyItems = companyMenu.find((section) => section.label === 'Company')?.items ?? []
+          expect(companyItems.length).toBeGreaterThan(0)
+          await drawer.getByText('Company').click()
+          for (const item of companyItems) {
+            await expect(drawer.locator(`a:has-text("${item.label}")`)).toHaveAttribute('href', item.href)
+          }
+          // The accordion animates open; measure settled geometry.
+          await page.waitForTimeout(300)
+
+          // Headless env(safe-area-inset-bottom) is 0, so the padding equals the allowance. The real
+          // band needs device QA.
+          const content = openSheetContent(page)
+          await expect(content).toHaveCSS('padding-bottom', `${IN_APP_BROWSER_CHROME_PX}px`)
+
+          await scrollEveryScrollerToEnd(content)
+          const footer = await drawer.evaluate((el) => {
+            // Collapsed sections keep their rows mounted under a zero-height wrapper, and those rows
+            // still report the rect they would have when expanded. Skip rows under a zero-size ancestor.
+            const isRowRendered = (row: Element): boolean => {
+              for (let node: Element | null = row; node && node !== el; node = node.parentElement) {
+                const rect = node.getBoundingClientRect()
+                if (rect.height === 0 || rect.width === 0) {
+                  return false
+                }
+              }
+              return true
+            }
+            const rows = Array.from(el.querySelectorAll('a, button, [role="button"]')).filter(isRowRendered)
+            return {
+              rowCount: rows.length,
+              lowestRowBottom: Math.max(...rows.map((row) => row.getBoundingClientRect().bottom)),
+              innerHeight: window.innerHeight,
+            }
+          })
+
+          expect(footer.rowCount).toBeGreaterThan(0)
+          expect(footer.lowestRowBottom).toBeLessThanOrEqual(footer.innerHeight - IN_APP_BROWSER_CHROME_PX)
+          for (const link of socialMediaLinks) {
+            await expect(drawer.locator(`a[href='${link}']`)).toBeInViewport()
+          }
+          await expect(drawer.getByText('Legal & Privacy')).toBeInViewport()
+        })
+      })
+
+      test('reserves no bottom inset in a standalone mobile browser', async ({ page }) => {
+        await expect(openSheetContent(page)).toHaveCSS('padding-bottom', '0px')
       })
 
       test('displays mobile-specific UI elements', async ({ page }) => {
@@ -190,12 +288,11 @@ test.describe(
       })
 
       test('displays bottom bar on token details page', async ({ page }) => {
-        // Verify bottom bar on token details page
         await page.goto('/explore/tokens/ethereum/NATIVE')
         const bottomBar = page.getByTestId(TestID.TokenDetailsMobileBottomBar)
         await expect(bottomBar).toBeVisible()
         await expect(bottomBar.getByText('Buy')).toBeVisible()
-        await expect(bottomBar.getByText('Sell')).toBeVisible()
+        // "Sell" only appears when the connected wallet has a token balance
       })
     })
   },

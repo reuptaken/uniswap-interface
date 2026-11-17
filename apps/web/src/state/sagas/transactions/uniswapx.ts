@@ -1,12 +1,3 @@
-import { popupRegistry } from 'components/Popups/registry'
-import { PopupType } from 'components/Popups/types'
-import { formatSwapSignedAnalyticsEventProperties } from 'lib/utils/analytics'
-import {
-  addTransactionBreadcrumb,
-  getSwapTransactionInfo,
-  handleSignatureStep,
-  TransactionBreadcrumbStatus,
-} from 'state/sagas/transactions/utils'
 import { call, put, SagaGenerator } from 'typed-redux-saga'
 import { TradingApiClient } from 'uniswap/src/data/apiClients/tradingApi/TradingApiClient'
 import { InterfaceEventName, SwapEventName } from 'uniswap/src/features/telemetry/constants'
@@ -27,6 +18,16 @@ import {
   TransactionStatus,
   UniswapXOrderDetails,
 } from 'uniswap/src/features/transactions/types/transactionDetails'
+import { formatSwapSignedAnalyticsEventProperties } from '~/lib/utils/analytics'
+import { popupRegistry } from '~/state/popups/registry'
+import { PopupType } from '~/state/popups/types'
+import { sendSwapSignedEvent } from '~/state/sagas/transactions/swapSignedAnalytics'
+import {
+  addTransactionBreadcrumb,
+  getSwapTransactionInfo,
+  handleSignatureStep,
+  TransactionBreadcrumbStatus,
+} from '~/state/sagas/transactions/utils'
 
 interface HandleUniswapXSignatureStepParams extends HandleSignatureStepParams<UniswapXSignatureStep> {
   trade: UniswapXTrade
@@ -49,6 +50,7 @@ export function* handleUniswapXSignatureStep(params: HandleUniswapXSignatureStep
     },
     portfolioBalanceUsd: analytics.total_balances_usd,
     trace: { ...analytics },
+    priceSource: analytics.price_source,
   }
 
   sendAnalyticsEvent(
@@ -63,6 +65,7 @@ export function* handleUniswapXSignatureStep(params: HandleUniswapXSignatureStep
   const swapInfo = getSwapTransactionInfo({
     trade,
     swapStartTimestamp: analytics.swap_start_timestamp,
+    transactedUSDValue: analytics.token_in_amount_usd,
   })
   addTransactionBreadcrumb({ step, data: { routing, ...swapInfo }, status: TransactionBreadcrumbStatus.InProgress })
   sendAnalyticsEvent(
@@ -77,6 +80,7 @@ export function* handleUniswapXSignatureStep(params: HandleUniswapXSignatureStep
       },
       portfolioBalanceUsd: analytics.total_balances_usd,
       trace: { ...analytics },
+      priceSource: analytics.price_source,
     }),
   )
 
@@ -117,19 +121,23 @@ export function* handleUniswapXSignatureStep(params: HandleUniswapXSignatureStep
 }
 
 export function* handleUniswapXPlanSignatureStep(params: HandleUniswapXPlanSignatureStepParams): SagaGenerator<string> {
-  const { step } = params
+  const { step, analytics } = params
 
   // Check before requiring user to sign an expired deadline
   checkDeadline(step.deadline)
 
-  // TODO: SWAP-446 address analytics InterfaceEventName.UniswapXSignatureRequested
+  sendAnalyticsEvent(InterfaceEventName.UniswapXSignatureRequested, { ...analytics })
 
   const signature = yield* call(handleSignatureStep, params)
 
   // Check again after user has signed to ensure they didn't sign after the deadline
   checkDeadline(step.deadline)
 
-  // TODO: SWAP-446 address analytics SwapEventName.SwapSigned
+  sendSwapSignedEvent({
+    analytics,
+    properties: { ...analytics },
+  })
+
   return signature
 }
 

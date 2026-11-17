@@ -1,4 +1,12 @@
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
+// oxlint-disable typescript/no-duplicate-type-constituents
+import { Flex, Text, TouchableArea } from '@universe/mycelium'
+import { ArrowDownCircle } from '@universe/mycelium/icons/ArrowDownCircle'
+import { CoinConvert } from '@universe/mycelium/icons/CoinConvert'
+import { MinusCircle } from '@universe/mycelium/icons/MinusCircle'
+import { PlusCircle } from '@universe/mycelium/icons/PlusCircle'
+import { SendAction } from '@universe/mycelium/icons/SendAction'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
+import { iconSizes, spacing } from '@universe/mycelium/tokens'
 import React, { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FlatList, ListRenderItemInfo } from 'react-native'
@@ -6,14 +14,13 @@ import { useDispatch, useSelector } from 'react-redux'
 import { navigate } from 'src/app/navigation/rootNavigation'
 import { useOpenReceiveModal } from 'src/features/modals/hooks/useOpenReceiveModal'
 import { openModal } from 'src/features/modals/modalSlice'
-import { Flex, Text, TouchableArea, useSporeColors } from 'ui/src'
-import { ArrowDownCircle, Bank, SendAction, SwapDotted } from 'ui/src/components/icons'
-import { iconSizes, spacing } from 'ui/src/theme'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { useHighestBalanceNativeCurrencyId } from 'uniswap/src/features/dataApi/balances/balances'
+import { useIsForRegionBlocked } from 'uniswap/src/features/fiatOnRamp/useIsForRegionBlocked'
+import { useHighestBalanceNativeCurrencyId } from 'uniswap/src/features/portfolio/balances/hooks'
 import { useHapticFeedback } from 'uniswap/src/features/settings/useHapticFeedback/useHapticFeedback'
 import { ElementName, MobileEventName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import { Trace } from 'uniswap/src/features/telemetry/Trace'
+import { useIsPortfolioZero } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/hooks/useIsPortfolioZero'
 import { selectFilteredChainIds } from 'uniswap/src/features/transactions/swap/state/selectors'
 import { prepareSwapFormState } from 'uniswap/src/features/transactions/types/transactionState'
 import { CurrencyField } from 'uniswap/src/types/currency'
@@ -21,7 +28,12 @@ import { useActiveAccountAddressWithThrow } from 'wallet/src/features/wallet/hoo
 
 const MIN_BUTTON_WIDTH = 102
 
-type IconComponent = typeof SwapDotted | typeof Bank | typeof SendAction | typeof ArrowDownCircle
+type IconComponent =
+  | typeof CoinConvert
+  | typeof PlusCircle
+  | typeof MinusCircle
+  | typeof SendAction
+  | typeof ArrowDownCircle
 type ActionItem = {
   Icon: IconComponent
   label: string
@@ -50,8 +62,9 @@ export function HomeScreenQuickActions(): JSX.Element {
   const { hapticFeedback } = useHapticFeedback()
   const openReceiveModal = useOpenReceiveModal()
   const { isTestnetModeEnabled, defaultChainId } = useEnabledChains()
-  const disableForKorea = useFeatureFlag(FeatureFlags.DisableFiatOnRampKorea)
-  const isBottomTabsEnabled = useFeatureFlag(FeatureFlags.BottomTabs)
+  const isOnrampBlocked = useIsForRegionBlocked({ isOfframp: false })
+  const isOfframpBlocked = useIsForRegionBlocked({ isOfframp: true })
+  const isPortfolioZero = useIsPortfolioZero()
 
   const activeAccountAddress = useActiveAccountAddressWithThrow()
   const persistedFilteredChainIds = useSelector(selectFilteredChainIds)
@@ -84,47 +97,54 @@ export function HomeScreenQuickActions(): JSX.Element {
     await triggerHaptics()
   }, [openReceiveModal, triggerHaptics])
 
-  const onPressBuy = useCallback(async (): Promise<void> => {
-    await triggerHaptics()
-    if (isTestnetModeEnabled) {
-      navigate(ModalName.TestnetMode, {
-        unsupported: true,
-        descriptionCopy: t('tdp.noTestnetSupportDescription'),
-      })
-      return
-    }
-    disableForKorea
-      ? navigate(ModalName.KoreaCexTransferInfoModal)
-      : dispatch(
-          openModal({
-            name: ModalName.FiatOnRampAggregator,
-          }),
-        )
-  }, [triggerHaptics, isTestnetModeEnabled, disableForKorea, dispatch, t])
+  const onPressFORAction = useCallback(
+    async (entry: 'onramp' | 'offramp'): Promise<void> => {
+      await triggerHaptics()
+      if (isTestnetModeEnabled) {
+        navigate(ModalName.TestnetMode, {
+          unsupported: true,
+          descriptionCopy: t('tdp.noTestnetSupportDescription'),
+        })
+        return
+      }
+      if (!isPortfolioZero) {
+        navigate(ModalName.FiatOnRampAction, { entry })
+        return
+      }
+      if (entry === 'offramp' ? isOfframpBlocked : isOnrampBlocked) {
+        navigate(ModalName.CexTransferInfoModal)
+        return
+      }
+      dispatch(
+        openModal({
+          name: ModalName.FiatOnRampAggregator,
+          ...(entry === 'offramp' && { initialState: { isOfframp: true } }),
+        }),
+      )
+    },
+    [triggerHaptics, isTestnetModeEnabled, isOnrampBlocked, isOfframpBlocked, isPortfolioZero, dispatch, t],
+  )
 
   // PR #4621 Necessary to declare these as direct dependencies due to race
   // condition with initializing react-i18next and useMemo
-  const forLabel = t('home.label.for')
   const sendLabel = t('home.label.send')
   const receiveLabel = t('home.label.receive')
+  const buyLabel = t('common.buy.label')
+  const sellLabel = t('common.sell.label')
   const actions = useMemo(
     () => [
-      ...(isBottomTabsEnabled
-        ? [
-            {
-              Icon: SwapDotted,
-              label: 'Swap',
-              name: ElementName.Swap,
-              onPress: onPressSwap,
-            },
-          ]
-        : []),
       {
-        Icon: Bank,
+        Icon: CoinConvert,
+        label: 'Swap',
+        name: ElementName.Swap,
+        onPress: onPressSwap,
+      },
+      {
+        Icon: PlusCircle,
         eventName: MobileEventName.FiatOnRampQuickActionButtonPressed,
-        label: forLabel,
+        label: buyLabel,
         name: ElementName.Buy,
-        onPress: onPressBuy,
+        onPress: () => onPressFORAction('onramp'),
       },
       {
         Icon: SendAction,
@@ -138,11 +158,17 @@ export function HomeScreenQuickActions(): JSX.Element {
         name: ElementName.Receive,
         onPress: onPressReceive,
       },
+      {
+        Icon: MinusCircle,
+        eventName: MobileEventName.FiatOnRampQuickActionButtonPressed,
+        label: sellLabel,
+        name: ElementName.Sell,
+        onPress: () => onPressFORAction('offramp'),
+      },
     ],
-    [isBottomTabsEnabled, onPressSwap, forLabel, onPressBuy, sendLabel, onPressSend, receiveLabel, onPressReceive],
+    [onPressSwap, buyLabel, onPressFORAction, sendLabel, onPressSend, receiveLabel, onPressReceive, sellLabel],
   )
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +activeScale
   const renderItem = useCallback(
     ({ item: { eventName, name, label, Icon, onPress } }: ListRenderItemInfo<ActionItem>) => (
       <Trace key={name} logPress element={name} eventOnTrigger={eventName}>
@@ -151,18 +177,12 @@ export function HomeScreenQuickActions(): JSX.Element {
           mr="$spacing8"
           scaleTo={activeScale}
           dd-action-name={name}
+          testID={name}
           onPress={onPress}
         >
-          <Flex
-            fill
-            backgroundColor="$accent2"
-            borderRadius="$rounded20"
-            py="$spacing16"
-            px="$spacing12"
-            gap="$spacing12"
-            justifyContent="space-between"
-            height="100%"
-          >
+          {/* Content-sized cell: percentage/fill heights resolve to 0 inside an
+              auto-height horizontal FlatList row under the mycelium compat primitives. */}
+          <Flex backgroundColor="$accent2" borderRadius="$rounded20" py="$spacing16" px="$spacing12" gap="$spacing12">
             <Icon color={contentColor} size={iconSize} strokeWidth={2} />
             <Text color={contentColor} variant="buttonLabel2">
               {label}
@@ -173,33 +193,6 @@ export function HomeScreenQuickActions(): JSX.Element {
     ),
     [activeScale, contentColor, iconSize],
   )
-
-  if (!isBottomTabsEnabled) {
-    return (
-      <Flex centered row gap="$spacing8" px="$spacing12">
-        {actions.map(({ eventName, name, label, Icon, onPress }) => (
-          <Trace key={name} logPress element={name} eventOnTrigger={eventName}>
-            <TouchableArea flex={1} dd-action-name={name} scaleTo={activeScale} onPress={onPress}>
-              <Flex
-                fill
-                backgroundColor="$accent2"
-                borderRadius="$rounded20"
-                py="$spacing16"
-                px="$spacing12"
-                gap="$spacing12"
-                justifyContent="space-between"
-              >
-                <Icon color={contentColor} size={iconSize} strokeWidth={2} />
-                <Text color={contentColor} variant="buttonLabel2">
-                  {label}
-                </Text>
-              </Flex>
-            </TouchableArea>
-          </Trace>
-        ))}
-      </Flex>
-    )
-  }
 
   return (
     <Flex>

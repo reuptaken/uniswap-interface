@@ -1,16 +1,17 @@
+import { UniverseChainId } from '@universe/chains'
+// Saga handlers — redux-saga binds the receiver via call([obj, method]), which unbound-method can't model.
+/* oxlint-disable typescript/unbound-method */
 import { DappInfo } from 'src/app/features/dapp/store'
 import type { SenderTabInfo } from 'src/app/features/dappRequests/shared'
 import { ChainIdResponse, GetChainIdRequest } from 'src/app/features/dappRequests/types/DappRequestTypes'
 import { dappResponseMessageChannel } from 'src/background/messagePassing/messageChannels'
 import { call } from 'typed-redux-saga'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { chainIdToHexadecimalString } from 'uniswap/src/features/chains/utils'
 import { DappResponseType } from 'uniswap/src/features/dappRequests/types'
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function* getChainId({
   request,
-  senderTabInfo: { id },
+  senderTabInfo,
   dappInfo,
 }: {
   request: GetChainIdRequest
@@ -23,13 +24,12 @@ export function* getChainId({
     chainId: chainIdToHexadecimalString(dappInfo.lastChainId),
   }
 
-  yield* call(dappResponseMessageChannel.sendMessageToTab, id, response)
+  yield* call(dappResponseMessageChannel.sendMessageToFrame, senderTabInfo, response)
 }
 
-// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function* getChainIdNoDappInfo({
   request,
-  senderTabInfo: { id },
+  senderTabInfo,
   defaultChainId,
 }: {
   request: GetChainIdRequest
@@ -43,5 +43,5 @@ export function* getChainIdNoDappInfo({
     chainId: chainIdToHexadecimalString(defaultChainId),
   }
 
-  yield* call(dappResponseMessageChannel.sendMessageToTab, id, response)
+  yield* call(dappResponseMessageChannel.sendMessageToFrame, senderTabInfo, response)
 }

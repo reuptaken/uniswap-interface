@@ -1,16 +1,16 @@
-import { GraphQLApi } from '@universe/api'
-import { ETH_LOGO, ZKSYNC_LOGO } from 'ui/src/assets'
-import { DEFAULT_NATIVE_ADDRESS_LEGACY, getQuicknodeEndpointUrl } from 'uniswap/src/features/chains/evm/rpc'
+import { GraphQLApi, TradingApi } from '@universe/api'
+import { UniverseChainId, Platform } from '@universe/chains'
+import { ETH_LOGO, ZKSYNC_LOGO } from '@universe/mycelium/assets'
+import { ALL_APPS_CHAIN_SUPPORTED_APPS } from 'uniswap/src/features/chains/chainAppSupport'
+import { CHAIN_ID_TO_URL_PARAM } from 'uniswap/src/features/chains/chainUrlParam'
+import {
+  DEFAULT_NATIVE_ADDRESS_LEGACY,
+  getQuicknodeEndpointUrl,
+  getUniRpcEndpointUrl,
+} from 'uniswap/src/features/chains/evm/rpc'
 import { buildChainTokens } from 'uniswap/src/features/chains/evm/tokens'
 import { GENERIC_L2_GAS_CONFIG } from 'uniswap/src/features/chains/gasDefaults'
-import {
-  GqlChainId,
-  NetworkLayer,
-  RPCType,
-  UniverseChainId,
-  UniverseChainInfo,
-} from 'uniswap/src/features/chains/types'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
+import { GqlChainId, NetworkLayer, RPCType, UniverseChainInfo } from 'uniswap/src/features/chains/types'
 import { ElementName } from 'uniswap/src/features/telemetry/constants'
 import { buildUSDC } from 'uniswap/src/features/tokens/stablecoin'
 import { zksync } from 'wagmi/chains'
@@ -25,6 +25,7 @@ export const ZKSYNC_CHAIN_INFO = {
   ...zksync,
   id: UniverseChainId.Zksync,
   platform: Platform.EVM,
+  supportedApps: ALL_APPS_CHAIN_SUPPORTED_APPS,
   assetRepoNetworkName: 'zksync',
   backendChain: {
     chain: GraphQLApi.Chain.Zksync as GqlChainId,
@@ -39,9 +40,9 @@ export const ZKSYNC_CHAIN_INFO = {
   explorer: {
     name: 'ZKsync Explorer',
     url: 'https://explorer.zksync.io/',
-    apiURL: 'https://block-explorer-api.mainnet.zksync.io',
   },
   interfaceName: 'zksync',
+  searchAliases: ['zk sync', 'zk'],
   label: 'ZKsync',
   logo: ZKSYNC_LOGO,
   nativeCurrency: {
@@ -52,15 +53,17 @@ export const ZKSYNC_CHAIN_INFO = {
     logo: ETH_LOGO,
   },
   networkLayer: NetworkLayer.L2,
+  blockTimeMs: 1000,
   pendingTransactionsRetryOptions: undefined,
   rpcUrls: {
-    [RPCType.Public]: { http: [getQuicknodeEndpointUrl(UniverseChainId.Zksync)] },
+    [RPCType.Public]: { http: [getUniRpcEndpointUrl(UniverseChainId.Zksync)] },
     [RPCType.Default]: { http: ['https://mainnet.era.zksync.io/'] },
     [RPCType.Interface]: { http: [getQuicknodeEndpointUrl(UniverseChainId.Zksync)] },
   },
-  urlParam: 'zksync',
+  urlParam: CHAIN_ID_TO_URL_PARAM[UniverseChainId.Zksync],
   statusPage: undefined,
   tokens,
+  supportedURVersions: [TradingApi.UniversalRouterVersion._2_0],
   supportsV4: false,
   supportsNFTs: true,
   wrappedNativeCurrency: {

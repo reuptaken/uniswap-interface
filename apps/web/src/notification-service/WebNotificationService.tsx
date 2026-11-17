@@ -1,48 +1,58 @@
 import { queryOptions, useQuery } from '@tanstack/react-query'
+import { PlatformType } from '@uniswap/client-notification-service/dist/uniswap/notificationservice/v1/api_pb'
 import {
   createFetchClient,
   createNotificationsApiClient,
   getEntryGatewayUrl,
   provideSessionService,
-  SESSION_INIT_QUERY_KEY,
   SharedQueryClient,
 } from '@universe/api'
-import { FeatureFlags, getIsSessionServiceEnabled, useFeatureFlag } from '@universe/gating'
+import { UniverseChainId } from '@universe/chains'
+import { isE2eTestEnv, REQUEST_SOURCE } from '@universe/environment'
 import {
   createApiNotificationTracker,
   createBaseNotificationProcessor,
   createNotificationService,
   createPollingNotificationDataSource,
-  getIsNotificationServiceEnabled,
   getNotificationQueryOptions,
+  type NotificationDataSource,
   type NotificationService,
 } from '@universe/notifications'
-import { createLocalStorageAdapter } from 'notification-service/createLocalStorageAdapter'
-import { createLegacyBannersNotificationDataSource } from 'notification-service/data-sources/createLegacyBannersNotificationDataSource'
-import { createWebNotificationRenderer } from 'notification-service/notification-renderer/createWebNotificationRenderer'
-import { NotificationContainer } from 'notification-service/notification-renderer/NotificationContainer'
-import { useNotificationStore } from 'notification-service/notification-renderer/notificationStore'
-import { getNotificationTelemetry } from 'notification-service/telemetry/getNotificationTelemetry'
-import { useEffect } from 'react'
+import { SESSION_INIT_QUERY_KEY } from '@universe/sessions'
+import ms from 'ms'
+import { useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router'
-import store from 'state'
-import { useIsDarkMode } from 'ui/src'
+import { useUniswapContext } from 'uniswap/src/contexts/UniswapContext'
 import { mapLocaleToBackendLocale } from 'uniswap/src/features/language/constants'
-import { getLocale } from 'uniswap/src/features/language/hooks'
+import { getLocale } from 'uniswap/src/features/language/navigatorLocale'
 import { selectCurrentLanguage } from 'uniswap/src/features/settings/selectors'
-import { isPlaywrightEnv } from 'utilities/src/environment/env'
+import { AVERAGE_L1_BLOCK_TIME_MS } from 'uniswap/src/features/transactions/hooks/usePollingIntervalByChain'
 import { getLogger } from 'utilities/src/logger/logger'
-import { REQUEST_SOURCE } from 'utilities/src/platform/requestSource'
 import { ReactQueryCacheKey } from 'utilities/src/reactQuery/cache'
 import { type QueryOptionsResult } from 'utilities/src/reactQuery/queryOptions'
+import { getConfig } from '~/config'
+import { useCurrentBlockTimestamp } from '~/hooks/useCurrentBlockTimestamp'
+import { useMachineTimeMs } from '~/hooks/useMachineTime'
+import { createLocalStorageAdapter } from '~/notification-service/createLocalStorageAdapter'
+import { createLegacyBannersNotificationDataSource } from '~/notification-service/data-sources/createLegacyBannersNotificationDataSource'
+import { createSystemAlertsDataSource } from '~/notification-service/data-sources/createSystemAlertsDataSource'
+import { createWebNotificationRenderer } from '~/notification-service/notification-renderer/createWebNotificationRenderer'
+import { NotificationContainer } from '~/notification-service/notification-renderer/NotificationContainer'
+import { useNotificationStore } from '~/notification-service/notification-renderer/notificationStore'
+import { getNotificationTelemetry } from '~/notification-service/telemetry/getNotificationTelemetry'
+import { getInAppDestination } from '~/notification-service/utils/getNotificationDestination'
+import store from '~/state'
 
 /**
  * Creates the notification service with all necessary dependencies
  */
 function provideWebNotificationService(ctx: {
-  getIsDarkMode: () => boolean
   navigate: (path: string) => void
-  getIsApiDataSourceEnabled: () => boolean
+  getSwapInputChainId: () => UniverseChainId | undefined
+  getBlockTimestamp: () => bigint | undefined
+  getBlockTimestampUpdatedAt: () => number
+  getStalenessCheckTimeMs: () => number
+  getPathname: () => string
 }): NotificationService {
   const notifApiBaseUrl = getEntryGatewayUrl()
 
@@ -58,10 +68,10 @@ function provideWebNotificationService(ctx: {
         'Content-Type': 'application/json',
         'x-request-source': REQUEST_SOURCE,
         'x-uniswap-locale': backendLocale,
+        'x-app-version': getConfig().appVersion,
       }
     },
-    getSessionService: () =>
-      provideSessionService({ getBaseUrl: () => getEntryGatewayUrl(), getIsSessionServiceEnabled }),
+    getSessionService: () => provideSessionService({ getBaseUrl: () => getEntryGatewayUrl() }),
     defaultOptions: {
       credentials: 'include',
     },
@@ -72,8 +82,9 @@ function provideWebNotificationService(ctx: {
     getApiPathPrefix: () => '', // Empty prefix if the full path is in the base URL
   })
 
-  const queryOptions = getNotificationQueryOptions({
+  const queryOpts = getNotificationQueryOptions({
     apiClient,
+    getPlatformType: () => PlatformType.WEB,
     pollIntervalMs: 120000, // Poll every 2 minutes
     getIsSessionInitialized: () => {
       const sessionData = SharedQueryClient.getQueryData(SESSION_INIT_QUERY_KEY)
@@ -83,7 +94,7 @@ function provideWebNotificationService(ctx: {
 
   const backendDataSource = createPollingNotificationDataSource({
     queryClient: SharedQueryClient,
-    queryOptions,
+    queryOptions: queryOpts,
   })
 
   const tracker = createApiNotificationTracker({
@@ -92,11 +103,19 @@ function provideWebNotificationService(ctx: {
     storage: createLocalStorageAdapter(),
   })
 
-  // Legacy banners that would conflict with the new notification system (Solana and Bridging)
+  // Migrates legacy banner dismissal state (Bridging) into the notification system
   const bannersDataSource = createLegacyBannersNotificationDataSource({
     tracker,
-    getIsDarkMode: ctx.getIsDarkMode,
-    pollIntervalMs: 10000,
+  })
+
+  // System alerts data source (chain connectivity, outages)
+  const systemAlertsDataSource = createSystemAlertsDataSource({
+    getSwapInputChainId: ctx.getSwapInputChainId,
+    getBlockTimestamp: ctx.getBlockTimestamp,
+    getBlockTimestampUpdatedAt: ctx.getBlockTimestampUpdatedAt,
+    getStalenessCheckTimeMs: ctx.getStalenessCheckTimeMs,
+    getPathname: ctx.getPathname,
+    pollIntervalMs: 5000,
   })
 
   const processor = createBaseNotificationProcessor(tracker)
@@ -107,7 +126,7 @@ function provideWebNotificationService(ctx: {
 
   const telemetry = getNotificationTelemetry()
 
-  const dataSources = ctx.getIsApiDataSourceEnabled() ? [backendDataSource, bannersDataSource] : [bannersDataSource]
+  const dataSources: NotificationDataSource[] = [backendDataSource, bannersDataSource, systemAlertsDataSource]
 
   const notificationService = createNotificationService({
     dataSources,
@@ -116,29 +135,17 @@ function provideWebNotificationService(ctx: {
     renderer,
     telemetry,
     onNavigate: (url: string) => {
-      if (url.startsWith('/')) {
-        ctx.navigate(url)
+      const destination = getInAppDestination(url, {
+        onParseError: (error) =>
+          getLogger().warn('WebNotificationService', 'onNavigate', 'Failed to parse URL', { url, error }),
+      })
+
+      if (destination) {
+        ctx.navigate(destination)
         return
       }
 
-      try {
-        // Parse the URL to check if it's same-origin
-        const urlObj = new URL(url, window.location.origin)
-        const isSameOrigin = urlObj.origin === window.location.origin
-
-        if (isSameOrigin) {
-          // Use internal navigation for same-origin links
-          const path = urlObj.pathname + urlObj.search + urlObj.hash
-          ctx.navigate(path)
-        } else {
-          // Open external links in new tab
-          window.open(url, '_blank', 'noopener,noreferrer')
-        }
-      } catch (error) {
-        // If URL parsing fails, fall back to opening in new tab
-        getLogger().warn('WebNotificationService', 'onNavigate', 'Failed to parse URL', { url, error })
-        window.open(url, '_blank', 'noopener,noreferrer')
-      }
+      window.open(url, '_blank', 'noopener,noreferrer')
     },
   })
 
@@ -150,40 +157,72 @@ function provideWebNotificationService(ctx: {
  * Accepts the context needed to create the notification service
  */
 function getNotificationServiceQueryOptions(ctx: {
-  getIsDarkMode: () => boolean
   navigate: (path: string) => void
-  getIsEnabled: () => boolean
-  getIsApiDataSourceEnabled: () => boolean
+  getSwapInputChainId: () => UniverseChainId | undefined
+  getBlockTimestamp: () => bigint | undefined
+  getBlockTimestampUpdatedAt: () => number
+  getStalenessCheckTimeMs: () => number
+  getPathname: () => string
 }): QueryOptionsResult<NotificationService, Error, NotificationService, [ReactQueryCacheKey.NotificationService]> {
   return queryOptions({
     queryKey: [ReactQueryCacheKey.NotificationService],
-    queryFn: () => provideWebNotificationService(ctx),
-    enabled: ctx.getIsEnabled(),
+    queryFn: () =>
+      provideWebNotificationService({
+        navigate: ctx.navigate,
+        getSwapInputChainId: ctx.getSwapInputChainId,
+        getBlockTimestamp: ctx.getBlockTimestamp,
+        getBlockTimestampUpdatedAt: ctx.getBlockTimestampUpdatedAt,
+        getStalenessCheckTimeMs: ctx.getStalenessCheckTimeMs,
+        getPathname: ctx.getPathname,
+      }),
+    enabled: !isE2eTestEnv(),
     staleTime: Infinity, // Never refetch while mounted
     gcTime: 0, // Don't persist in cache - NotificationService has methods that can't be serialized
   })
 }
 
 export function WebNotificationServiceManager(): JSX.Element | null {
-  const isNotificationServiceEnabledFlag = useFeatureFlag(FeatureFlags.NotificationService)
-  const isNotificationServiceEnabled =
-    !isPlaywrightEnv() && (getIsNotificationServiceEnabled() || isNotificationServiceEnabledFlag)
-  const isApiDataSourceEnabledFlag = useFeatureFlag(FeatureFlags.NotificationApiDataSource)
   const location = useLocation()
   const navigate = useNavigate()
 
-  // Don't show notifications on the landing page
-  const shouldRenderNotifications = location.pathname !== '/'
+  // Hook values that need to be passed to system alerts data source
+  const { swapInputChainId } = useUniswapContext()
+  const { blockTimestamp, blockTimestampUpdatedAt } = useCurrentBlockTimestamp({
+    refetchInterval: ms('5min'),
+    chainId: swapInputChainId,
+  })
+  const machineTime = useMachineTimeMs(AVERAGE_L1_BLOCK_TIME_MS)
 
-  // Get current values for banner conditions (using refs to avoid recreating system)
-  const isDarkMode = useIsDarkMode()
+  // Store latest values in refs so getter functions always return current values
+  const swapInputChainIdRef = useRef<UniverseChainId | undefined>(swapInputChainId)
+  const blockTimestampRef = useRef<bigint | undefined>(blockTimestamp)
+  const blockTimestampUpdatedAtRef = useRef<number>(blockTimestampUpdatedAt)
+  const machineTimeRef = useRef<number>(machineTime)
+  const pathnameRef = useRef<string>(location.pathname)
+
+  // Update refs on every render to ensure getters return fresh values
+  swapInputChainIdRef.current = swapInputChainId
+  blockTimestampRef.current = blockTimestamp
+  blockTimestampUpdatedAtRef.current = blockTimestampUpdatedAt
+  machineTimeRef.current = machineTime
+  pathnameRef.current = location.pathname
+
+  // Memoize getter functions to avoid recreating the service
+  const getters = useMemo(
+    () => ({
+      getSwapInputChainId: () => swapInputChainIdRef.current,
+      getBlockTimestamp: () => blockTimestampRef.current,
+      getBlockTimestampUpdatedAt: () => blockTimestampUpdatedAtRef.current,
+      getStalenessCheckTimeMs: () => machineTimeRef.current,
+      getPathname: () => pathnameRef.current,
+    }),
+    [],
+  )
 
   const { data: notificationService } = useQuery(
     getNotificationServiceQueryOptions({
-      getIsDarkMode: () => isDarkMode,
       navigate: (path: string) => navigate(path),
-      getIsEnabled: () => isNotificationServiceEnabled,
-      getIsApiDataSourceEnabled: () => isApiDataSourceEnabledFlag,
+      ...getters,
     }),
   )
 
@@ -204,12 +243,13 @@ export function WebNotificationServiceManager(): JSX.Element | null {
     }
   }, [notificationService])
 
-  if (!isNotificationServiceEnabled || !shouldRenderNotifications || !notificationService) {
+  if (!notificationService) {
     return null
   }
 
   return (
     <NotificationContainer
+      currentLocation={location}
       onRenderFailed={notificationService.onRenderFailed}
       onNotificationShown={notificationService.onNotificationShown}
       onNotificationClick={notificationService.onNotificationClick}

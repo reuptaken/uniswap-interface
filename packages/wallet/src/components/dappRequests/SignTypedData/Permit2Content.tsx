@@ -1,7 +1,7 @@
+import { Flex, Text, TouchableArea } from '@universe/mycelium'
+import { RotatableChevron } from '@universe/mycelium/icons/RotatableChevron'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text, TouchableArea } from 'ui/src'
-import { RotatableChevron } from 'ui/src/components/icons'
 import { toSupportedChainId } from 'uniswap/src/features/chains/utils'
 import { ExplorerDataType, getExplorerLink } from 'uniswap/src/utils/linking'
 import { DomainContent } from 'wallet/src/components/dappRequests/SignTypedData/DomainContent'
@@ -37,7 +37,7 @@ export function Permit2Content({ typedData }: Permit2ContentProps): JSX.Element 
           {t('dapp.request.permit2.description')}
         </Text>
         <TouchableArea onPress={toggleOpen}>
-          <RotatableChevron color="$neutral2" direction={open ? 'up' : 'down'} height={16} width={16} />
+          <RotatableChevron color="$neutral2" direction={open ? 'up' : 'down'} size="$icon.16" />
         </TouchableArea>
       </Flex>
       {open && (

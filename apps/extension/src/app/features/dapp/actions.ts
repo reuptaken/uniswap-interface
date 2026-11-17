@@ -1,3 +1,4 @@
+import { UniverseChainId } from '@universe/chains'
 import { DappInfo, dappStore } from 'src/app/features/dapp/store'
 import { getCapitalizedDisplayNameFromTab } from 'src/app/features/dapp/utils'
 import { externalDappMessageChannel } from 'src/background/messagePassing/messageChannels'
@@ -6,7 +7,6 @@ import {
   ExtensionToDappRequestType,
   UpdateConnectionRequest,
 } from 'src/background/messagePassing/types/requests'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { chainIdToHexadecimalString } from 'uniswap/src/features/chains/utils'
 import { Account } from 'wallet/src/features/wallet/accounts/types'
 import { getProviderSync } from 'wallet/src/features/wallet/context'
@@ -17,6 +17,7 @@ export async function saveDappChain(dappUrl: string, chainId: UniverseChainId): 
 
   const response: ExtensionChainChange = {
     type: ExtensionToDappRequestType.SwitchChain,
+    dappUrl,
     providerUrl: provider.connection.url,
     chainId: chainIdToHexadecimalString(chainId),
   }
@@ -58,6 +59,7 @@ async function updateConnectionFromExtension(dappUrl: string): Promise<void> {
   const connectedWallets = dappStore.getDappOrderedConnectedAddresses(dappUrl) ?? []
   const response: UpdateConnectionRequest = {
     type: ExtensionToDappRequestType.UpdateConnections,
+    dappUrl,
     addresses: connectedWallets,
   }
 
@@ -105,6 +107,7 @@ export async function removeAllDappConnectionsFromExtension(): Promise<void> {
   for (const dappUrl of dappUrls) {
     const response: UpdateConnectionRequest = {
       type: ExtensionToDappRequestType.UpdateConnections,
+      dappUrl,
       addresses: [],
     }
     await externalDappMessageChannel.sendMessageToTabUrl(dappUrl, response)

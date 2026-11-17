@@ -1,5 +1,6 @@
+import { Flex, Text } from '@universe/mycelium'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text, UniswapXText } from 'ui/src'
+import { UniswapXText } from 'ui/src'
 import { AnimatedUniswapX } from 'ui/src/components/icons/UniswapX'
 import { AcrossLogo } from 'ui/src/components/logos/AcrossLogo'
 import { Trade } from 'uniswap/src/features/transactions/swap/types/trade'
@@ -24,7 +25,7 @@ export function RoutingLabel({ trade }: { trade: Trade }): JSX.Element {
 
   if (isUniswapX(trade)) {
     return (
-      <Flex row gap="$spacing1">
+      <Flex row gap="$spacing2">
         <AnimatedUniswapX size="$icon.16" animation="simple" />
         <UniswapXText variant="body3">{t('uniswapx.label')}</UniswapXText>
       </Flex>

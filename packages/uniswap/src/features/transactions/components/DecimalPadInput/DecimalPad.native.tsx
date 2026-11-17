@@ -1,18 +1,17 @@
+import { Flex, fonts, iconSizes, spacing, Text, AnimatedFlex } from '@universe/mycelium'
+import { ArrowLeft } from '@universe/mycelium/icons/ArrowLeft'
+import { ArrowRight } from '@universe/mycelium/icons/ArrowRight'
+import { TestID } from '@universe/test'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { I18nManager, LayoutChangeEvent } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated'
-import { Flex, Text } from 'ui/src'
-import { LeftArrow, RightArrow } from 'ui/src/components/icons'
-import { AnimatedFlex } from 'ui/src/components/layout/AnimatedFlex'
-import { fonts, iconSizes, spacing } from 'ui/src/theme'
 import { useAppFiatCurrencyInfo } from 'uniswap/src/features/fiatCurrency/hooks'
 import {
   DecimalPadProps,
   KeyAction,
   KeyLabel,
 } from 'uniswap/src/features/transactions/components/DecimalPadInput/types'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 
 const KEY_PRESS_ANIMATION_DURATION_MS = 150
 
@@ -115,7 +114,6 @@ export const DecimalPad = memo(function DecimalPad({
           label: '0',
           action: KeyAction.Insert,
           testID: TestID.DecimalPadNumber0,
-          align: 'center',
         },
         {
           label: 'backspace',
@@ -130,12 +128,8 @@ export const DecimalPad = memo(function DecimalPad({
     setCurrentHeight(event.nativeEvent.layout.height)
   }, [])
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +sizeMultiplier, onReady
   useEffect(() => {
-    // skip resize if the layout is still the same height as before
-    if (currentHeightRef.current === currentHeight) {
-      return
-    }
+    const layoutChanged = currentHeightRef.current !== currentHeight
 
     currentHeightRef.current = currentHeight
     maxHeightRef.current = maxHeight
@@ -145,6 +139,11 @@ export const DecimalPad = memo(function DecimalPad({
     }
 
     if (currentHeight < maxHeight) {
+      // Already fits and the pad's own layout didn't change (e.g. `maxHeight` grew) — nothing to do.
+      // There's deliberately no grow-back: resizing up on accessory changes would make the pad flap.
+      if (!layoutChanged) {
+        return
+      }
       // We call `onReady` on the next frame to ensure layout has stabilized and `maxHeight` is accurate.
       requestAnimationFrame(() => {
         if (
@@ -158,12 +157,15 @@ export const DecimalPad = memo(function DecimalPad({
       return
     }
 
+    // Shrink even when only `maxHeight` changed: a consumer's accessory elements can finish
+    // measuring (or grow) after the pad has already settled at its current size.
     setSizeMultiplier({
       fontSize: sizeMultiplier.fontSize * 0.95,
       icon: sizeMultiplier.icon * 0.97,
       lineHeight: sizeMultiplier.lineHeight * 0.95,
       padding: sizeMultiplier.padding * 0.8,
     })
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
   }, [currentHeight, maxHeight])
 
   if (maxHeight === null) {
@@ -233,6 +235,7 @@ const KeyButton = memo(function KeyButton({
     onPress?.(label, action)
     scale.value = withSequence(withTiming(1.3, animationOptions), withTiming(1, animationOptions))
     opacity.value = withSequence(withTiming(0.75, animationOptions), withTiming(1, animationOptions))
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
   }, [action, label, onPress])
 
   const handleLongPressStart = useCallback((): void => {
@@ -267,10 +270,10 @@ const KeyButton = memo(function KeyButton({
     // For a custom keyboard, we want to be able to detect each finger as a separate tap even when they are pressed at the same (or almost the same) time.
     <GestureDetector gesture={composedGesture}>
       <Flex
+        fill
         row
         $short={{ py: spacing.spacing16 * sizeMultiplier.padding }}
         alignItems="center"
-        flex={1}
         height="100%"
         px={spacing.spacing16 * sizeMultiplier.padding}
         py={spacing.spacing12 * sizeMultiplier.padding}
@@ -279,9 +282,9 @@ const KeyButton = memo(function KeyButton({
         <AnimatedFlex grow alignItems="center" style={animatedStyle}>
           {label === 'backspace' ? (
             I18nManager.isRTL ? (
-              <RightArrow color={color} size={iconSizes.icon24 * sizeMultiplier.icon} />
+              <ArrowRight color={color} size={iconSizes.icon24 * sizeMultiplier.icon} />
             ) : (
-              <LeftArrow color={color} size={iconSizes.icon24 * sizeMultiplier.icon} />
+              <ArrowLeft color={color} size={iconSizes.icon24 * sizeMultiplier.icon} />
             )
           ) : (
             <Text

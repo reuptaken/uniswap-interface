@@ -1,53 +1,39 @@
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import Row from 'components/deprecated/Row'
-import { CompanyMenu } from 'components/NavBar/CompanyMenu'
-import { NewUserCTAButton } from 'components/NavBar/DownloadApp/NewUserCTAButton'
-import { PreferenceMenu } from 'components/NavBar/PreferencesMenu'
-import { useTabsVisible } from 'components/NavBar/ScreenSizes'
-import { SearchBar } from 'components/NavBar/SearchBar'
-import { useIsSearchBarVisible } from 'components/NavBar/SearchBar/useIsSearchBarVisible'
-import { Tabs } from 'components/NavBar/Tabs/Tabs'
-import TestnetModeTooltip from 'components/NavBar/TestnetMode/TestnetModeTooltip'
-import { UniswapWrappedEntry } from 'components/NavBar/UniswapWrappedEntry'
-import Web3Status from 'components/Web3Status'
-import { PageType, useIsPage } from 'hooks/useIsPage'
-import { css, deprecatedStyled } from 'lib/styled-components'
-import { Flex, styled, Nav as TamaguiNav, useMedia } from 'ui/src'
-import { breakpoints, INTERFACE_NAV_HEIGHT, zIndexes } from 'ui/src/theme'
+import { Flex, type FlexCompatProps } from '@universe/mycelium'
+import { useMedia } from '@universe/mycelium/theme-hooks-compat'
+import { forwardRef } from 'react'
+import { INTERFACE_NAV_HEIGHT, zIndexes } from 'ui/src/theme'
 import { useConnectionStatus } from 'uniswap/src/features/accounts/store/hooks'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
+import { CompanyMenu } from '~/components/NavBar/CompanyMenu'
+import { NewUserCTAButton } from '~/components/NavBar/DownloadApp/NewUserCTAButton'
+import { PreferenceMenu } from '~/components/NavBar/PreferencesMenu'
+import { useTabsVisible } from '~/components/NavBar/ScreenSizes'
+import { SearchBar } from '~/components/NavBar/SearchBar'
+import { useIsSearchBarVisible } from '~/components/NavBar/SearchBar/useIsSearchBarVisible'
+import { Tabs } from '~/components/NavBar/Tabs/Tabs'
+import { TestnetModeTooltip } from '~/components/NavBar/TestnetMode/TestnetModeTooltip'
+import { Web3Status } from '~/components/Web3Status'
+import { PageType, useIsPage } from '~/hooks/useIsPage'
 
-// Flex is position relative by default, we must unset the position on every Flex
-// between the body and search component
-const UnpositionedFlex = styled(Flex, {
-  position: 'unset',
+const NavItemsRow = forwardRef<HTMLDivElement, FlexCompatProps>(function NavItemsRow({ $md: md, ...props }, ref) {
+  return (
+    <Flex
+      ref={ref}
+      position="static"
+      row
+      minWidth={0}
+      alignItems="center"
+      flexWrap="nowrap"
+      justifyContent="flex-start"
+      gap="$spacing12"
+      $md={{ gap: '$spacing2', ...md }}
+      {...props}
+    />
+  )
 })
-const Nav = styled(TamaguiNav, {
-  position: 'unset',
-  px: '$padding12',
-  width: '100%',
-  height: INTERFACE_NAV_HEIGHT,
-  zIndex: zIndexes.sticky,
-  justifyContent: 'center',
-})
-const NavItems = css`
-  gap: 12px;
-  @media screen and (max-width: ${breakpoints.md}px) {
-    gap: 4px;
-  }
-`
-const Left = deprecatedStyled(Row)`
-  display: flex;
-  align-items: center;
-  wrap: nowrap;
-  ${NavItems}
-`
-const Right = deprecatedStyled(Row)`
-  justify-content: flex-end;
-  ${NavItems}
-`
 
-export default function Navbar() {
+export function Navbar() {
   const isLandingPage = useIsPage(PageType.LANDING)
 
   const media = useMedia()
@@ -58,27 +44,52 @@ export default function Navbar() {
 
   const { isTestnetModeEnabled } = useEnabledChains()
   const isEmbeddedWalletEnabled = useFeatureFlag(FeatureFlags.EmbeddedWallet)
+  // On mobile the right-row glyphs sit 20px apart, spaced per item instead of by the row gap. The testnet
+  // pill doesn't follow that rhythm, so with it shown the row keeps the default gap.
+  const isCompactMobileRow = !isTestnetModeEnabled
 
   return (
-    <Nav>
-      <UnpositionedFlex row centered width="100%">
-        <Left>
+    <Flex
+      tag="nav"
+      position="unset"
+      px="$padding12"
+      $md={{ px: '$padding16' }}
+      width="100%"
+      height={INTERFACE_NAV_HEIGHT}
+      zIndex={zIndexes.sticky}
+      justifyContent="center"
+    >
+      <Flex
+        position="static"
+        width="100%"
+        alignItems="center"
+        $platform-web={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+        }}
+      >
+        <NavItemsRow>
           <CompanyMenu />
           {areTabsVisible && <Tabs />}
-        </Left>
+        </NavItemsRow>
 
-        {isSearchBarVisible && <SearchBar />}
+        <Flex position="static" centered>
+          {isSearchBarVisible ? <SearchBar /> : null}
+        </Flex>
 
-        <Right>
-          <UniswapWrappedEntry />
+        <NavItemsRow justifyContent="flex-end" $md={isCompactMobileRow ? { gap: '$none' } : undefined}>
           {!isSearchBarVisible && <SearchBar />}
           {!isEmbeddedWalletEnabled && isLandingPage && !isSmallScreen && <NewUserCTAButton />}
-          {!isConnected && <PreferenceMenu />}
+          {!isConnected && (
+            // NavIcon pads its glyph 14px per side, so the menu overlaps search's tap box to land 20px from it.
+            <Flex $md={isCompactMobileRow ? { ml: -8, mr: '$spacing6' } : undefined}>
+              <PreferenceMenu />
+            </Flex>
+          )}
           {isTestnetModeEnabled && <TestnetModeTooltip />}
-          {isEmbeddedWalletEnabled && !isConnected && <NewUserCTAButton />}
           <Web3Status />
-        </Right>
-      </UnpositionedFlex>
-    </Nav>
+        </NavItemsRow>
+      </Flex>
+    </Flex>
   )
 }

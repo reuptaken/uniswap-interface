@@ -1,16 +1,16 @@
 import { useTheme } from '@react-navigation/core'
+import type { UniverseChainId } from '@universe/chains'
+import { Flex, iconSizes, spacing, Text, TouchableArea } from '@universe/mycelium'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
 import { memo, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ViewStyle } from 'react-native'
 import { FlatList } from 'react-native-gesture-handler'
 import { useFlatListAutoScroll } from 'src/components/explore/hooks/useFlatListAutoScroll'
-import { Flex, Text, TouchableArea, useSporeColors } from 'ui/src'
-import { iconSizes, spacing } from 'ui/src/theme'
 import { NetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
 import { NetworkPill } from 'uniswap/src/components/network/NetworkPill'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import type { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 import { useEvent } from 'utilities/src/react/hooks'
 
 const keyExtractor = (chainId: UniverseChainId): string => chainId.toString()
@@ -27,7 +27,6 @@ const AllNetworksPill = memo(function AllNetworksPill({
     <Flex
       centered
       row
-      ml="$spacing8"
       backgroundColor={selected ? '$surface3' : '$surface1'}
       borderColor="$surface3"
       borderRadius="$rounded12"
@@ -48,7 +47,7 @@ const AllNetworksPill = memo(function AllNetworksPill({
 const contentContainerStyle: ViewStyle = {
   alignItems: 'center',
   gap: spacing.spacing8,
-  paddingHorizontal: spacing.spacing8,
+  paddingHorizontal: spacing.spacing16,
 }
 
 const NetworkPillsRow = memo(function NetworkPillsRow({
@@ -70,7 +69,6 @@ const NetworkPillsRow = memo(function NetworkPillsRow({
     items: chains,
   })
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: need theme dep for foregroundColor to change on theme change
   const renderItemNetworkPills = useCallback(
     ({ item }: { item: UniverseChainId }) => {
       return (
@@ -93,6 +91,7 @@ const NetworkPillsRow = memo(function NetworkPillsRow({
         </TouchableArea>
       )
     },
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
     [colors.neutral1.val, onSelectNetwork, selectedNetwork, theme],
   )
 

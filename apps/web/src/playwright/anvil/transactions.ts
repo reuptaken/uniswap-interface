@@ -1,7 +1,8 @@
-// biome-ignore lint/style/noRestrictedImports: Anvil transactions need direct ethers imports
+//  Anvil helpers need @playwright/test expect directly
+// oxlint-disable-next-line no-restricted-imports
 import { expect } from '@playwright/test'
-import type { AnvilClient } from 'playwright/fixtures/anvil'
-import { Address } from 'viem'
+import type { Address } from '~/chains'
+import type { AnvilClient } from '~/playwright/fixtures/anvil'
 
 /**
  * Wait for transactions to be confirmed by mining blocks

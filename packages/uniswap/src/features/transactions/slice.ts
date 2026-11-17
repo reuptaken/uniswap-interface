@@ -1,8 +1,18 @@
-/* biome-ignore-all lint/style/noNonNullAssertion: helpful when dealing with deeply nested state objects */
+/* oxlint-disable typescript/no-non-null-assertion -- helpful when dealing with deeply nested state objects */
 import { createAction, createSlice, Draft, PayloadAction } from '@reduxjs/toolkit'
+import { UniverseChainId } from '@universe/chains'
 import { providers } from 'ethers/lib/ethers'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { FORTransactionDetails } from 'uniswap/src/features/fiatOnRamp/types'
+import {
+  CancelRevertStatus,
+  orderCancelBroadcastedReducer,
+  orderCancelFailedReducer,
+  orderCancelTxMinedReducer,
+  revertCancelSwapReducer,
+  stampCancelAlertShownReducer,
+  stampOrphanCancelTimeoutReducer,
+} from 'uniswap/src/features/transactions/cancel/orderCancelCaseReducers'
+import { CancelableStepInfo } from 'uniswap/src/features/transactions/hooks/useIsCancelable'
 import { isUniswapX } from 'uniswap/src/features/transactions/swap/utils/routing'
 import {
   BridgeTransactionInfo,
@@ -11,6 +21,7 @@ import {
   InterfaceTransactionDetails,
   TransactionDetails,
   TransactionId,
+  TransactionNetworkFee,
   TransactionStatus,
   TransactionType,
   TransactionTypeInfo,
@@ -73,6 +84,10 @@ const slice = createSlice({
   name: 'transactions',
   initialState: initialTransactionsState,
   reducers: {
+    /**
+     * Adds a transaction to the redux state. This TX is watched in various places such as
+     * the transaction watcher saga which is responsible for polling for the transaction status.
+     */
     addTransaction: (
       state,
       { payload: transaction }: PayloadAction<TransactionDetails | InterfaceTransactionDetails | UniswapXOrderDetails>,
@@ -117,10 +132,19 @@ const slice = createSlice({
       if (networkFee) {
         tx.networkFee = networkFee
       }
+      if (transaction.sponsorInfo) {
+        tx.sponsorInfo = transaction.sponsorInfo
+      }
+      if (transaction.paymaster) {
+        tx.paymaster = transaction.paymaster
+      }
 
-      // Update hash for successful UniswapX orders
-      if (isUniswapX(transaction) && status === TransactionStatus.Success) {
-        assert(hash, `finalizeTransaction: Attempted to finalize an order without providing the fill tx hash`)
+      // Update hash for successful UniswapX or userOp orders
+      if ((isUniswapX(transaction) || transaction.userOpHash) && status === TransactionStatus.Success) {
+        assert(
+          hash,
+          `finalizeTransaction: Attempted to finalize an order without providing the fill tx hash or userOp hash`,
+        )
         state[from]![chainId]![id]!.hash = hash
       }
     },
@@ -138,8 +162,17 @@ const slice = createSlice({
     cancelTransaction: (
       state,
       {
-        payload: { chainId, id, address, cancelRequest },
-      }: PayloadAction<TransactionId & { address: string; cancelRequest: providers.TransactionRequest }>,
+        payload: { chainId, id, address, cancelRequest, cancelInitiatedTimeMs },
+      }: PayloadAction<
+        TransactionId & {
+          address: string
+          cancelRequest: providers.TransactionRequest
+          // Dispatcher supplies Date.now() so the reducer stays deterministic
+          cancelInitiatedTimeMs?: number
+          // Pre-cancel status captured by the dispatcher; used by the cancel sagas to revert on rejection/failure
+          revertToStatus?: CancelRevertStatus
+        }
+      >,
     ) => {
       const walletTransaction = getWalletTransactionFromState({
         state,
@@ -147,6 +180,48 @@ const slice = createSlice({
         chainId,
         id,
         actionName: 'cancelTransaction',
+      })
+
+      walletTransaction.status = TransactionStatus.Cancelling
+      walletTransaction.cancelRequest = cancelRequest
+      if (isUniswapX(walletTransaction) && cancelInitiatedTimeMs !== undefined) {
+        walletTransaction.cancelInitiatedTimeMs = cancelInitiatedTimeMs
+      }
+    },
+    // Cancel-flow CAS case reducers live in orderCancelCaseReducers.ts (kept out of this file
+    // for size; they are ordinary case reducers on this slice's state)
+    orderCancelBroadcasted: orderCancelBroadcastedReducer,
+    orderCancelFailed: orderCancelFailedReducer,
+    orderCancelTxMined: orderCancelTxMinedReducer,
+    stampOrphanCancelTimeout: stampOrphanCancelTimeoutReducer,
+    stampCancelAlertShown: stampCancelAlertShownReducer,
+    revertCancelSwap: revertCancelSwapReducer,
+    /**
+     * Action to cancel a step within a plan transaction.
+     * The cancel is processed by the cancelPlanStepSaga which handles:
+     * - Classic steps: transaction replacement with same nonce
+     * - UniswapX steps: permit2 nonce invalidation
+     */
+    cancelPlanStep: (
+      state,
+      {
+        // oxlint-disable-next-line no-unused-vars -- biome-parity: oxlint is stricter here
+        payload: { chainId, id, address, cancelRequest, planId, cancelableStepInfo },
+      }: PayloadAction<
+        TransactionId & {
+          address: string
+          cancelRequest: providers.TransactionRequest
+          planId: string
+          cancelableStepInfo: CancelableStepInfo
+        }
+      >,
+    ) => {
+      const walletTransaction = getWalletTransactionFromState({
+        state,
+        address,
+        chainId,
+        id,
+        actionName: 'cancelPlanStep',
       })
 
       walletTransaction.status = TransactionStatus.Cancelling
@@ -170,7 +245,7 @@ const slice = createSlice({
     },
     resetTransactions: () => initialTransactionsState,
     // FOR transactions re-use this slice to store (off-chain) pending txs
-    upsertFiatOnRampTransaction: (state, { payload: transaction }: PayloadAction<FORTransactionDetails>) => {
+    upsertFORTransaction: (state, { payload: transaction }: PayloadAction<FORTransactionDetails>) => {
       const {
         chainId,
         id,
@@ -183,15 +258,18 @@ const slice = createSlice({
           type === TransactionType.LocalOffRamp ||
           type === TransactionType.OnRampPurchase ||
           type === TransactionType.OnRampTransfer ||
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+          // oxlint-disable-next-line typescript/no-unnecessary-condition
           type === TransactionType.OffRampSale,
         `only FOR transactions can be upserted`,
       )
 
       state[from] ??= {}
       state[from]![chainId] ??= {}
+      // Keep the original stamp: each poll re-derives addedTime from the backend's createdAt, which can drift
+      const existingAddedTime = state[from]![chainId]![id]?.addedTime
       state[from]![chainId]![id] = {
         ...transaction,
+        addedTime: existingAddedTime ?? transaction.addedTime,
         typeInfo: { ...transaction.typeInfo },
       }
     },
@@ -245,7 +323,9 @@ const slice = createSlice({
     },
     interfaceConfirmBridgeDeposit: (
       state,
-      { payload: { chainId, id, address } }: PayloadAction<{ chainId: UniverseChainId; id: string; address: string }>,
+      {
+        payload: { chainId, id, address, networkFee },
+      }: PayloadAction<{ chainId: UniverseChainId; id: string; address: string; networkFee?: TransactionNetworkFee }>,
     ) => {
       const interfaceTransaction = getInterfaceTransactionFromState({
         state,
@@ -259,6 +339,11 @@ const slice = createSlice({
         `interfaceConfirmBridgeDeposit: Attempted to confirm a non-bridge transaction with id ${id}`,
       )
       ;(interfaceTransaction.typeInfo as BridgeTransactionInfo).depositConfirmed = true
+      // The deposit receipt is the only source of a bridge's source-chain gas cost — persist it here,
+      // since the cross-chain finalization path is status-only and never sees a receipt.
+      if (networkFee) {
+        interfaceTransaction.networkFee = networkFee
+      }
     },
     interfaceUpdateTransactionInfo: (
       state,
@@ -303,14 +388,30 @@ const slice = createSlice({
 // This action is fired, when user has come back from Moonpay flow using Return to Uniswap button
 export const forceFetchFiatOnRampTransactions = createAction('transactions/forceFetchFiatOnRampTransactions')
 
+// Action to cancel a UniswapX order that only exists in the remote activity feed (not in local Redux state).
+// Handled by a saga that directly submits the Permit2 nonce invalidation transaction.
+export const cancelRemoteUniswapXOrder = createAction<{
+  chainId: UniverseChainId
+  address: string
+  orderHash: string
+  cancelRequest: providers.TransactionRequest
+}>('transactions/cancelRemoteUniswapXOrder')
+
 export const {
   addTransaction,
   cancelTransaction,
+  cancelPlanStep,
   deleteTransaction,
   finalizeTransaction,
+  orderCancelBroadcasted,
+  orderCancelFailed,
+  orderCancelTxMined,
+  stampOrphanCancelTimeout,
+  stampCancelAlertShown,
+  revertCancelSwap,
   replaceTransaction,
   resetTransactions,
-  upsertFiatOnRampTransaction,
+  upsertFORTransaction,
   updateTransaction,
   updateTransactionWithoutWatch,
   interfaceClearAllTransactions,

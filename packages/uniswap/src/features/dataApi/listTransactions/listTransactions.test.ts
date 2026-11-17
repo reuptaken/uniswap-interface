@@ -1,27 +1,30 @@
-import { renderHook } from '@testing-library/react'
 import { useListTransactions } from 'uniswap/src/features/dataApi/listTransactions/listTransactions'
 import { renderHookWithProviders } from 'uniswap/src/test/render'
 
+// Use vi.hoisted to create mock function that can be controlled in tests
+const { mockUseListTransactionsQuery } = vi.hoisted(() => ({
+  mockUseListTransactionsQuery: vi.fn(),
+}))
+
 // Mock the chains hook
-jest.mock('uniswap/src/features/chains/hooks/useEnabledChains', () => ({
-  useEnabledChains: jest.fn(() => ({
+vi.mock('uniswap/src/features/chains/hooks/useEnabledChains', () => ({
+  useEnabledChains: vi.fn(() => ({
     chains: [1],
   })),
 }))
 
-// Mock the REST hook
-jest.mock('uniswap/src/data/rest/listTransactions', () => ({
-  useListTransactionsQuery: jest.fn(),
+// Mock the REST hook with hoisted mock function
+vi.mock('uniswap/src/data/apiClients/dataApiService/activity/listTransactions', () => ({
+  useListTransactionsQuery: mockUseListTransactionsQuery,
 }))
-
-const mockUseListTransactionsQuery = jest.requireMock('uniswap/src/data/rest/listTransactions').useListTransactionsQuery
 
 describe('useListTransactions', () => {
   const mockAddress = '0x1234567890123456789012345678901234567890'
   const mockPageSize = 10
 
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
+    window.localStorage.clear()
 
     // Default REST mock
     mockUseListTransactionsQuery.mockReturnValue({
@@ -29,11 +32,12 @@ describe('useListTransactions', () => {
       isLoading: false,
       isFetching: false,
       error: undefined,
-      refetch: jest.fn(),
+      refetch: vi.fn(),
       status: 'success',
-      fetchNextPage: jest.fn(),
+      fetchNextPage: vi.fn(),
       hasNextPage: false,
       isFetchingNextPage: false,
+      isFetchNextPageError: false,
     })
   })
 
@@ -48,12 +52,14 @@ describe('useListTransactions', () => {
     expect(result.current).toHaveProperty('data')
     expect(result.current).toHaveProperty('loading')
     expect(result.current).toHaveProperty('isFetching')
-    expect(result.current).toHaveProperty('networkStatus')
+    expect(result.current).toHaveProperty('isPending')
+    expect(result.current).toHaveProperty('isError')
     expect(result.current).toHaveProperty('refetch')
     expect(result.current).toHaveProperty('error')
     expect(result.current).toHaveProperty('fetchNextPage')
     expect(result.current).toHaveProperty('hasNextPage')
     expect(result.current).toHaveProperty('isFetchingNextPage')
+    expect(result.current).toHaveProperty('isFetchNextPageError', false)
 
     // Verify REST hook was called with correct parameters
     expect(mockUseListTransactionsQuery).toHaveBeenCalledWith({
@@ -67,6 +73,30 @@ describe('useListTransactions', () => {
     })
   })
 
+  it('should return whether fetching the next page failed', () => {
+    mockUseListTransactionsQuery.mockReturnValue({
+      data: { pages: [{ transactions: [] }] },
+      isLoading: false,
+      isFetching: false,
+      error: new Error('Next page failed'),
+      refetch: vi.fn(),
+      status: 'error',
+      fetchNextPage: vi.fn(),
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      isFetchNextPageError: true,
+    })
+
+    const { result } = renderHookWithProviders(() =>
+      useListTransactions({
+        evmAddress: mockAddress,
+        pageSize: mockPageSize,
+      }),
+    )
+
+    expect(result.current.isFetchNextPageError).toBe(true)
+  })
+
   it('should skip REST API when address is not provided', () => {
     const { result } = renderHookWithProviders(() =>
       useListTransactions({
@@ -76,7 +106,9 @@ describe('useListTransactions', () => {
 
     expect(result.current).toHaveProperty('data')
     expect(result.current).toHaveProperty('loading')
-    expect(result.current).toHaveProperty('networkStatus')
+    expect(result.current).toHaveProperty('isFetching')
+    expect(result.current).toHaveProperty('isPending')
+    expect(result.current).toHaveProperty('isError')
     expect(result.current).toHaveProperty('refetch')
     expect(result.current).toHaveProperty('error')
 
@@ -94,7 +126,7 @@ describe('useListTransactions', () => {
   })
 
   it('should handle skip option correctly', () => {
-    const mockRefetch = jest.fn()
+    const mockRefetch = vi.fn()
 
     // Mock the REST hook to return our mock refetch function
     mockUseListTransactionsQuery.mockReturnValue({
@@ -104,7 +136,7 @@ describe('useListTransactions', () => {
       error: undefined,
       refetch: mockRefetch,
       status: 'success',
-      fetchNextPage: jest.fn(),
+      fetchNextPage: vi.fn(),
       hasNextPage: false,
       isFetchingNextPage: false,
     })
@@ -175,6 +207,94 @@ describe('useListTransactions', () => {
         fiatOnRampParams: undefined,
       },
       enabled: true,
+    })
+  })
+
+  describe('searchText', () => {
+    const expectSearchTextSentToApi = (searchText: string | undefined, expected: string | undefined): void => {
+      renderHookWithProviders(() =>
+        useListTransactions({
+          evmAddress: mockAddress,
+          pageSize: mockPageSize,
+          searchText,
+        }),
+      )
+
+      expect(mockUseListTransactionsQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({ searchText: expected }),
+        }),
+      )
+    }
+
+    it('should send search text that the API accepts', () => {
+      expectSearchTextSentToApi('usdc', 'usdc')
+    })
+
+    it('should trim surrounding whitespace', () => {
+      expectSearchTextSentToApi('  usdc  ', 'usdc')
+    })
+
+    // The API rejects search text shorter than 2 characters, which would surface as a request error
+    it('should drop search text that is too short to be searchable', () => {
+      expectSearchTextSentToApi('a', undefined)
+      expectSearchTextSentToApi(' ', undefined)
+      expectSearchTextSentToApi('', undefined)
+    })
+
+    // The API also rejects search text longer than 64 characters
+    it('should truncate search text that exceeds the maximum length', () => {
+      expectSearchTextSentToApi('a'.repeat(100), 'a'.repeat(64))
+    })
+  })
+
+  describe('dataUpdatedAt', () => {
+    it('should return dataUpdatedAt from query', () => {
+      mockUseListTransactionsQuery.mockReturnValue({
+        data: { pages: [{ transactions: [] }] },
+        isLoading: false,
+        isFetching: false,
+        error: undefined,
+        refetch: vi.fn(),
+        status: 'success',
+        dataUpdatedAt: 1710000000000,
+        fetchNextPage: vi.fn(),
+        hasNextPage: false,
+        isFetchingNextPage: false,
+      })
+
+      const { result } = renderHookWithProviders(() =>
+        useListTransactions({
+          evmAddress: mockAddress,
+          pageSize: mockPageSize,
+        }),
+      )
+
+      expect(result.current.dataUpdatedAt).toBe(1710000000000)
+    })
+
+    it('should return dataUpdatedAt as undefined when query has no timestamp', () => {
+      mockUseListTransactionsQuery.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isFetching: false,
+        error: undefined,
+        refetch: vi.fn(),
+        status: 'success',
+        dataUpdatedAt: 0,
+        fetchNextPage: vi.fn(),
+        hasNextPage: false,
+        isFetchingNextPage: false,
+      })
+
+      const { result } = renderHookWithProviders(() =>
+        useListTransactions({
+          evmAddress: mockAddress,
+          pageSize: mockPageSize,
+        }),
+      )
+
+      expect(result.current.dataUpdatedAt).toBeUndefined()
     })
   })
 })

@@ -1,12 +1,15 @@
-import { useAccount } from 'hooks/useAccount'
-import { useEthersProvider } from 'hooks/useEthersProvider'
+import { UniverseChainId } from '@universe/chains'
 import { useMemo } from 'react'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import { useAccount } from '~/hooks/useAccount'
+import { useEthersProvider, useEthersWeb3Provider } from '~/hooks/useEthersProvider'
 
-// eslint-disable-next-line import/no-unused-modules -- shim is used via a build alias in craco.config.cjs
 export function useWeb3React() {
   const account = useAccount()
-  const provider = useEthersProvider({ chainId: account.chainId })
+  // Legacy shim consumers sign through this provider (claim, offramp), so it keeps
+  // the historical wallet-when-connected behavior; reads fall back to the app provider.
+  const walletProvider = useEthersWeb3Provider({ chainId: account.chainId })
+  const readProvider = useEthersProvider({ chainId: account.chainId })
+  const provider = walletProvider ?? readProvider
 
   return useMemo(
     () => ({

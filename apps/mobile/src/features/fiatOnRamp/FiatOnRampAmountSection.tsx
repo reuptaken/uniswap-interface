@@ -1,24 +1,26 @@
 import { useFocusEffect } from '@react-navigation/core'
+import {
+  ColorTokens,
+  Flex,
+  fonts,
+  spacing,
+  Text,
+  TouchableArea,
+  AnimatedFlex,
+  useIsShortMobileDevice,
+} from '@universe/mycelium'
+import { useDeviceDimensions, useSporeColors } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
 import React, { forwardRef, RefObject, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NativeSyntheticEvent, TextInput as RNTextInput, TextInputSelectionChangeEventData } from 'react-native'
 import { TouchableOpacity } from 'react-native-gesture-handler'
 import { useFiatOnRampContext } from 'src/features/fiatOnRamp/FiatOnRampContext'
-import {
-  ColorTokens,
-  Flex,
-  Text,
-  TouchableArea,
-  useIsShortMobileDevice,
-  useShakeAnimation,
-  useSporeColors,
-} from 'ui/src'
+import { useShakeAnimation } from 'ui/src'
 import { ArrowDownArrowUp } from 'ui/src/components/icons'
-import { AnimatedFlex } from 'ui/src/components/layout/AnimatedFlex'
-import { useDeviceDimensions } from 'ui/src/hooks/useDeviceDimensions'
 import { useDynamicFontSizing } from 'ui/src/hooks/useDynamicFontSizing'
-import { fonts, spacing } from 'ui/src/theme'
 import { AmountInput } from 'uniswap/src/components/AmountInput/AmountInput'
+import { useDeferredCaret } from 'uniswap/src/components/CurrencyInputPanel/hooks/useDeferredCaret'
 import { TextInput } from 'uniswap/src/components/input/TextInput'
 import { Pill } from 'uniswap/src/components/pill/Pill'
 import { PortfolioBalance } from 'uniswap/src/features/dataApi/types'
@@ -28,7 +30,6 @@ import { useMaxAmountSpend } from 'uniswap/src/features/gas/hooks/useMaxAmountSp
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
 import { getCurrencyAmount, ValueType } from 'uniswap/src/features/tokens/getCurrencyAmount'
 import { TransactionType } from 'uniswap/src/features/transactions/types/transactionDetails'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 import { usePrevious } from 'utilities/src/react/hooks'
 import { DEFAULT_DELAY, useDebounce } from 'utilities/src/time/timing'
 
@@ -77,10 +78,12 @@ interface FiatOnRampAmountSectionProps {
 export type FiatOnRampAmountSectionRef = {
   textInputRef: RefObject<RNTextInput | null>
   triggerShakeAnimation: () => void
+  /** Moves the caret, applied in the render that carries `value` (the value the caret belongs to). */
+  setSelection: (selection: { start: number; end?: number; value?: string }) => void
 }
 
 export const FiatOnRampAmountSection = forwardRef<FiatOnRampAmountSectionRef, FiatOnRampAmountSectionProps>(
-  function _FiatOnRampAmountSection(
+  function FiatOnRampAmountSectionInner(
     {
       disabled,
       value,
@@ -119,9 +122,12 @@ export const FiatOnRampAmountSection = forwardRef<FiatOnRampAmountSectionRef, Fi
 
     const inputRef = useRef<RNTextInput>(null)
 
+    const { selection, followNativeSelection, setCaret } = useDeferredCaret(value)
+
     useImperativeHandle(forwardedRef, () => ({
       textInputRef: inputRef,
       triggerShakeAnimation,
+      setSelection: setCaret,
     }))
 
     // This is needed to ensure that the text resizes when modified from outside the component (e.g. custom numpad)
@@ -139,8 +145,12 @@ export const FiatOnRampAmountSection = forwardRef<FiatOnRampAmountSectionRef, Fi
         nativeEvent: {
           selection: { start, end },
         },
-      }: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => selectionChange?.(start, end),
-      [selectionChange],
+      }: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+        // Follow the caret the user moved, or the controlled `selection` would push ours back.
+        followNativeSelection({ start, end })
+        selectionChange?.(start, end)
+      },
+      [selectionChange, followNativeSelection],
     )
 
     const { shakeStyle: inputAnimatedStyle, triggerShakeAnimation } = useShakeAnimation()
@@ -181,6 +191,7 @@ export const FiatOnRampAmountSection = forwardRef<FiatOnRampAmountSectionRef, Fi
     // Workaround to avoid incorrect input width calculations by react-native
     // Decimal numbers were manually calculated for Basel Grotesk fonts and will
     // require an adjustment when the font is changed
+    // oxlint-disable-next-line typescript/no-misused-spread -- biome-parity: oxlint is stricter here
     const calculatedInputWidth = [...value].reduce(
       (acc, numStr) => {
         switch (numStr) {
@@ -268,6 +279,7 @@ export const FiatOnRampAmountSection = forwardRef<FiatOnRampAmountSectionRef, Fi
               py="$none"
               minWidth={calculatedInputWidth}
               returnKeyType={undefined}
+              selection={selection}
               showSoftInputOnFocus={false}
               textAlign={isTokenInputMode ? 'right' : 'left'}
               value={value}

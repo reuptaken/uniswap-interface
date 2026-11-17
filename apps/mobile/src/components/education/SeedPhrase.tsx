@@ -1,15 +1,16 @@
+import { Flex, Text } from '@universe/mycelium'
+import { useDeviceDimensions } from '@universe/mycelium/theme-hooks-compat'
 import React, { ComponentProps, ReactNode, useCallback, useContext, useMemo } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import { runOnJS } from 'react-native-reanimated'
+import { scheduleOnRN } from 'react-native-worklets'
 import { OnboardingStackBaseParams, useOnboardingStackNavigation } from 'src/app/navigation/types'
 import { CloseButton } from 'src/components/buttons/CloseButton'
 import { CarouselContext } from 'src/components/carousel/Carousel'
-import { Flex, Text } from 'ui/src'
-import { useDeviceDimensions } from 'ui/src/hooks/useDeviceDimensions'
-import { OnboardingScreens } from 'uniswap/src/types/screens/mobile'
+import { Trans } from 'ui/src'
 import { getCloudProviderName } from 'uniswap/src/utils/cloud-backup/getCloudProviderName'
 
+// oxlint-disable-next-line no-unused-vars -- biome-parity: oxlint is stricter here
 function Page({ text, params }: { text: ReactNode; params: OnboardingStackBaseParams }): JSX.Element {
   const { t } = useTranslation()
   const { fullWidth } = useDeviceDimensions()
@@ -17,16 +18,16 @@ function Page({ text, params }: { text: ReactNode; params: OnboardingStackBasePa
   const navigation = useOnboardingStackNavigation()
 
   const onDismiss = useCallback((): void => {
-    navigation.navigate(OnboardingScreens.Backup, params)
-  }, [navigation, params])
+    navigation.goBack()
+  }, [navigation])
 
   const slideChangeGesture = useMemo(
     () =>
       Gesture.Tap().onEnd(({ absoluteX }) => {
         if (absoluteX < fullWidth * 0.33) {
-          runOnJS(goToPrev)()
+          scheduleOnRN(goToPrev)
         } else {
-          runOnJS(goToNext)()
+          scheduleOnRN(goToNext)
         }
       }),
     [goToPrev, goToNext, fullWidth],
@@ -35,7 +36,7 @@ function Page({ text, params }: { text: ReactNode; params: OnboardingStackBasePa
   const dismissGesture = useMemo(
     () =>
       Gesture.Tap().onEnd(() => {
-        runOnJS(onDismiss)()
+        scheduleOnRN(onDismiss)
       }),
     [onDismiss],
   )
@@ -49,7 +50,7 @@ function Page({ text, params }: { text: ReactNode; params: OnboardingStackBasePa
               {t('onboarding.tooltip.recoveryPhrase.trigger')}
             </Text>
             <GestureDetector gesture={dismissGesture}>
-              <CloseButton color="$neutral2" onPress={(): void => undefined} />
+              <CloseButton color="$neutral2" onPress={onDismiss} />
             </GestureDetector>
           </Flex>
           <Flex flex={0.2} />

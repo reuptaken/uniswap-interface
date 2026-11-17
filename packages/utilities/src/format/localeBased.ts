@@ -1,6 +1,7 @@
 import { Currency, CurrencyAmount } from '@uniswap/sdk-core'
 import {
   FormatterRule,
+  NoDecimals,
   StandardCurrency,
   TwoDecimalsCurrency,
   TYPE_TO_FORMATTER_RULES,
@@ -49,15 +50,52 @@ export function formatNumber({
   if (input === null || input === undefined) {
     return placeholder
   }
+  // NaN and the infinities match no rule; they are missing data, not "$NaN" or "$∞". Warned, so the
+  // upstream bug behind one still reaches Datadog.
+  if (!Number.isFinite(input)) {
+    // String(): JSON would send NaN and ±Infinity as null.
+    logger.warn('localeBased', 'formatNumber', 'Non-finite input rendered as placeholder', {
+      type,
+      input: String(input),
+    })
+    return placeholder
+  }
 
-  const { formatter, overrideValue, postFormatModifier } = getFormatterRule(input, type)
+  // The rules are written for magnitudes: a negative input would otherwise land in the first
+  // `upperBound` rule, the "<$0.01" floor.
+  const magnitude = Math.abs(input)
+  const isNegative = input < 0
+  const { formatter, overrideValue, postFormatModifier } = getFormatterRule(magnitude, type)
   if (typeof formatter === 'string') {
-    return formatter
+    return isNegative ? negateMagnitude(formatter, locale) : formatter
   }
 
   const createdFormat = formatter.createFormat(locale, currencyCode)
-  const formatted = createdFormat.format(overrideValue !== undefined ? overrideValue : input)
-  return postFormatModifier ? postFormatModifier(formatted) : formatted
+  const value = overrideValue ?? magnitude
+  if (!postFormatModifier) {
+    // Intl places the sign where the locale expects it ("-$5.00", "-5,00 $").
+    return createdFormat.format(isNegative ? -value : value)
+  }
+  const bounded = postFormatModifier(createdFormat.format(value))
+  return isNegative ? negateMagnitude(bounded, locale) : bounded
+}
+
+/** Signs a magnitude rendering. A bound flips with the sign: -0.003 is more than -$0.01, so it
+ * reads ">-$0.01", and -2e15 is less than -999T, so it reads "<-999T". */
+function negateMagnitude(rendering: string, locale: string): string {
+  const minus = getMinusSign(locale)
+  if (rendering.startsWith('<')) {
+    return `>${minus}${rendering.slice(1)}`
+  }
+  if (rendering.startsWith('>')) {
+    return `<${minus}${rendering.slice(1)}`
+  }
+  return `${minus}${rendering}`
+}
+
+function getMinusSign(locale: string): string {
+  const parts = NoDecimals.createFormat(locale, 'USD').formatToParts(-1)
+  return parts.find((part) => part.type === 'minusSign')?.value ?? '-'
 }
 
 export function formatCurrencyAmount({
@@ -101,10 +139,12 @@ export function formatNumberOrString({
   return formatNumber({ input: price, locale, currencyCode, type, placeholder })
 }
 
-export function getPercentNumberType(maxDecimals: PercentNumberDecimals): PercentNumberType {
+export function getPercentNumberType(maxDecimals?: PercentNumberDecimals): PercentNumberType {
   switch (maxDecimals) {
     case 1:
       return NumberType.PercentageOneDecimal
+    case 2:
+      return NumberType.PercentageTwoDecimals
     case 3:
       return NumberType.PercentageThreeDecimals
     case 4:
@@ -117,7 +157,7 @@ export function getPercentNumberType(maxDecimals: PercentNumberDecimals): Percen
 export function formatPercent({
   rawPercentage,
   locale,
-  maxDecimals = 2,
+  maxDecimals,
 }: {
   rawPercentage: Maybe<number | string>
   locale: string
@@ -155,7 +195,8 @@ export function addFiatSymbolToNumber({
   const isSymbolAtFront = parts[0]?.type === 'currency'
   const extra = isSymbolAtFront // Some locales have something like an extra space after symbol
     ? parts[1]?.type === 'literal'
-      ? parts[1]?.value
+      ? // oxlint-disable-next-line typescript/no-unnecessary-condition -- biome-parity: oxlint is stricter here
+        parts[1]?.value
       : ''
     : parts[parts.length - 2]?.type === 'literal'
       ? parts[parts.length - 2]?.value

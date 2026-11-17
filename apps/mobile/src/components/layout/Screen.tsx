@@ -1,6 +1,6 @@
+import { Flex, type FlexProps } from '@universe/mycelium'
 import React, { useMemo } from 'react'
 import { Edge, NativeSafeAreaViewProps } from 'react-native-safe-area-context'
-import { Flex, FlexProps } from 'ui/src'
 import { useAppInsets } from 'uniswap/src/hooks/useAppInsets'
 
 // Used to determine amount of top padding for short screens
@@ -25,7 +25,12 @@ function SafeAreaWithInsets({ children, edges, noInsets, ...rest }: ScreenProps)
   const insets = useAppInsets() // useAppInsets uses useSafeAreaInsets internally
 
   const safeAreaStyles = useMemo(() => {
-    const style: { [key: string]: number } = {}
+    const style: {
+      paddingTop?: number
+      paddingBottom?: number
+      paddingLeft?: number
+      paddingRight?: number
+    } = {}
 
     if (noInsets) {
       return style

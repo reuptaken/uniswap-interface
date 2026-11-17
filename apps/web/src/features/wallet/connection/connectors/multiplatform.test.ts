@@ -1,7 +1,7 @@
-import { deduplicateWalletConnectorMeta } from 'features/wallet/connection/connectors/multiplatform'
-import type { WalletConnectorMeta } from 'features/wallet/connection/types/WalletConnectorMeta'
-import { METAMASK_CONNECTOR } from 'test-utils/wallets/fixtures'
 import { describe, expect, it } from 'vitest'
+import { deduplicateWalletConnectorMeta } from '~/features/wallet/connection/connectors/multiplatform'
+import type { WalletConnectorMeta } from '~/features/wallet/connection/types/WalletConnectorMeta'
+import { METAMASK_CONNECTOR } from '~/test-utils/wallets/fixtures'
 
 describe('multiplatform connectors', () => {
   describe('deduplicateWalletConnectorMeta', () => {
@@ -108,6 +108,26 @@ describe('multiplatform connectors', () => {
         isInjected: true,
         analyticsWalletType: 'Browser Extension',
       })
+    })
+
+    it('should merge the real MetaMask Connect EVM and Solana connectors into one dual-platform entry', () => {
+      // Arrange
+      const metamaskSolana: WalletConnectorMeta = {
+        name: 'MetaMask',
+        icon: 'metamask-solana.svg',
+        solana: { walletName: 'MetaMask' as any },
+        isInjected: false,
+        analyticsWalletType: 'MetaMask SDK',
+      }
+
+      // Act
+      const result = deduplicateWalletConnectorMeta([METAMASK_CONNECTOR, metamaskSolana])
+
+      // Assert
+      expect(result).toHaveLength(1)
+      expect(result[0]?.name).toBe('MetaMask')
+      expect(result[0]?.wagmi).toEqual(METAMASK_CONNECTOR.wagmi)
+      expect(result[0]?.solana).toEqual({ walletName: 'MetaMask' })
     })
 
     it('should merge different-platform connectors whose whose names differ by inclusion of "Wallet" in one of the names', () => {

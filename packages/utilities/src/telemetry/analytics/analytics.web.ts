@@ -1,13 +1,17 @@
 import { flush, getUserId, Identify, identify, init, setDeviceId, track } from '@amplitude/analytics-browser'
 import { ANONYMOUS_DEVICE_ID } from '@uniswap/analytics'
-import { getChromeWithThrow } from 'utilities/src/chrome/chrome'
+import { getChromeWithThrow } from '@universe/environment'
+// oxlint-disable-next-line no-restricted-imports -- platform implementation file
 import {
   Analytics,
   AnalyticsInitConfig,
   TestnetModeConfig,
   UserPropertyValue,
-  // biome-ignore lint/style/noRestrictedImports: needed here
 } from 'utilities/src/telemetry/analytics/analytics'
+import {
+  AnalyticsDebugBridge,
+  captureAnalyticsDebugEvent,
+} from 'utilities/src/telemetry/analytics/analyticsDebugCapture'
 import {
   ALLOW_ANALYTICS_ATOM_KEY,
   AMPLITUDE_SHARED_TRACKING_OPTIONS,
@@ -15,14 +19,16 @@ import {
   DUMMY_KEY,
 } from 'utilities/src/telemetry/analytics/constants'
 import { generateAnalyticsLoggers } from 'utilities/src/telemetry/analytics/logging'
-import { getProcessedEvent } from 'utilities/src/telemetry/analytics/utils'
+import { getProcessedEvent, parseAllowAnalytics } from 'utilities/src/telemetry/analytics/utils'
 
 const loggers = generateAnalyticsLoggers('telemetry/analytics.web')
 let allowAnalytics: boolean = true
 let testnetMode: boolean = false
 let testnetModeConfig: TestnetModeConfig | undefined
 let commitHash: Maybe<string>
+let buildType: Maybe<string>
 let userId: Maybe<string>
+let debugBridge: AnalyticsDebugBridge | undefined
 
 async function setAnalyticsAtomDirect(allowed: boolean): Promise<void> {
   try {
@@ -36,11 +42,11 @@ async function setAnalyticsAtomDirect(allowed: boolean): Promise<void> {
 
 async function getAnalyticsAtomFromStorage(): Promise<boolean> {
   try {
-    return window.localStorage.getItem(ALLOW_ANALYTICS_ATOM_KEY) !== 'false'
+    return parseAllowAnalytics(window.localStorage.getItem(ALLOW_ANALYTICS_ATOM_KEY))
   } catch {
     const chrome = getChromeWithThrow()
     const res = await chrome.storage.local.get(ALLOW_ANALYTICS_ATOM_KEY)
-    return res[ALLOW_ANALYTICS_ATOM_KEY] !== 'false'
+    return parseAllowAnalytics(res[ALLOW_ANALYTICS_ATOM_KEY])
   }
 }
 
@@ -64,9 +70,18 @@ try {
 }
 
 export const analytics: Analytics = {
-  async init({ transportProvider, allowed, initHash, userIdGetter }: AnalyticsInitConfig): Promise<void> {
+  async init({
+    transportProvider,
+    allowed,
+    initHash,
+    buildType: initBuildType,
+    userIdGetter,
+    debugBridge: bridge,
+  }: AnalyticsInitConfig): Promise<void> {
     // Set properties
     commitHash = initHash
+    buildType = initBuildType
+    debugBridge = bridge
     await setAnalyticsAtomDirect(allowed)
 
     try {
@@ -116,6 +131,7 @@ export const analytics: Analytics = {
     const propertiesWithHash: Record<string, unknown> = {
       ...eventProperties,
       ...(commitHash ? { git_commit_hash: commitHash } : {}),
+      ...(buildType ? { buildType } : {}),
     }
 
     const processedTestnetEvent = getProcessedEvent({
@@ -128,6 +144,11 @@ export const analytics: Analytics = {
     if (processedTestnetEvent) {
       const { eventName: processedEventName, eventProperties: processedEventProperties } = processedTestnetEvent
       loggers.sendEvent(processedEventName, processedEventProperties)
+      captureAnalyticsDebugEvent({
+        bridge: debugBridge,
+        eventName: processedEventName,
+        properties: processedEventProperties,
+      })
       track(processedEventName, processedEventProperties)
     }
   },
@@ -135,9 +156,12 @@ export const analytics: Analytics = {
     loggers.flushEvents()
     flush()
   },
-  // eslint-disable-next-line max-params
-  async setUserProperty(property: string, value: UserPropertyValue, insert?: boolean): Promise<void> {
-    if (!(await getAnalyticsAtomDirect())) {
+  // oxlint-disable-next-line max-params
+  setUserProperty(property: string, value: UserPropertyValue, insert?: boolean): void {
+    // Read the cached flag synchronously, as sendEvent does. Amplitude queues $identify and track()
+    // in call order, so an `await` here would let a track() issued right after this call jump ahead
+    // of the identify and carry a stale user-property snapshot.
+    if (!allowAnalytics) {
       return
     }
 

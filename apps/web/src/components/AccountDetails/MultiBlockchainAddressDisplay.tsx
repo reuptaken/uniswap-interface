@@ -1,23 +1,21 @@
-import StatusIcon from 'components/StatusIcon'
-import { useAccountsStore, useActiveAddresses } from 'features/accounts/store/hooks'
+import { UniverseChainId, Platform, PlatformAddress } from '@universe/chains'
+import { Flex, iconSizes, Text } from '@universe/mycelium'
+import { Unitag } from '@universe/mycelium/icons/Unitag'
+import { TestID } from '@universe/test'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CopyHelper } from 'theme/components/CopyHelper'
-import { EllipsisTamaguiStyle } from 'theme/components/styles'
-import { Flex, Text } from 'ui/src'
-import { Unitag } from 'ui/src/components/icons/Unitag'
-import { iconSizes } from 'ui/src/theme'
+import { CopyHelper } from 'uniswap/src/components/CopyHelper/CopyHelper'
 import { NetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
 import { InfoTooltip } from 'uniswap/src/components/tooltip/InfoTooltip'
 import { useUnitagsAddressQuery } from 'uniswap/src/data/apiClients/unitagsApi/useUnitagsAddressQuery'
 import { MAINNET_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/mainnet'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
 import { SOLANA_CHAIN_INFO } from 'uniswap/src/features/chains/svm/info/solana'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { useENSName } from 'uniswap/src/features/ens/api'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 import { shortenAddress } from 'utilities/src/addresses'
+import { StatusIcon } from '~/components/StatusIcon'
+import { useAccountsStore, useActiveAddresses } from '~/features/accounts/store/hooks'
+import { EllipsisTamaguiStyle } from '~/theme/components/styles'
 
 function AddressDisplay({
   unitag,
@@ -30,16 +28,14 @@ function AddressDisplay({
 }) {
   return (
     <Flex row gap="$spacing2" alignItems="center" data-testid={TestID.AddressDisplay}>
-      <Text
-        variant="subheading1"
-        color="$neutral1"
-        maxWidth="120px"
-        $xxl={{ maxWidth: '180px' }}
-        {...EllipsisTamaguiStyle}
-      >
+      <Text variant="subheading1" color="$neutral1" {...EllipsisTamaguiStyle}>
         {unitag ?? ensName ?? shortenedAddress}
       </Text>
-      {unitag && <Unitag size={18} />}
+      {unitag && (
+        <Flex pt="$spacing2">
+          <Unitag size={18} />
+        </Flex>
+      )}
     </Flex>
   )
 }
@@ -134,23 +130,38 @@ function TooltipAccountRow({ account }: { account: AccountItem }) {
           </Text>
         </Flex>
       </Flex>
-      <CopyHelper alwaysShowIcon iconSize={iconSizes.icon16} iconPosition="right" toCopy={account.address}>
-        <></>
-      </CopyHelper>
+      <CopyHelper iconSize={iconSizes.icon16} iconPosition="right" toCopy={account.address} />
     </Flex>
   )
 }
 
-export function MultiBlockchainAddressDisplay({ hideAddressInSubtitle }: { hideAddressInSubtitle?: boolean }) {
+interface MultiBlockchainAddressDisplayProps {
+  hideAddressInSubtitle?: boolean
+  externalAddress?: PlatformAddress
+}
+
+export function MultiBlockchainAddressDisplay({
+  hideAddressInSubtitle,
+  externalAddress,
+}: MultiBlockchainAddressDisplayProps) {
   const activeAddresses = useActiveAddresses()
-  const evmAddress = activeAddresses.evmAddress
+
+  const { evmAddress, svmAddress } = useMemo(() => {
+    // If external address is provided, use that instead of the connected wallet addresses
+    if (externalAddress) {
+      return {
+        evmAddress: externalAddress.platform === Platform.EVM ? externalAddress.address : undefined,
+        svmAddress: externalAddress.platform === Platform.SVM ? externalAddress.address : undefined,
+      }
+    }
+    return activeAddresses
+  }, [externalAddress, activeAddresses])
+
   const { data: ensName } = useENSName(evmAddress)
   const { data: unitagData } = useUnitagsAddressQuery({
     params: evmAddress ? { address: evmAddress } : undefined,
   })
   const unitag = unitagData?.username
-
-  const svmAddress = activeAddresses.svmAddress
 
   const primaryAddress = evmAddress ?? svmAddress
 

@@ -1,25 +1,24 @@
-import { NativeStackScreenProps } from '@react-navigation/native-stack'
-import { skipToken } from '@reduxjs/toolkit/query/react'
+import { type NativeStackScreenProps } from '@react-navigation/native-stack'
+import { skipToken } from '@tanstack/react-query'
+import { UniverseChainId } from '@universe/chains'
+import { Flex, spacing, Text, UniversalImage } from '@universe/mycelium'
+import { useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
 import React, { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDispatch } from 'react-redux'
-import { FiatOnRampStackParamList } from 'src/app/navigation/types'
+import { type FiatOnRampStackParamList } from 'src/app/navigation/types'
 import { Screen } from 'src/components/layout/Screen'
 import { useFiatOnRampContext } from 'src/features/fiatOnRamp/FiatOnRampContext'
 import { closeModal } from 'src/features/modals/modalSlice'
-import { Flex, Text, useIsDarkMode } from 'ui/src'
-import { spacing } from 'ui/src/theme'
-import { ImageUri } from 'uniswap/src/components/nfts/images/ImageUri'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { useLocalFiatToUSDConverter } from 'uniswap/src/features/fiatCurrency/hooks'
-import {
-  useFiatOnRampAggregatorOffRampWidgetQuery,
-  useFiatOnRampAggregatorWidgetQuery,
-} from 'uniswap/src/features/fiatOnRamp/api'
+import { UniswapStaticUrls } from 'uniswap/src/constants/urls'
+import { useLocalFiatToUSDConverter } from 'uniswap/src/features/fiatCurrency/useLocalFiatToUSDConverter'
 import { ServiceProviderLogoStyles } from 'uniswap/src/features/fiatOnRamp/constants'
 import { FiatOnRampConnectingView } from 'uniswap/src/features/fiatOnRamp/FiatOnRampConnectingView'
 import { useFiatOnRampTransactionCreator } from 'uniswap/src/features/fiatOnRamp/hooks'
+import {
+  useFiatOnRampAggregatorOffRampWidgetQuery,
+  useFiatOnRampAggregatorWidgetQuery,
+} from 'uniswap/src/features/fiatOnRamp/hooks/useFiatOnRampQueries'
 import { getOptionalServiceProviderLogo } from 'uniswap/src/features/fiatOnRamp/utils'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
 import { pushNotification } from 'uniswap/src/features/notifications/slice/slice'
@@ -27,7 +26,7 @@ import { AppNotificationType } from 'uniswap/src/features/notifications/slice/ty
 import { FiatOffRampEventName, FiatOnRampEventName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { forceFetchFiatOnRampTransactions } from 'uniswap/src/features/transactions/slice'
-import { FiatOnRampScreens } from 'uniswap/src/types/screens/mobile'
+import { type FiatOnRampScreens } from 'uniswap/src/types/screens/mobile'
 import { openUri } from 'uniswap/src/utils/linking'
 import { ONE_SECOND_MS } from 'utilities/src/time/time'
 import { useTimeout } from 'utilities/src/time/timing'
@@ -91,7 +90,7 @@ export function FiatOnRampConnectingScreen({ navigation }: Props): JSX.Element |
           sourceCurrencyCode: baseCurrencyInfo.code,
           walletAddress: activeAccountAddress,
           externalSessionId: externalTransactionId,
-          redirectUrl: `${uniswapUrls.redirectUrlBase}?screen=transaction&fiatOnRamp=true&userAddress=${activeAccountAddress}`,
+          redirectUrl: `${UniswapStaticUrls.redirectUrlBase}?screen=transaction&fiatOnRamp=true&userAddress=${activeAccountAddress}`,
         }
       : skipToken,
   )
@@ -111,7 +110,7 @@ export function FiatOnRampConnectingScreen({ navigation }: Props): JSX.Element |
           refundWalletAddress: activeAccountAddress,
           externalCustomerId: activeAccountAddress,
           externalSessionId: externalTransactionId,
-          redirectUrl: `${uniswapUrls.redirectUrlBase}?screen=transaction&fiatOffRamp=true&userAddress=${activeAccountAddress}&externalTransactionId=${externalTransactionId}`,
+          redirectUrl: `${UniswapStaticUrls.redirectUrlBase}?screen=transaction&fiatOffRamp=true&userAddress=${activeAccountAddress}&externalTransactionId=${externalTransactionId}`,
         }
       : skipToken,
   )
@@ -131,10 +130,12 @@ export function FiatOnRampConnectingScreen({ navigation }: Props): JSX.Element |
           {
             externalTransactionId,
             serviceProvider: serviceProvider.serviceProvider,
-            preselectedServiceProvider: quotesSections[0]?.data?.[0]?.serviceProviderDetails.serviceProvider,
+            // oxlint-disable-next-line typescript/no-unnecessary-condition -- biome-parity: oxlint is stricter here
+            preselectedServiceProvider: quotesSections[0]?.data?.[0]?.serviceProviderDetails?.serviceProvider,
             countryCode,
             countryState,
             fiatCurrency: baseCurrencyInfo.code.toLowerCase(),
+            // oxlint-disable-next-line universe-custom/no-tolowercase-address-currencyid -- Meld currency code, not an address
             cryptoCurrency: quoteCurrency.meldCurrencyCode.toLowerCase(),
             chainId: quoteCurrency.currencyInfo?.currency.chainId,
             currencyAmount: tokenAmount,
@@ -206,7 +207,14 @@ export function FiatOnRampConnectingScreen({ navigation }: Props): JSX.Element |
                 justifyContent="center"
                 width={ServiceProviderLogoStyles.icon.width}
               >
-                <ImageUri imageStyle={ServiceProviderLogoStyles.icon} uri={logoUrl} />
+                <UniversalImage
+                  uri={logoUrl}
+                  size={{
+                    height: ServiceProviderLogoStyles.icon.height,
+                    width: ServiceProviderLogoStyles.icon.width,
+                  }}
+                  style={{ image: { borderRadius: ServiceProviderLogoStyles.icon.borderRadius } }}
+                />
               </Flex>
             }
             serviceProviderName={serviceProvider.name}

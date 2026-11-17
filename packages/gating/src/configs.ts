@@ -66,30 +66,44 @@ export enum Locale {
  */
 export enum DynamicConfigs {
   // Shared
-  Swap = 'swap_config',
-  NetworkRequests = 'network_requests',
-  Chains = 'chains',
-  SyncTransactionSubmissionChainIds = 'sync_transaction_submission_chain_ids',
   BlockedAsyncSubmissionChainIds = 'blocked_async_submission_chain_ids',
+  Chains = 'chains',
+  DisableWalletSearchTerms = 'disable_wallet_search_terms',
+  Earn = 'earn_config',
+  NetworkRequests = 'network_requests',
+  Permit2MismatchDelegates = 'permit2_mismatch_delegates',
+  PoolCategoriesOrder = 'pool_categories_order',
+  Swap = 'swap_config',
+  SyncTransactionSubmissionChainIds = 'sync_transaction_submission_chain_ids',
+  TokenCategoriesOrder = 'token_categories_order',
+  TokenCategoriesSearchSpotlight = 'token_categories_search_spotlight',
 
   // Wallet
-  HomeScreenExploreTokens = 'home_screen_explore_tokens',
-  ForceUpgrade = 'force_upgrade',
-  OnDeviceRecovery = 'on_device_recovery',
-  UwuLink = 'uwulink_config',
-  GasStrategies = 'gas_strategy',
-  DatadogSessionSampleRate = 'datadog_session_sample_rate',
   DatadogIgnoredErrors = 'datadog_ignored_errors',
+  DatadogSessionSampleRate = 'datadog_session_sample_rate',
   EmbeddedWalletConfig = 'embedded_wallet_config',
   ExtensionBiometricUnlock = 'extension_biometric_unlock_config',
+  ForceUpgrade = 'force_upgrade',
+  GasStrategies = 'gas_strategy',
+  HomeScreenExploreTokens = 'home_screen_explore_tokens',
+  OnDeviceRecovery = 'on_device_recovery',
 
   // Web
-  AstroChain = 'astro_chain',
-  BlockedNftCollections = 'blocked_nft_collections',
-  ExternallyConnectableExtension = 'externally_connectable_extension',
-  LPConfig = 'lp_config',
   AllowedV4WethHookAddresses = 'allowed_v4_weth_hook_addresses',
-  OutageBannerChainId = 'outage_banner_chain_id',
+  AstroChain = 'astro_chain',
+  EmbeddedWalletBetaPassphrases = 'embedded_wallet_beta_passphrases',
+  ExternallyConnectableExtension = 'externally_connectable_extension',
+  LaunchesNetworkFilterChainIds = 'launches_network_filter_chain_ids',
+  LiquidityApprovalSimulation = 'liquidity_approval_simulation',
+  LiquidityGasPreEstimation = 'liquidity_gas_pre_estimation',
+  LPConfig = 'lp_config',
+  LpIncentivesChainIds = 'lp_incentives_chain_ids',
+  RWAIssuerLogos = 'rwa_issuer_logos',
+  SynchronizedHeartbeats = 'synchronized_heartbeats',
+  UniswapBuiltHookAddresses = 'uniswap_built_hook_addresses',
+  VerifiedAuctions = 'verified_auctions',
+  AuctionFdvWarning = 'auction_fdv_warning',
+  AuctionOverrides = 'auction_overrides',
 }
 
 // Config values go here for easy access
@@ -116,8 +130,14 @@ export enum SwapConfigKey {
   SolanaSendMinGasAmount = 'solanaSendMinGasAmount',
   GenericL2SwapMinGasAmount = 'genericL2SwapMinGasAmount',
   GenericL2SendMinGasAmount = 'genericL2SendMinGasAmount',
+  TempoSwapMinGasAmount = 'tempoSwapMinGasAmount',
+  TempoSendMinGasAmount = 'tempoSendMinGasAmount',
+  ArcSwapMinGasAmount = 'arcSwapMinGasAmount',
+  ArcSendMinGasAmount = 'arcSendMinGasAmount',
 
   LowBalanceWarningGasPercentage = 'lowBalanceWarningGasPercentage',
+
+  ChainedActionsUnsupportedChainIds = 'chainedActionsUnsupportedChainIds',
 }
 
 export enum NetworkRequestsConfigKey {
@@ -127,6 +147,25 @@ export enum NetworkRequestsConfigKey {
 export enum ChainsConfigKey {
   OrderedChainIds = 'orderedChainIds',
   NewChainIds = 'newChainIds',
+}
+
+export enum DisableWalletSearchTermsConfigKey {
+  Terms = 'terms',
+}
+
+export enum EarnConfigKey {
+  MinDepositUsd = 'minDepositUsd',
+  SwapToggleMonthlyEarningsThresholdUsd = 'swapToggleMonthlyEarningsThresholdUsd',
+}
+
+/** Category ids pinned first, in display order; the rest keep backend order. */
+export enum CategoriesOrderConfigKey {
+  OrderedCategoryIds = 'orderedCategoryIds',
+}
+
+/** Category ids spotlit in search's resting state, in display order. */
+export enum TokenCategoriesSearchSpotlightConfigKey {
+  SpotlitCategoryIds = 'spotlitCategoryIds',
 }
 
 // Wallet
@@ -174,20 +213,12 @@ export enum OnDeviceRecoveryConfigKey {
   MaxMnemonicsToLoad = 'maxMnemonicsToLoad',
 }
 
-export enum UwuLinkConfigKey {
-  Allowlist = 'allowlist',
-}
-
 export enum DatadogIgnoredErrorsConfigKey {
   Errors = 'errors',
 }
 
 export enum DatadogSessionSampleRateKey {
   Rate = 'rate',
-}
-
-export enum BlockedNftCollectionsConfigKey {
-  BlocklistedCollections = 'blocklistedCollections',
 }
 
 export enum ExternallyConnectableExtensionConfigKey {
@@ -234,50 +265,116 @@ export enum AllowedV4WethHookAddressesConfigKey {
   HookAddresses = 'hookAddresses',
 }
 
-export enum OutageBannerChainIdConfigKey {
-  ChainId = 'chainId',
+export enum UniswapBuiltHookAddressesConfigKey {
+  // Each list is a `{ chainId: number; address: string }[]`, NOT a `string[]` — a plain address list
+  // matches nothing (chain + address are compared together) and every Uniswap provenance badge
+  // silently disappears, indistinguishable from an unpopulated config. A hook Uniswap both built and
+  // configured belongs under `both`; the web client also treats one listed under `built` and
+  // `configured` separately as both.
+  Built = 'built',
+  Configured = 'configured',
+  Both = 'both',
+}
+
+export enum LpIncentivesChainIdsConfigKey {
+  ChainIds = 'chainIds',
+}
+
+export enum VerifiedAuctionsConfigKey {
+  VerifiedAuctionIds = 'verifiedAuctionIds',
+}
+
+export enum AuctionOverridesConfigKey {
+  LpPercentCommitted = 'lpPercentCommitted',
+}
+
+export enum AuctionFdvWarningConfigKey {
+  CommittedVolumeUsdThreshold = 'committedVolumeUsdThreshold',
+  BidCountThreshold = 'bidCountThreshold',
+  FdvUsdThreshold = 'fdvUsdThreshold',
+}
+
+export enum LaunchesNetworkFilterChainIdsConfigKey {
+  ChainIds = 'chainIds',
+}
+
+export enum LiquidityGasPreEstimationConfigKey {
+  EnabledChainIds = 'enabledChainIds',
+}
+
+export enum LiquidityApprovalSimulationConfigKey {
+  EnabledChainIds = 'enabledChainIds',
+}
+
+export enum EmbeddedWalletBetaPassphrasesKey {
+  Passphrases = 'passphrases',
+}
+
+export enum RWAIssuerLogosConfigKey {
+  Logos = 'logos',
+}
+
+/** EIP-7702 delegate contracts whose ERC-1271 validation rejects raw Permit2 ECDSA signatures. */
+export enum Permit2MismatchDelegatesConfigKey {
+  DelegateAddresses = 'delegateAddresses',
+}
+
+/** Seconds between full (non-price) heartbeat refreshes, per page. 0 disables that page's heartbeat. */
+export enum SynchronizedHeartbeatsConfigKey {
+  PortfolioPollIntervalSeconds = 'portfolioPollIntervalSeconds',
+  TdpPollIntervalSeconds = 'tdpPollIntervalSeconds',
 }
 
 export type DynamicConfigKeys = {
   // Shared
-  [DynamicConfigs.Swap]: SwapConfigKey
-  [DynamicConfigs.NetworkRequests]: NetworkRequestsConfigKey
+  [DynamicConfigs.BlockedAsyncSubmissionChainIds]: BlockedAsyncSubmissionChainIdsConfigKey
   [DynamicConfigs.Chains]: ChainsConfigKey
+  [DynamicConfigs.DisableWalletSearchTerms]: DisableWalletSearchTermsConfigKey
+  [DynamicConfigs.Earn]: EarnConfigKey
+  [DynamicConfigs.NetworkRequests]: NetworkRequestsConfigKey
+  [DynamicConfigs.Permit2MismatchDelegates]: Permit2MismatchDelegatesConfigKey
+  [DynamicConfigs.PoolCategoriesOrder]: CategoriesOrderConfigKey
+  [DynamicConfigs.Swap]: SwapConfigKey
+  [DynamicConfigs.SyncTransactionSubmissionChainIds]: SyncTransactionSubmissionChainIdsConfigKey
+  [DynamicConfigs.TokenCategoriesOrder]: CategoriesOrderConfigKey
+  [DynamicConfigs.TokenCategoriesSearchSpotlight]: TokenCategoriesSearchSpotlightConfigKey
 
   // Wallet
-  [DynamicConfigs.HomeScreenExploreTokens]: HomeScreenExploreTokensConfigKey
-  [DynamicConfigs.ForceUpgrade]: ForceUpgradeConfigKey
-  [DynamicConfigs.OnDeviceRecovery]: OnDeviceRecoveryConfigKey
-  [DynamicConfigs.UwuLink]: UwuLinkConfigKey
   [DynamicConfigs.DatadogIgnoredErrors]: DatadogIgnoredErrorsConfigKey
   [DynamicConfigs.DatadogSessionSampleRate]: DatadogSessionSampleRateKey
   [DynamicConfigs.EmbeddedWalletConfig]: EmbeddedWalletConfigKey
   [DynamicConfigs.ExtensionBiometricUnlock]: ExtensionBiometricUnlockConfigKey
-  [DynamicConfigs.SyncTransactionSubmissionChainIds]: SyncTransactionSubmissionChainIdsConfigKey
+  [DynamicConfigs.ForceUpgrade]: ForceUpgradeConfigKey
+  [DynamicConfigs.HomeScreenExploreTokens]: HomeScreenExploreTokensConfigKey
+  [DynamicConfigs.OnDeviceRecovery]: OnDeviceRecoveryConfigKey
 
   // Web
-  [DynamicConfigs.AstroChain]: AstroChainConfigKey
-  [DynamicConfigs.BlockedNftCollections]: BlockedNftCollectionsConfigKey
-  [DynamicConfigs.ExternallyConnectableExtension]: ExternallyConnectableExtensionConfigKey
-  [DynamicConfigs.LPConfig]: LPConfigKey
   [DynamicConfigs.AllowedV4WethHookAddresses]: AllowedV4WethHookAddressesConfigKey
-  [DynamicConfigs.BlockedAsyncSubmissionChainIds]: BlockedAsyncSubmissionChainIdsConfigKey
-  [DynamicConfigs.OutageBannerChainId]: OutageBannerChainIdConfigKey
+  [DynamicConfigs.AuctionFdvWarning]: AuctionFdvWarningConfigKey
+  [DynamicConfigs.AuctionOverrides]: AuctionOverridesConfigKey
+  [DynamicConfigs.AstroChain]: AstroChainConfigKey
+  [DynamicConfigs.EmbeddedWalletBetaPassphrases]: EmbeddedWalletBetaPassphrasesKey
+  [DynamicConfigs.ExternallyConnectableExtension]: ExternallyConnectableExtensionConfigKey
+  [DynamicConfigs.LaunchesNetworkFilterChainIds]: LaunchesNetworkFilterChainIdsConfigKey
+  [DynamicConfigs.LiquidityApprovalSimulation]: LiquidityApprovalSimulationConfigKey
+  [DynamicConfigs.LiquidityGasPreEstimation]: LiquidityGasPreEstimationConfigKey
+  [DynamicConfigs.LPConfig]: LPConfigKey
+  [DynamicConfigs.LpIncentivesChainIds]: LpIncentivesChainIdsConfigKey
+  [DynamicConfigs.RWAIssuerLogos]: RWAIssuerLogosConfigKey
+  [DynamicConfigs.SynchronizedHeartbeats]: SynchronizedHeartbeatsConfigKey
+  [DynamicConfigs.UniswapBuiltHookAddresses]: UniswapBuiltHookAddressesConfigKey
+  [DynamicConfigs.VerifiedAuctions]: VerifiedAuctionsConfigKey
 }
 
-// This type must match the format in statsig dynamic config for uwulink
-// https://console.statsig.com/5HjUux4OvSGzgqWIfKFt8i/dynamic_configs/uwulink_config
-export type UwULinkAllowlistItem = {
-  chainId: number
-  address: string
-  name: string
-  logo?: {
-    dark?: string
-    light?: string
-  }
+// This type must match the format in the statsig dynamic config for rwa_issuer_logos.
+// Per-issuer light/dark URLs because remote SVGs can't be recolored by theme.
+export type RWAIssuerLogo = {
+  light?: string
+  dark?: string
 }
 
-export type UwULinkAllowlist = {
-  contracts: UwULinkAllowlistItem[]
-  tokenRecipients: UwULinkAllowlistItem[]
-}
+export type RWAIssuerLogosMap = Record<string, RWAIssuerLogo>
+
+// This type must match the format in the statsig dynamic config auction_overrides, under its lpPercentCommitted key:
+// auction id ("{chainId}_{checksummed auction contract address}") to percent, e.g. 34.6 => "34.6%".
+export type AuctionLpPercentOverridesMap = Record<string, number>

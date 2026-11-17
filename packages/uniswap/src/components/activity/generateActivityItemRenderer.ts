@@ -1,12 +1,17 @@
 import { createElement } from 'react'
 import { ApproveSummaryItem } from 'uniswap/src/components/activity/summaries/ApproveSummaryItem'
 import { BridgeSummaryItem } from 'uniswap/src/components/activity/summaries/BridgeSummaryItem'
+import {
+  DepositSummaryItem,
+  WithdrawSummaryItem,
+} from 'uniswap/src/components/activity/summaries/DepositWithdrawSummaryItem'
 import { LiquiditySummaryItem } from 'uniswap/src/components/activity/summaries/LiquiditySummaryItem'
 import { NFTApproveSummaryItem } from 'uniswap/src/components/activity/summaries/NFTApproveSummaryItem'
 import { NFTMintSummaryItem } from 'uniswap/src/components/activity/summaries/NFTMintSummaryItem'
 import { NFTTradeSummaryItem } from 'uniswap/src/components/activity/summaries/NFTTradeSummaryItem'
 import { OffRampTransferSummaryItem } from 'uniswap/src/components/activity/summaries/OffRampTransferSummaryItem'
 import { OnRampTransferSummaryItem } from 'uniswap/src/components/activity/summaries/OnRampTransferSummaryItem'
+import { PlanSummaryItem } from 'uniswap/src/components/activity/summaries/PlanSummaryItem'
 import { ReceiveSummaryItem } from 'uniswap/src/components/activity/summaries/ReceiveSummaryItem'
 import { SendSummaryItem } from 'uniswap/src/components/activity/summaries/SendSummaryItem'
 import { SwapSummaryItem } from 'uniswap/src/components/activity/summaries/SwapSummaryItem'
@@ -33,7 +38,6 @@ export function generateActivityItemRenderer({
   isExternalProfile?: boolean
   authTrigger: ((args: { successCallback: () => void; failureCallback: () => void }) => Promise<void>) | undefined
 }): ActivityItemRenderer {
-  // eslint-disable-next-line complexity
   return function ActivityItemComponent({ item, index }: { item: ActivityItem; index: number }): JSX.Element {
     // if it's a loading item, render the loading placeholder
     if (isLoadingItem(item)) {
@@ -77,11 +81,20 @@ export function generateActivityItemRenderer({
       case TransactionType.Swap:
         SummaryItem = SwapSummaryItem
         break
+      case TransactionType.Plan:
+        SummaryItem = PlanSummaryItem
+        break
       case TransactionType.WCConfirm:
         SummaryItem = WCSummaryItem
         break
       case TransactionType.Wrap:
         SummaryItem = WrapSummaryItem
+        break
+      case TransactionType.Deposit:
+        SummaryItem = DepositSummaryItem
+        break
+      case TransactionType.Withdraw:
+        SummaryItem = WithdrawSummaryItem
         break
       case TransactionType.LPIncentivesClaimRewards:
       case TransactionType.CollectFees:
@@ -90,6 +103,10 @@ export function generateActivityItemRenderer({
       case TransactionType.LiquidityIncrease:
       case TransactionType.LiquidityDecrease:
         SummaryItem = LiquiditySummaryItem
+        break
+      case TransactionType.UniswapXCancel:
+        // Suppressed from merged activity by default; generic summary if suppression regresses
+        SummaryItem = UnknownSummaryItem
         break
       default:
         SummaryItem = UnknownSummaryItem

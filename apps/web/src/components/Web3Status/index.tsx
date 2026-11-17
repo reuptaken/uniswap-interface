@@ -1,38 +1,37 @@
-import { PrefetchBalancesWrapper } from 'appGraphql/data/apollo/AdaptiveTokenBalancesProvider'
+import { useEmbeddedWalletState } from '@universe/embedded-wallet'
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import PortfolioDrawer from 'components/AccountDrawer'
-import { usePendingActivity } from 'components/AccountDrawer/MiniPortfolio/Activity/hooks'
-import { useAccountDrawer } from 'components/AccountDrawer/MiniPortfolio/hooks'
-import { Portal } from 'components/Popups/Portal'
-import StatusIcon from 'components/StatusIcon'
-import { RecentlyConnectedModal } from 'components/Web3Status/RecentlyConnectedModal'
-import { useAccountIdentifier } from 'components/Web3Status/useAccountIdentifier'
-import { useShowPendingAfterDelay } from 'components/Web3Status/useShowPendingAfterDelay'
-import { useModalState } from 'hooks/useModalState'
-import { atom, useAtom } from 'jotai'
-import { deprecatedStyled } from 'lib/styled-components'
-import { forwardRef, RefObject, useCallback, useEffect, useRef } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
-import { AnimatePresence, Button, ButtonProps, Flex, Popover, Text } from 'ui/src'
+import { Flex, Text } from '@universe/mycelium'
+import { ENTER_EXIT_PRESET_CLASSES } from '@universe/mycelium/compat'
+import { Presence } from '@universe/mycelium/presence'
+import { styled } from '@universe/mycelium/styled'
+import { TestID } from '@universe/test'
+import { useAtom } from 'jotai'
+import { forwardRef, useCallback, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Button, ButtonProps, Popover } from 'ui/src'
 import { Unitag } from 'ui/src/components/icons/Unitag'
-import { breakpoints } from 'ui/src/theme'
 import { useActiveAddresses, useConnectionStatus } from 'uniswap/src/features/accounts/store/hooks'
+import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
 import { ElementName, InterfaceEventName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import Trace from 'uniswap/src/features/telemetry/Trace'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
-import { isIFramed } from 'utils/isIFramed'
+import { AccountDrawer as PortfolioDrawer } from '~/components/AccountDrawer'
+import { usePendingActivity } from '~/components/AccountDrawer/MiniPortfolio/Activity/hooks'
+import { useAccountDrawer } from '~/components/AccountDrawer/MiniPortfolio/hooks'
+import { Portal } from '~/components/Popups/Portal'
+import { StatusIcon } from '~/components/StatusIcon'
+import { RecentlyConnectedModal } from '~/components/Web3Status/RecentlyConnectedModal'
+import { useAccountIdentifier } from '~/components/Web3Status/useAccountIdentifier'
+import { useShowPendingAfterDelay } from '~/components/Web3Status/useShowPendingAfterDelay'
+import { Web3StatusRef } from '~/components/Web3Status/web3StatusRef'
+import { useHasInjectedWallets } from '~/features/wallet/connection/hooks/useOrderedWalletConnectors'
+import { useModalState } from '~/hooks/useModalState'
+import { isIFramed } from '~/utils/isIFramed'
 
-const TextStyled = deprecatedStyled.span<{ marginRight?: number }>`
-  flex: 1 1 auto;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 1rem;
-  width: fit-content;
-  font-weight: 485;
-  margin-right: ${({ marginRight = 0 }) => marginRight}px;
-  color: ${({ theme }) => theme.neutral1};
-`
+const TextStyled = styled('span', {
+  platform: 'web',
+  base: 'flex-[1_1_auto] text-ellipsis whitespace-nowrap text-[1rem] w-fit font-[485] mr-[0px] text-neutral1',
+})
 
 const Web3StatusGeneric = forwardRef<HTMLDivElement, ButtonProps>(function Web3StatusGeneric(
   { children, ...props },
@@ -55,24 +54,24 @@ const Web3StatusGeneric = forwardRef<HTMLDivElement, ButtonProps>(function Web3S
   )
 })
 
-const AddressAndChevronContainer = deprecatedStyled.div<{ $loading?: boolean }>`
-  display: flex;
-  opacity: ${({ $loading, theme }) => $loading && theme.opacity.disabled};
-  align-items: center;
-
-  @media only screen and (max-width: ${breakpoints.xl}px) {
-    display: none;
-  }
-`
+const AddressAndChevronContainer = styled('div', {
+  platform: 'web',
+  base: 'flex items-center media-xl:hidden',
+  variants: {
+    $loading: { true: 'opacity-50', false: '' },
+  },
+  defaultVariants: { $loading: false },
+})
 
 const ExistingUserCTAButton = forwardRef<HTMLDivElement, { onPress: () => void }>(function ExistingUserCTAButton(
   { onPress },
   ref,
 ) {
   const { t } = useTranslation()
-
   const isEmbeddedWalletEnabled = useFeatureFlag(FeatureFlags.EmbeddedWallet)
-  const isLogIn = isEmbeddedWalletEnabled
+  const hasInjectedWallets = useHasInjectedWallets()
+  const { walletAddress: embeddedWalletAddress } = useEmbeddedWalletState()
+  const showGetStarted = isEmbeddedWalletEnabled && !hasInjectedWallets && !embeddedWalletAddress
 
   return (
     <Button
@@ -81,20 +80,20 @@ const ExistingUserCTAButton = forwardRef<HTMLDivElement, { onPress: () => void }
       variant="branded"
       emphasis="primary"
       tabIndex={0}
-      data-testid="navbar-connect-wallet"
+      data-testid={TestID.NavConnectWalletButton}
       ref={ref}
       onPress={onPress}
     >
-      {isLogIn ? t('nav.logIn.button') : t('common.connect.button')}
+      {showGetStarted ? t('common.getStarted') : t('common.connect.button')}
     </Button>
   )
 })
 
-export const Web3StatusRef = atom<RefObject<HTMLElement | null> | undefined>(undefined)
-
 function Web3StatusInner() {
+  const { t } = useTranslation()
   const activeAddresses = useActiveAddresses()
   const { isConnecting } = useConnectionStatus()
+  const { isTestnetModeEnabled } = useEnabledChains()
   const ref = useRef<HTMLDivElement>(null)
   const [, setRef] = useAtom(Web3StatusRef)
 
@@ -124,7 +123,11 @@ function Web3StatusInner() {
           <Text variant="body2" marginRight={hasUnitag ? '$spacing8' : undefined}>
             {accountIdentifier}
           </Text>
-          {hasUnitag ? <Unitag size={18} /> : undefined}
+          {hasUnitag ? (
+            <Flex pt="$spacing2">
+              <Unitag size={18} />
+            </Flex>
+          ) : undefined}
         </AddressAndChevronContainer>
       </Web3StatusGeneric>
     )
@@ -132,10 +135,10 @@ function Web3StatusInner() {
 
   if (activeAddresses.evmAddress || activeAddresses.svmAddress) {
     return (
-      <Trace logPress eventOnTrigger={InterfaceEventName.MiniPortfolioToggled} properties={{ type: 'open' }}>
-        <AnimatePresence exitBeforeEnter>
+      <Trace logPress element={ElementName.AccountDrawerButton}>
+        <Presence exitBeforeEnter>
           {showLoadingState ? (
-            <Flex key="pending" animation="125ms" enterStyle={{ opacity: 0, y: -2 }} exitStyle={{ opacity: 0, y: 2 }}>
+            <Flex key="pending" className={ENTER_EXIT_PRESET_CLASSES.fadeInOut}>
               <Web3StatusGeneric
                 data-testid={TestID.Web3StatusConnected}
                 onPress={handleWalletDropdownClick}
@@ -144,19 +147,22 @@ function Web3StatusInner() {
                 ref={ref}
                 icon={undefined}
               >
-                <TextStyled>
-                  <Trans i18nKey="activity.pending" values={{ pendingActivityCount }} />
-                </TextStyled>
+                <TextStyled>{t('activity.pending', { pendingActivityCount })}</TextStyled>
               </Web3StatusGeneric>
             </Flex>
           ) : (
-            <Flex key="normal" animation="125ms" enterStyle={{ opacity: 0, y: -2 }} exitStyle={{ opacity: 0, y: 2 }}>
+            <Flex key="normal" className={ENTER_EXIT_PRESET_CLASSES.fadeInOut}>
               <Web3StatusGeneric
                 data-testid={TestID.Web3StatusConnected}
                 onPress={handleWalletDropdownClick}
                 loading={false}
                 ref={ref}
                 icon={<StatusIcon size={24} showMiniIcons={false} />}
+                // Trims the inset around the avatar's own whitespace. Right: the avatar sits as far from the
+                // screen edge as the logo does on the left. Left: with the nav row's $md gap dropped beside
+                // the search icon, the two land 20px apart; the testnet pill sits between them and keeps
+                // the row gap, so it keeps the full left inset.
+                $md={isTestnetModeEnabled ? { pr: '$spacing4' } : { pl: '$spacing1', pr: '$spacing4' }}
               >
                 <AddressAndChevronContainer>
                   <Text variant="body2" marginRight={hasUnitag ? '$spacing8' : undefined}>
@@ -167,7 +173,7 @@ function Web3StatusInner() {
               </Web3StatusGeneric>
             </Flex>
           )}
-        </AnimatePresence>
+        </Presence>
       </Trace>
     )
   }
@@ -178,7 +184,7 @@ function Web3StatusInner() {
       eventOnTrigger={InterfaceEventName.ConnectWalletButtonClicked}
       element={ElementName.ConnectWalletButton}
     >
-      {/* biome-ignore lint/correctness/noRestrictedElements: needed here */}
+      {/* oxlint-disable-next-line react/forbid-elements -- needed here */}
       <div onKeyDown={(e) => e.key === 'Enter' && handleWalletDropdownClick()}>
         <ExistingUserCTAButton ref={ref} onPress={handleWalletDropdownClick} />
       </div>
@@ -186,10 +192,10 @@ function Web3StatusInner() {
   )
 }
 
-export default function Web3Status() {
+export function Web3Status() {
   const { isOpen: recentlyConnectedModalIsOpen } = useModalState(ModalName.RecentlyConnectedModal)
   return (
-    <PrefetchBalancesWrapper>
+    <>
       <Popover
         placement="bottom"
         stayInFrame
@@ -205,6 +211,6 @@ export default function Web3Status() {
       <Portal>
         <PortfolioDrawer />
       </Portal>
-    </PrefetchBalancesWrapper>
+    </>
   )
 }

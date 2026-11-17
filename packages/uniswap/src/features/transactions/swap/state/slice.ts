@@ -1,6 +1,6 @@
 import type { PayloadAction } from '@reduxjs/toolkit'
 import { createSlice } from '@reduxjs/toolkit'
-import type { UniverseChainId } from 'uniswap/src/features/chains/types'
+import type { UniverseChainId } from '@universe/chains'
 import type { CurrencyField } from 'uniswap/src/types/currency'
 
 export interface SwapSettingsState {
@@ -23,11 +23,9 @@ const slice = createSlice({
     ) => {
       state.filteredChainIds = { ...filteredChainIds }
     },
-    resetFilteredChainIds: (state) => {
-      state.filteredChainIds = undefined
-    },
+    resetSwapSettings: () => initialSwapSettingsState,
   },
 })
 
-export const { updateFilteredChainIds } = slice.actions
+export const { updateFilteredChainIds, resetSwapSettings } = slice.actions
 export const { reducer: swapSettingsReducer } = slice

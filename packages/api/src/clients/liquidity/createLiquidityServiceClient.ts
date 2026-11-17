@@ -1,71 +1,110 @@
+import { type PartialMessage } from '@bufbuild/protobuf'
+import { type PromiseClient } from '@connectrpc/connect'
+import { type LiquidityService as V1LiquidityService } from '@uniswap/client-liquidity/dist/uniswap/liquidity/v1/api_connect'
 import type {
   ClaimLPRewardsRequest,
   ClaimLPRewardsResponse,
-  MigrateV2ToV3LPPositionRequest,
-  MigrateV2ToV3LPPositionResponse,
   MigrateV3ToV4LPPositionRequest,
   MigrateV3ToV4LPPositionResponse,
+  PoolInfoRequest,
+  PoolInfoResponse,
 } from '@uniswap/client-liquidity/dist/uniswap/liquidity/v1/api_pb'
-import { FetchClient } from '@universe/api/src/clients/base/types'
-import { createFetcher } from '@universe/api/src/clients/base/utils'
+import { type LiquidityService as V2LiquidityService } from '@uniswap/client-liquidity/dist/uniswap/liquidity/v2/api_connect'
+import type {
+  ClaimFeesRequest,
+  ClaimFeesResponse,
+  CreateClassicPositionRequest,
+  CreateClassicPositionResponse,
+  CreatePositionRequest,
+  CreatePositionResponse,
+  DecreasePositionRequest,
+  DecreasePositionResponse,
+  HookListRequest,
+  HookListResponse,
+  GetPoolHistoryPriceRequest,
+  GetPoolHistoryPriceResponse,
+  GetPoolHistoryVolumeRequest,
+  GetPoolHistoryVolumeResponse,
+  GetPoolRequest,
+  GetPoolResponse,
+  GetPoolTicksRequest,
+  GetPoolTicksResponse,
+  GetPositionRequest,
+  GetPositionResponse,
+  GetWalletPositionsBalanceRequest,
+  GetWalletPositionsBalanceResponse,
+  GetWalletPositionsRequest,
+  GetWalletPositionsResponse,
+  IncreasePositionRequest,
+  IncreasePositionResponse,
+  LPApprovalRequest,
+  LPApprovalResponse,
+  MigrateV2ToV3LPPositionRequest,
+  MigrateV2ToV3LPPositionResponse,
+} from '@uniswap/client-liquidity/dist/uniswap/liquidity/v2/api_pb'
 
-export interface LiquidityServiceClientContext {
-  fetchClient: FetchClient
+interface V1LiquidityServiceClientContext {
+  rpcClient: PromiseClient<typeof V1LiquidityService>
 }
 
-export interface LiquidityServiceClient {
-  migrateV2ToV3LpPosition: (params: MigrateV2ToV3LPPositionRequest) => Promise<MigrateV2ToV3LPPositionResponse>
-  migrateV3ToV4LpPosition: (params: MigrateV3ToV4LPPositionRequest) => Promise<MigrateV3ToV4LPPositionResponse>
+export interface V1LiquidityServiceClient {
   claimRewards: (params: ClaimLPRewardsRequest) => Promise<ClaimLPRewardsResponse>
+  migrateV3ToV4LpPosition: (params: MigrateV3ToV4LPPositionRequest) => Promise<MigrateV3ToV4LPPositionResponse>
+  poolInfo: (params: PoolInfoRequest) => Promise<PoolInfoResponse>
 }
 
-export const LIQUIDITY_PATHS = {
-  migrateV2ToV3LPPosition: '/MigrateV2ToV3LPPosition',
-  migrateV3ToV4LPPosition: '/MigrateV3ToV4LPPosition',
-  claimRewards: '/ClaimLPRewards',
-}
-
-export function createLiquidityServiceClient(ctx: LiquidityServiceClientContext): LiquidityServiceClient {
-  const { fetchClient: client } = ctx
-
-  const migrateV2ToV3LpPosition = createFetcher<MigrateV2ToV3LPPositionRequest, MigrateV2ToV3LPPositionResponse>({
-    client,
-    url: LIQUIDITY_PATHS.migrateV2ToV3LPPosition,
-    method: 'post',
-    transformRequest: async ({ params }) => ({
-      params: {
-        // this needs to be destructured because otherwise the enums get stringified to the key and the backend expects the value.
-        ...params,
-      },
-    }),
-  })
-
-  const migrateV3ToV4LpPosition = createFetcher<MigrateV3ToV4LPPositionRequest, MigrateV3ToV4LPPositionResponse>({
-    client,
-    url: LIQUIDITY_PATHS.migrateV3ToV4LPPosition,
-    method: 'post',
-    transformRequest: async ({ params }) => ({
-      params: {
-        // this needs to be destructured because otherwise the enums get stringified to the key and the backend expects the value.
-        ...params,
-      },
-    }),
-  })
-
-  const claimRewards = createFetcher<ClaimLPRewardsRequest, ClaimLPRewardsResponse>({
-    client,
-    url: LIQUIDITY_PATHS.claimRewards,
-    method: 'post',
-    transformRequest: async ({ params }) => ({
-      params: {
-        ...params,
-      },
-    }),
-  })
-
+export function createV1LiquidityServiceClient({
+  rpcClient,
+}: V1LiquidityServiceClientContext): V1LiquidityServiceClient {
   return {
-    migrateV2ToV3LpPosition,
-    migrateV3ToV4LpPosition,
-    claimRewards,
+    claimRewards: (params) => rpcClient.claimLPRewards(params),
+    migrateV3ToV4LpPosition: (params) => rpcClient.migrateV3ToV4LPPosition(params),
+    poolInfo: (params) => rpcClient.poolInfo(params),
+  }
+}
+
+interface V2LiquidityServiceClientContext {
+  rpcClient: PromiseClient<typeof V2LiquidityService>
+}
+
+export interface V2LiquidityServiceClient {
+  checkLPApproval: (params: LPApprovalRequest) => Promise<LPApprovalResponse>
+  claimFees: (params: ClaimFeesRequest) => Promise<ClaimFeesResponse>
+  createClassicPosition: (params: CreateClassicPositionRequest) => Promise<CreateClassicPositionResponse>
+  createPosition: (params: CreatePositionRequest) => Promise<CreatePositionResponse>
+  decreasePosition: (params: DecreasePositionRequest) => Promise<DecreasePositionResponse>
+  hookList: (params: HookListRequest) => Promise<HookListResponse>
+  increasePosition: (params: IncreasePositionRequest) => Promise<IncreasePositionResponse>
+  getPool: (params: PartialMessage<GetPoolRequest>) => Promise<GetPoolResponse>
+  getPoolHistoryPrice: (params: PartialMessage<GetPoolHistoryPriceRequest>) => Promise<GetPoolHistoryPriceResponse>
+  getPoolHistoryVolume: (params: PartialMessage<GetPoolHistoryVolumeRequest>) => Promise<GetPoolHistoryVolumeResponse>
+  getPoolTicks: (params: PartialMessage<GetPoolTicksRequest>) => Promise<GetPoolTicksResponse>
+  getPosition: (params: PartialMessage<GetPositionRequest>) => Promise<GetPositionResponse>
+  getWalletPositions: (params: PartialMessage<GetWalletPositionsRequest>) => Promise<GetWalletPositionsResponse>
+  getWalletPositionsBalance: (
+    params: PartialMessage<GetWalletPositionsBalanceRequest>,
+  ) => Promise<GetWalletPositionsBalanceResponse>
+  migrateV2ToV3LpPosition: (params: MigrateV2ToV3LPPositionRequest) => Promise<MigrateV2ToV3LPPositionResponse>
+}
+
+export function createV2LiquidityServiceClient({
+  rpcClient,
+}: V2LiquidityServiceClientContext): V2LiquidityServiceClient {
+  return {
+    checkLPApproval: (params) => rpcClient.checkLPApproval(params),
+    claimFees: (params) => rpcClient.claimFees(params),
+    createClassicPosition: (params) => rpcClient.createClassicPosition(params),
+    createPosition: (params) => rpcClient.createPosition(params),
+    decreasePosition: (params) => rpcClient.decreasePosition(params),
+    hookList: (params) => rpcClient.hookList(params),
+    increasePosition: (params) => rpcClient.increasePosition(params),
+    getPool: (params) => rpcClient.getPool(params),
+    getPoolHistoryPrice: (params) => rpcClient.getPoolHistoryPrice(params),
+    getPoolHistoryVolume: (params) => rpcClient.getPoolHistoryVolume(params),
+    getPoolTicks: (params) => rpcClient.getPoolTicks(params),
+    getPosition: (params) => rpcClient.getPosition(params),
+    getWalletPositions: (params) => rpcClient.getWalletPositions(params),
+    getWalletPositionsBalance: (params) => rpcClient.getWalletPositionsBalance(params),
+    migrateV2ToV3LpPosition: (params) => rpcClient.migrateV2ToV3LPPosition(params),
   }
 }

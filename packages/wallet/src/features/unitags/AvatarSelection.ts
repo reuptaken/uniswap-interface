@@ -1,46 +1,65 @@
-import { GraphQLApi } from '@universe/api'
-import { NUM_FIRST_NFTS } from 'uniswap/src/components/nfts/constants'
+import { useCallback, useState } from 'react'
+import { useWalletNfts } from 'uniswap/src/data/apiClients/dataApiService/nfts/useWalletNfts'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { formatNftItems } from 'uniswap/src/features/nfts/utils'
 import { selectPhotoFromLibrary } from 'wallet/src/features/unitags/photoSelection'
 
 export function useAvatarSelectionHandler({
   address,
   avatarImageUri,
   setAvatarImageUri,
-  showModal,
+  onOpenModal,
+  onCloseModal,
 }: {
   address: string
   avatarImageUri: string | undefined
-  setAvatarImageUri: (uri: string) => void
-  showModal: () => void
-}): { avatarSelectionHandler: () => Promise<void>; hasNFTs: boolean } {
-  const { gqlChains } = useEnabledChains()
+  setAvatarImageUri: (uri?: string) => void
+  onOpenModal?: () => void
+  onCloseModal?: () => void
+}): {
+  avatarSelectionHandler: () => Promise<void>
+  hasNFTs: boolean
+  showModal: boolean
+  openModal: () => void
+  closeModal: () => void
+} {
+  const { chains } = useEnabledChains()
+  const [showModal, setShowModal] = useState(false)
 
-  const { data: nftsData } = GraphQLApi.useNftsTabQuery({
-    variables: {
-      ownerAddress: address,
-      first: NUM_FIRST_NFTS,
-      filter: { filterSpam: false },
-      chains: gqlChains,
-    },
+  const { nfts, isPending, isError } = useWalletNfts({
+    address,
+    filterSpam: false,
+    chainsFilter: chains,
+    pageSize: 1,
   })
-  const nftItems = formatNftItems(nftsData)
 
-  const hasNFTs = nftItems !== undefined && nftItems.length > 0
+  const hasNFTs = nfts.length > 0
+  // A pending or errored eligibility check is not evidence the wallet has zero NFTs — falling
+  // through to camera roll here would be indistinguishable from a real empty wallet, so treat
+  // "we don't know yet" the same as "might have NFTs" and let the modal resolve once data lands.
+  const isNFTEligibilityUnknown = isPending || isError
   const hasAvatarImage = avatarImageUri && avatarImageUri !== ''
 
-  if (hasNFTs || hasAvatarImage) {
-    return { avatarSelectionHandler: async () => showModal(), hasNFTs }
-  } else {
-    return {
-      avatarSelectionHandler: async (): Promise<void> => {
-        const selectedPhoto = await selectPhotoFromLibrary()
-        if (selectedPhoto) {
-          setAvatarImageUri(selectedPhoto)
-        }
-      },
-      hasNFTs,
+  const openModal = useCallback((): void => {
+    onOpenModal?.()
+    setShowModal(true)
+  }, [onOpenModal])
+
+  const closeModal = useCallback((): void => {
+    onCloseModal?.()
+    setShowModal(false)
+  }, [onCloseModal])
+
+  const avatarSelectionHandler = useCallback(async (): Promise<void> => {
+    if (hasNFTs || hasAvatarImage || isNFTEligibilityUnknown) {
+      openModal()
+      return
     }
-  }
+
+    const selectedPhoto = await selectPhotoFromLibrary()
+    if (selectedPhoto) {
+      setAvatarImageUri(selectedPhoto)
+    }
+  }, [hasAvatarImage, hasNFTs, isNFTEligibilityUnknown, openModal, setAvatarImageUri])
+
+  return { avatarSelectionHandler, hasNFTs, showModal, openModal, closeModal }
 }

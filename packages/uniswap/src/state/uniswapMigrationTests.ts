@@ -1,4 +1,11 @@
-/* biome-ignore-all lint/suspicious/noExplicitAny: legacy code needs review */
+/**
+ * Test helpers for testing migrations run in sequence.
+ *
+ * Called by migrations.test.ts to verify migrations work correctly with realistic
+ * data that has passed through all prior migrations in the chain.
+ *
+ * For unit tests of individual migrations, see uniswapMigrations.test.ts.
+ */
 import { SearchHistoryResultType } from 'uniswap/src/features/search/SearchHistoryResult'
 import { TokenProtectionWarning } from 'uniswap/src/features/tokens/warnings/types'
 import { PreV55SearchResultType } from 'uniswap/src/state/oldTypes'
@@ -53,11 +60,50 @@ export function testAddActivityVisibility(migration: (state: any) => any, prevSc
 export function testMigrateDismissedTokenWarnings(migration: (state: any) => any, prevSchema: any): void {
   const result = migration(prevSchema)
 
+  // oxlint-disable-next-line guard-for-in -- biome-parity: oxlint is stricter here
   for (const chainId in result.tokens.dismissedTokenWarnings) {
+    // oxlint-disable-next-line guard-for-in -- biome-parity: oxlint is stricter here
     for (const address in result.tokens.dismissedTokenWarnings[chainId]) {
       expect(result.tokens.dismissedTokenWarnings[chainId][address].warnings).toEqual([
         TokenProtectionWarning.NonDefault,
       ])
     }
   }
+}
+
+// Mobile: 98
+// Extension: 32
+// Web: 62
+export function testAddEnableCustomGasFeeEntry(migration: (state: any) => any, prevSchema: any): void {
+  const result = migration(prevSchema)
+  expect(result.userSettings.enableCustomGasFeeEntry).toBe(false)
+}
+
+// Mobile: 99
+// Extension: 33
+// Web: 63
+export function testRemoveUniswapWrapped2025BehaviorHistory(migration: (state: any) => any, prevSchema: any): void {
+  const result = migration({
+    ...prevSchema,
+    uniswapBehaviorHistory: {
+      ...prevSchema?.uniswapBehaviorHistory,
+      hasDismissedUniswapWrapped2025Banner: true,
+    },
+  })
+  expect(result.uniswapBehaviorHistory).not.toHaveProperty('hasDismissedUniswapWrapped2025Banner')
+}
+
+// Mobile: 100
+// Extension: 34
+// Web: 64
+export function testMarkPoolsBalanceCoachmarkEligible(migration: (state: any) => any, prevSchema: any): void {
+  // Overwrites the old always-`true` default so existing installs become eligible.
+  const result = migration({
+    ...prevSchema,
+    uniswapBehaviorHistory: {
+      ...prevSchema?.uniswapBehaviorHistory,
+      hasDismissedPoolsBalanceCoachmark: true,
+    },
+  })
+  expect(result.uniswapBehaviorHistory.hasDismissedPoolsBalanceCoachmark).toBe(false)
 }

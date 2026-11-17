@@ -1,13 +1,14 @@
 import { Alignment, Fit, Layout, useRive } from '@rive-app/react-canvas'
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { PillButton } from 'pages/Landing/components/cards/PillButton'
-import ValuePropCard from 'pages/Landing/components/cards/ValuePropCard'
-import { Wallet } from 'pages/Landing/components/Icons'
-import { Trans, useTranslation } from 'react-i18next'
-import { useIsDarkMode } from 'theme/components/ThemeToggle'
-import { Flex, useSporeColors } from 'ui/src'
-import { Star } from 'ui/src/components/icons/Star'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
+import { Flex } from '@universe/mycelium'
+import { Star } from '@universe/mycelium/icons/Star'
+import { useIsDarkMode, useSporeColors } from '@universe/mycelium/theme-hooks-compat'
+import { useTranslation } from 'react-i18next'
+import { Trans } from 'ui/src'
+import { UniswapStaticUrls } from 'uniswap/src/constants/urls'
+import { PillButton } from '~/pages/Landing/components/cards/PillButton'
+import { ValuePropCard } from '~/pages/Landing/components/cards/ValuePropCard'
+import { Wallet } from '~/pages/Landing/components/Icons'
 
 export function DownloadWalletCard() {
   const theme = useSporeColors()
@@ -31,7 +32,7 @@ export function DownloadWalletCard() {
 
   return (
     <ValuePropCard
-      href={uniswapUrls.downloadWalletUrl}
+      href={UniswapStaticUrls.downloadWalletUrl}
       minHeight={500}
       color="$accent1"
       backgroundColor="rgba(252, 114, 255, 0.12)"
@@ -48,14 +49,15 @@ export function DownloadWalletCard() {
           <Trans
             i18nKey="landing.walletBody"
             components={{
-              Star: <Star color="$accent1" size="$icon.24" mb={-4} />,
+              Star: <Star color="$accent1" size="$icon.24" style={{ display: 'inline', verticalAlign: 'middle' }} />,
+              nowrap: <span style={{ whiteSpace: 'nowrap' }} />,
             }}
           />
         ) : (
           <Trans
             i18nKey="landing.walletBody.old"
             components={{
-              Star: <Star color="$accent1" size="$icon.24" mb={-4} />,
+              Star: <Star color="$accent1" size="$icon.24" style={{ display: 'inline', verticalAlign: 'middle' }} />,
             }}
           />
         )

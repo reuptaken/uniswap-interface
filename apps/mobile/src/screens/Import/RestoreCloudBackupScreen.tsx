@@ -1,4 +1,7 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack'
+import { Flex, iconSizes, Text, TouchableArea } from '@universe/mycelium'
+import { DownloadAlt } from '@universe/mycelium/icons/DownloadAlt'
+import { useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { ScrollView } from 'react-native-gesture-handler'
@@ -6,9 +9,8 @@ import { OnboardingStackParamList } from 'src/app/navigation/types'
 import { CloudStorageMnemonicBackup } from 'src/features/CloudBackup/types'
 import { OnboardingScreen } from 'src/features/onboarding/OnboardingScreen'
 import { useNavigationHeader } from 'src/utils/useNavigationHeader'
-import { Flex, Text, TouchableArea, useIsDarkMode } from 'ui/src'
-import { DownloadAlt, RotatableChevron, Unitag } from 'ui/src/components/icons'
-import { iconSizes } from 'ui/src/theme'
+import { RotatableChevron } from 'ui/src/components/icons/RotatableChevron'
+import { Unitag } from 'ui/src/components/icons/Unitag'
 import { AccountIcon } from 'uniswap/src/features/accounts/AccountIcon'
 import { DisplayNameType } from 'uniswap/src/features/accounts/types'
 import { FORMAT_DATE_TIME_SHORT, useLocalizedDayjs } from 'uniswap/src/features/language/localizedDayjs'
@@ -83,7 +85,7 @@ const BackupListItem = ({
               {displayName?.name}
             </Text>
             {isUnitag && (
-              <Flex alignSelf="center" pl="$spacing4">
+              <Flex alignSelf="center" pl="$spacing4" pt="$spacing1">
                 <Unitag size="$icon.24" />
               </Flex>
             )}
@@ -93,7 +95,7 @@ const BackupListItem = ({
           </Text>
         </Flex>
         <Flex>
-          <RotatableChevron color="$neutral2" direction="end" height={iconSizes.icon20} width={iconSizes.icon20} />
+          <RotatableChevron color="$neutral2" direction="end" size="$icon.20" />
         </Flex>
       </Flex>
     </TouchableArea>

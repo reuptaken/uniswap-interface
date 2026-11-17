@@ -1,61 +1,76 @@
-import { ContentStyle } from '@shopify/flash-list'
-import { memo, useEffect, useState } from 'react'
-import { Flex, styled, TouchableArea } from 'ui/src'
-import { MoreHorizontal } from 'ui/src/components/icons/MoreHorizontal'
-import { iconSizes } from 'ui/src/theme'
-import { NFTCollectionOptionItem } from 'uniswap/src/components/lists/items/nfts/NFTCollectionOptionItem'
+import { isHoverable } from '@universe/environment'
+import { ArrowRight } from '@universe/mycelium/icons/ArrowRight'
+import { TestID } from '@universe/test'
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { StyleProp, ViewStyle } from 'react-native'
+import { FocusedRow, useCreateFocusedRowStore } from 'uniswap/src/components/lists/focusedRowStore'
+import { AuctionOptionItem } from 'uniswap/src/components/lists/items/auctions/AuctionOptionItem'
+import { CategoryOptionItem } from 'uniswap/src/components/lists/items/categories/CategoryOptionItem'
+import { EarnVaultOptionItem } from 'uniswap/src/components/lists/items/earn/EarnVaultOptionItem'
 import { PoolOptionItem } from 'uniswap/src/components/lists/items/pools/PoolOptionItem'
-import {
-  PoolContextMenuAction,
-  PoolOptionItemContextMenu,
-} from 'uniswap/src/components/lists/items/pools/PoolOptionItemContextMenu'
-import { TokenContextMenuVariant, TokenOptionItem } from 'uniswap/src/components/lists/items/tokens/TokenOptionItem'
-import {
-  TokenContextMenuAction,
-  TokenOptionItemContextMenu,
-} from 'uniswap/src/components/lists/items/tokens/TokenOptionItemContextMenu'
-import { OnchainItemListOptionType, SearchModalOption } from 'uniswap/src/components/lists/items/types'
+import { TokenOptionItem } from 'uniswap/src/components/lists/items/tokens/TokenOptionItem/TokenOptionItem'
+import { TokenContextMenuVariant } from 'uniswap/src/components/lists/items/tokens/TokenOptionItem/types'
+import { OnchainItemListOptionType, SearchModalListOption } from 'uniswap/src/components/lists/items/types'
 import { ENSAddressOptionItem } from 'uniswap/src/components/lists/items/wallets/ENSAddressOptionItem'
 import { UnitagOptionItem } from 'uniswap/src/components/lists/items/wallets/UnitagOptionItem'
 import { WalletByAddressOptionItem } from 'uniswap/src/components/lists/items/wallets/WalletByAddressOptionItem'
 import { ItemRowInfo } from 'uniswap/src/components/lists/OnchainItemList/OnchainItemList'
-import type { OnchainItemSection } from 'uniswap/src/components/lists/OnchainItemList/types'
+import { OnchainItemSectionName, type OnchainItemSection } from 'uniswap/src/components/lists/OnchainItemList/types'
 import { SelectorBaseList } from 'uniswap/src/components/lists/SelectorBaseList'
-import { ContextMenuTriggerMode } from 'uniswap/src/components/menus/types'
-import { useAddToSearchHistory } from 'uniswap/src/components/TokenSelector/hooks/useAddToSearchHistory'
 import { useUniswapContext } from 'uniswap/src/contexts/UniswapContext'
-import { sendSearchOptionItemClickedAnalytics } from 'uniswap/src/features/search/SearchModal/analytics/analytics'
+import { useAllTokenCategories } from 'uniswap/src/data/apiClients/dataApiService/categories/useAllTokenCategories'
+import type { IssuerToken } from 'uniswap/src/data/apiClients/dataApiService/rwa/types'
+import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
+import type { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
+import type { RenderIssuerRowArgs } from 'uniswap/src/features/expandableAsset/types'
+import { countSearchResultRows } from 'uniswap/src/features/search/SearchModal/analytics/countSearchResultRows'
 import { SearchFilterContext } from 'uniswap/src/features/search/SearchModal/analytics/SearchContext'
-import { isHoverable, isWebPlatform } from 'utilities/src/platform'
-import { usePrevious } from 'utilities/src/react/hooks'
-import { noop } from 'utilities/src/react/noop'
-import { useBooleanState } from 'utilities/src/react/useBooleanState'
-
-const OptionItemMoreButton = styled(TouchableArea, {
-  borderWidth: 1,
-  borderRadius: '$rounded12',
-  hoverStyle: {
-    borderColor: '$surface3Hovered',
-  },
-})
+import { withCategoryHeaderActions } from 'uniswap/src/features/search/SearchModal/categories/withCategoryHeaderActions'
+import { SEARCH_MAX_SYMBOL_CHARACTERS } from 'uniswap/src/features/search/SearchModal/constants'
+import { useSearchEarnApy } from 'uniswap/src/features/search/SearchModal/hooks/useSearchEarnApy'
+import {
+  SearchModalOptionSelection,
+  useSearchModalOptionSelection,
+} from 'uniswap/src/features/search/SearchModal/hooks/useSearchModalOptionSelection'
+import { RecentSearchPills } from 'uniswap/src/features/search/SearchModal/RecentSearchPills/RecentSearchPills'
+import { RwaCollectionItem } from 'uniswap/src/features/search/SearchModal/RwaCollectionItem'
+import { RwaIssuerRow } from 'uniswap/src/features/search/SearchModal/RwaIssuerRow'
+import { getRwaCollectionKey } from 'uniswap/src/features/search/SearchModal/stocks/rwaSearchGrouping'
+import { getRwaIssuerCurrencyInfo } from 'uniswap/src/features/search/SearchModal/stocks/useRwaIssuerCurrencyInfos'
+import type { SearchModalRowWrapper, SearchModalRowWrapperProps } from 'uniswap/src/features/search/SearchModal/types'
+import {
+  searchModalListOptionKey,
+  toggleKeyInList,
+} from 'uniswap/src/features/search/SearchModal/utils/searchModalListItem'
+import { getRowCategoryTag } from 'uniswap/src/features/tokenCategories/getRowCategoryTag'
+import { useEvent } from 'utilities/src/react/hooks'
 
 export interface SearchModalListProps {
-  sections?: OnchainItemSection<SearchModalOption>[]
+  sections?: OnchainItemSection<SearchModalListOption>[]
   refetch?: () => void
   loading?: boolean
+  loadingElement?: JSX.Element
   hasError?: boolean
   emptyElement?: JSX.Element
   errorText?: string
   onSelect?: () => void
   searchFilters: SearchFilterContext
   renderedInModal: boolean
-  contentContainerStyle?: ContentStyle
+  contentContainerStyle?: StyleProp<ViewStyle>
+  rowWrapper?: SearchModalRowWrapper
+  /** Resolved primary-chain CurrencyInfos keyed by normalized currencyId, used by the RwaCollection rows' context
+   *  menu. */
+  rwaIssuerCurrencyInfos?: Map<string, CurrencyInfo>
+  /** Mobile rows are too narrow for a secondary category pill beside the name. */
+  hideTokenCategoryTag?: boolean
+  onResultsShownChange?: (count: number) => void
 }
 
-export const SearchModalList = memo(function _SearchModalList({
+export const SearchModalList = memo(function SearchModalListInner({
   sections,
   refetch,
   loading,
+  loadingElement,
   hasError,
   emptyElement,
   errorText,
@@ -63,267 +78,364 @@ export const SearchModalList = memo(function _SearchModalList({
   searchFilters,
   renderedInModal,
   contentContainerStyle,
+  rowWrapper,
+  rwaIssuerCurrencyInfos,
+  hideTokenCategoryTag = false,
+  onResultsShownChange,
 }: SearchModalListProps): JSX.Element {
-  const { navigateToTokenDetails, navigateToExternalProfile, navigateToNftCollection, navigateToPoolDetails } =
-    useUniswapContext()
-  const { registerSearchItem } = useAddToSearchHistory()
+  const { chains: enabledChainIds } = useEnabledChains()
+  // Subscribed once here, not per row: `renderItem` is a plain function, so rows can't use hooks.
+  const { categories } = useAllTokenCategories()
+  const getEarnApyPercent = useSearchEarnApy()
 
-  const { value: isContextMenuOpen, setFalse: closeContextMenu, toggle: toggleContextMenu } = useBooleanState(false)
-
-  const [focusedRowIndex, setFocusedRowIndex] = useState<number | undefined>(1) // set to 1st item hovered on first open
-
-  // to handle closing the left-click '...' context menu when the focused row changes
-  const previousFocusedRowIndex = usePrevious(focusedRowIndex)
+  const resultsShown = useMemo(() => countSearchResultRows(sections), [sections])
   useEffect(() => {
-    if (isWebPlatform && previousFocusedRowIndex !== focusedRowIndex) {
-      closeContextMenu()
-    }
-  }, [previousFocusedRowIndex, focusedRowIndex, closeContextMenu])
+    onResultsShownChange?.(resultsShown)
+  }, [onResultsShownChange, resultsShown])
 
-  // eslint-disable-next-line consistent-return
-  const renderItem = ({ item, section, rowIndex, index }: ItemRowInfo<SearchModalOption>): JSX.Element => {
-    switch (item.type) {
-      case OnchainItemListOptionType.Pool:
-        return (
-          <PoolOptionItem
-            token0CurrencyInfo={item.token0CurrencyInfo}
-            token1CurrencyInfo={item.token1CurrencyInfo}
-            poolId={item.poolId}
-            chainId={item.chainId}
-            protocolVersion={item.protocolVersion}
-            hookAddress={item.hookAddress}
-            feeTier={item.feeTier}
-            focusedRowControl={{
-              rowIndex,
-              setFocusedRowIndex,
-              focusedRowIndex,
-            }}
-            rightElement={
-              isHoverable && rowIndex === focusedRowIndex ? (
-                <OptionItemMoreButton
-                  onPress={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    toggleContextMenu()
-                  }}
-                >
-                  <PoolOptionItemContextMenu
-                    actions={[PoolContextMenuAction.CopyAddress, PoolContextMenuAction.Share]}
-                    isOpen={previousFocusedRowIndex === focusedRowIndex && isContextMenuOpen}
-                    openMenu={noop}
-                    closeMenu={noop}
-                    poolId={item.poolId}
-                    chainId={item.chainId}
-                    protocolVersion={item.protocolVersion}
-                    triggerMode={ContextMenuTriggerMode.Primary}
-                  >
-                    <Flex p="$spacing6">
-                      <MoreHorizontal size={iconSizes.icon16} color="$neutral2" />
-                    </Flex>
-                  </PoolOptionItemContextMenu>
-                </OptionItemMoreButton>
-              ) : undefined
-            }
-            onPress={() => {
-              registerSearchItem(item)
+  const focusedRowStore = useCreateFocusedRowStore()
+  const { setFocusedRowIndex } = focusedRowStore
+  const [expandedItems, setExpandedItems] = useState<string[]>([])
 
-              navigateToPoolDetails({ poolId: item.poolId, chainId: item.chainId })
+  const wrapRow = useCallback(
+    (props: SearchModalRowWrapperProps): JSX.Element => (rowWrapper ? rowWrapper(props) : props.element),
+    [rowWrapper],
+  )
 
-              sendSearchOptionItemClickedAnalytics({
-                item,
-                section,
-                sectionIndex: index,
-                rowIndex,
-                searchFilters,
-              })
-
-              onSelect?.()
-            }}
-          />
-        )
-      case OnchainItemListOptionType.Token:
-        return (
-          <TokenOptionItem
-            showTokenAddress
-            option={item}
-            contextMenuVariant={TokenContextMenuVariant.Search}
-            focusedRowControl={{
-              focusedRowIndex,
-              setFocusedRowIndex,
-              rowIndex,
-            }}
-            rightElement={
-              isHoverable && rowIndex === focusedRowIndex ? (
-                <OptionItemMoreButton
-                  onPress={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    toggleContextMenu()
-                  }}
-                >
-                  <TokenOptionItemContextMenu
-                    actions={[
-                      TokenContextMenuAction.CopyAddress,
-                      ...(isWebPlatform ? [] : [TokenContextMenuAction.Favorite]),
-                      TokenContextMenuAction.Swap,
-                      TokenContextMenuAction.Send,
-                      TokenContextMenuAction.Receive,
-                      TokenContextMenuAction.Share,
-                    ]}
-                    triggerMode={ContextMenuTriggerMode.Primary}
-                    currency={item.currencyInfo.currency}
-                    isOpen={previousFocusedRowIndex === focusedRowIndex && isContextMenuOpen}
-                    openMenu={noop}
-                    closeMenu={noop}
-                  >
-                    <Flex p="$spacing6">
-                      <MoreHorizontal size={iconSizes.icon16} color="$neutral2" />
-                    </Flex>
-                  </TokenOptionItemContextMenu>
-                </OptionItemMoreButton>
-              ) : undefined
-            }
-            onPress={() => {
-              registerSearchItem(item)
-
-              navigateToTokenDetails(item.currencyInfo.currencyId)
-
-              sendSearchOptionItemClickedAnalytics({
-                item,
-                section,
-                sectionIndex: index,
-                rowIndex,
-                searchFilters,
-              })
-
-              onSelect?.()
-            }}
-          />
-        )
-      case OnchainItemListOptionType.WalletByAddress:
-        return (
-          <WalletByAddressOptionItem
-            walletByAddressOption={item}
-            onPress={() => {
-              navigateToExternalProfile({ address: item.address })
-
-              registerSearchItem(item)
-
-              sendSearchOptionItemClickedAnalytics({
-                item,
-                section,
-                sectionIndex: index,
-                rowIndex,
-                searchFilters,
-              })
-
-              onSelect?.()
-            }}
-          />
-        )
-      case OnchainItemListOptionType.ENSAddress:
-        return (
-          <ENSAddressOptionItem
-            ensAddressOption={item}
-            onPress={() => {
-              navigateToExternalProfile({ address: item.address })
-
-              registerSearchItem(item)
-
-              sendSearchOptionItemClickedAnalytics({
-                item,
-                section,
-                sectionIndex: index,
-                rowIndex,
-                searchFilters,
-              })
-
-              onSelect?.()
-            }}
-          />
-        )
-      case OnchainItemListOptionType.Unitag:
-        return (
-          <UnitagOptionItem
-            unitagOption={item}
-            onPress={() => {
-              navigateToExternalProfile({ address: item.address })
-
-              registerSearchItem(item)
-
-              sendSearchOptionItemClickedAnalytics({
-                item,
-                section,
-                sectionIndex: index,
-                rowIndex,
-                searchFilters,
-              })
-
-              onSelect?.()
-            }}
-          />
-        )
-      case OnchainItemListOptionType.NFTCollection:
-        return (
-          <NFTCollectionOptionItem
-            collectionOption={item}
-            onPress={() => {
-              const { address, chainId } = item
-
-              navigateToNftCollection({ collectionAddress: address, chainId })
-
-              registerSearchItem(item)
-
-              sendSearchOptionItemClickedAnalytics({
-                item,
-                section,
-                sectionIndex: index,
-                rowIndex,
-                searchFilters,
-              })
-
-              onSelect?.()
-            }}
-          />
-        )
-    }
+  // Reset expand-state during render (not in an effect, which would flash a stale expansion for one frame)
+  // when the search context changes; a stale key would re-expand an unrelated same-keyed row, growing unbounded.
+  const resetKey = `${searchFilters.query ?? ''}|${searchFilters.searchChainFilter ?? ''}|${searchFilters.searchTabFilter}`
+  const [prevResetKey, setPrevResetKey] = useState(resetKey)
+  if (resetKey !== prevResetKey) {
+    setPrevResetKey(resetKey)
+    setExpandedItems([])
   }
 
+  const toggleExpanded = useEvent((itemKey: string): void => {
+    setExpandedItems((prev) => toggleKeyInList(prev, itemKey))
+  })
+
+  // One renderIssuerRow factory for every RwaCollection row. Defined here at the top level — NOT inside `renderItem`,
+  // which is invoked as a plain function (web `itemData.renderItem(itemData)`, native `renderItem(item.data)`), so a
+  // hook inside the RwaCollection case would violate the rules of hooks. Threads each issuer's resolved primary-chain
+  // CurrencyInfo + its raw chainTokens (the multichain Copy fan-out reads them). `issuer.chainTokens` is a call
+  // argument, not a closure dep, so the deps stay minimal.
+  const renderRwaIssuerRow = useCallback(
+    ({
+      issuer,
+      isRowFocused,
+      onPress,
+      ownsTouchable,
+      menuControl,
+      modifierPressHref,
+      onModifierPress,
+      children,
+    }: RenderIssuerRowArgs): ReactNode => {
+      const currencyInfo = rwaIssuerCurrencyInfos
+        ? getRwaIssuerCurrencyInfo({ issuer, enabledChainIds, currencyInfos: rwaIssuerCurrencyInfos })
+        : undefined
+      const issuerRow = (
+        <RwaIssuerRow
+          isRowFocused={isRowFocused}
+          ownsTouchable={ownsTouchable}
+          menuControl={menuControl}
+          currencyInfo={currencyInfo}
+          issuerChainTokens={issuer.chainTokens}
+          // Sub-rows' right edge holds issuer stats, so they drop the `…` menu; the collapsed single-issuer row keeps it.
+          hideContextMenu={ownsTouchable}
+          modifierPressHref={modifierPressHref}
+          onPress={onPress}
+          onModifierPress={onModifierPress}
+        >
+          {children}
+        </RwaIssuerRow>
+      )
+      // `ownsTouchable` is true only for the expanded multi-issuer sub-rows (the collection's child rows) — the
+      // collapsed single-issuer row reuses this same renderer with `ownsTouchable: false` for the shell's parent
+      // row, which must NOT get the hover chart card.
+      return ownsTouchable && rowWrapper && currencyInfo
+        ? rowWrapper({ element: issuerRow, currencyInfo, variant: 'rwaIssuerChild' })
+        : issuerRow
+    },
+    [rwaIssuerCurrencyInfos, enabledChainIds, rowWrapper],
+  )
+
+  // Gate the collapsed single-issuer row's native long-press: only let it open once the issuer's primary-chain
+  // CurrencyInfo has resolved (the same condition under which the menu can mount in RwaIssuerRow). Without this the
+  // long-press would latch the controlled menu open while the row is still menu-less, popping it open on its own when
+  // the batched query lands. useEvent → stable identity that reads the latest resolved Map; the row re-renders on
+  // resolution (the resolved Map flows through renderRwaIssuerRow), re-evaluating this fresh.
+  const isRwaIssuerMenuReady = useEvent((issuer: IssuerToken): boolean =>
+    Boolean(
+      rwaIssuerCurrencyInfos &&
+      getRwaIssuerCurrencyInfo({ issuer, enabledChainIds, currencyInfos: rwaIssuerCurrencyInfos }),
+    ),
+  )
+
+  const { getModifierPressHref, recordSelection, selectOption } = useSearchModalOptionSelection({
+    searchFilters,
+    onSelect,
+  })
+
+  const { navigateToCategoryDetails } = useUniswapContext()
+  const openCategoryDetails = useEvent((selection: SearchModalOptionSelection): void => selectOption(selection))
+  const sectionsWithHeaderActions = useMemo(
+    () =>
+      navigateToCategoryDetails ? withCategoryHeaderActions({ sections, categories, openCategoryDetails }) : sections,
+    [sections, categories, navigateToCategoryDetails, openCategoryDetails],
+  )
+
+  // Memoized: the list rebuilds every row object when `renderItem` changes identity, which re-renders
+  // every mounted row. Deps are the values the rows actually read, so a category or issuer load still
+  // reaches them.
+  const renderItem = useCallback(
+    ({ item, section, rowIndex, index, expanded }: ItemRowInfo<SearchModalListOption>): JSX.Element => {
+      if (Array.isArray(item)) {
+        // Horizontal renderers dispatch on sectionKey (same mechanism as TokenSelectorV2List).
+        if (section.sectionKey !== OnchainItemSectionName.RecentSearches) {
+          return <></>
+        }
+        return (
+          <RecentSearchPills
+            getModifierPressHref={getModifierPressHref}
+            options={item}
+            rowIndex={rowIndex}
+            section={section}
+            onModifierPress={recordSelection}
+            onSelectOption={selectOption}
+          />
+        )
+      }
+
+      const selection: SearchModalOptionSelection = { item, section, index, rowIndex }
+      const onPress = (): void => selectOption(selection)
+      const onModifierPress = (): void => recordSelection(selection)
+      const modifierPressHref = getModifierPressHref(item)
+
+      switch (item.type) {
+        case OnchainItemListOptionType.Pool: {
+          const poolElement = (
+            <PoolOptionItem
+              token0CurrencyInfo={item.token0CurrencyInfo}
+              token1CurrencyInfo={item.token1CurrencyInfo}
+              poolId={item.poolId}
+              chainId={item.chainId}
+              protocolVersion={item.protocolVersion}
+              hookAddress={item.hookAddress}
+              feeTier={item.feeTier}
+              searchStats={{ volume1dUsd: item.volume1dUsd, apr: item.apr }}
+              focusedRowControl={{ rowIndex, setFocusedRowIndex }}
+              modifierPressHref={modifierPressHref}
+              onPress={onPress}
+              onModifierPress={onModifierPress}
+            />
+          )
+          return wrapRow({ element: poolElement, pool: item, variant: 'pool' })
+        }
+        case OnchainItemListOptionType.Token: {
+          const tokenElement = (
+            <TokenOptionItem
+              showIssuerTag
+              hideContextMenu
+              option={item}
+              displayName={item.rwaName}
+              issuer={item.rwaIssuer}
+              categoryTag={
+                hideTokenCategoryTag || section.categoryId
+                  ? undefined
+                  : getRowCategoryTag({
+                      rwaCategory: item.rwaCategory,
+                      categoryIds: item.currencyInfo.categoryIds,
+                      categories,
+                    })
+              }
+              categoryTagPlacement="title"
+              contextMenuVariant={TokenContextMenuVariant.Search}
+              focusedRowControl={{ rowIndex, setFocusedRowIndex }}
+              searchStats={item.currencyInfo.searchStats}
+              earnApyPercent={getEarnApyPercent([item.currencyInfo.currencyId])}
+              symbolMaxCharacters={SEARCH_MAX_SYMBOL_CHARACTERS}
+              modifierPressHref={modifierPressHref}
+              onPress={onPress}
+              onModifierPress={onModifierPress}
+            />
+          )
+          return wrapRow({ element: tokenElement, currencyInfo: item.currencyInfo, variant: 'token' })
+        }
+        case OnchainItemListOptionType.MultichainToken: {
+          const multichainElement = (
+            <TokenOptionItem
+              showIssuerTag
+              hideNetworkCount
+              hideContextMenu
+              option={{
+                type: OnchainItemListOptionType.Token,
+                currencyInfo: item.primaryCurrencyInfo,
+                quantity: null,
+                balanceUSD: undefined,
+              }}
+              displayName={item.rwaName ?? item.multichainResult.name}
+              issuer={item.rwaIssuer}
+              networkCount={item.multichainResult.tokens.length}
+              categoryTag={
+                hideTokenCategoryTag || section.categoryId
+                  ? undefined
+                  : getRowCategoryTag({
+                      rwaCategory: item.rwaCategory,
+                      categoryIds: item.primaryCurrencyInfo.categoryIds,
+                      categories,
+                    })
+              }
+              categoryTagPlacement="title"
+              searchStats={item.multichainResult.stats}
+              earnApyPercent={getEarnApyPercent(item.multichainResult.tokens.map((token) => token.currencyId))}
+              symbolMaxCharacters={SEARCH_MAX_SYMBOL_CHARACTERS}
+              contextMenuVariant={TokenContextMenuVariant.Search}
+              multichainData={{
+                tokens: item.multichainResult.tokens,
+                primaryCurrencyInfo: item.primaryCurrencyInfo,
+              }}
+              focusedRowControl={{ rowIndex, setFocusedRowIndex }}
+              modifierPressHref={modifierPressHref}
+              onPress={onPress}
+              onModifierPress={onModifierPress}
+            />
+          )
+          return wrapRow({ element: multichainElement, currencyInfo: item.primaryCurrencyInfo, variant: 'token' })
+        }
+        case OnchainItemListOptionType.RwaCollection: {
+          const { rwa } = item
+          return (
+            <RwaCollectionItem
+              item={item}
+              expanded={Boolean(expanded)}
+              searchFilters={searchFilters}
+              section={section}
+              index={index}
+              rowIndex={rowIndex}
+              focusedRowControl={{ rowIndex, setFocusedRowIndex }}
+              renderIssuerRow={renderRwaIssuerRow}
+              isIssuerMenuReady={isRwaIssuerMenuReady}
+              testID={`${TestID.SearchRwaCollectionPrefix}${rwa.symbol}`}
+              searchStats={item.searchStats}
+              onToggle={() => toggleExpanded(getRwaCollectionKey({ rwa }))}
+              onSelect={onSelect}
+            />
+          )
+        }
+        case OnchainItemListOptionType.WalletByAddress:
+          return wrapRow({
+            variant: 'wallet',
+            element: (
+              <WalletByAddressOptionItem
+                walletByAddressOption={item}
+                modifierPressHref={modifierPressHref}
+                onPress={onPress}
+                onModifierPress={onModifierPress}
+              />
+            ),
+            address: item.address,
+          })
+        case OnchainItemListOptionType.ENSAddress:
+          return wrapRow({
+            variant: 'wallet',
+            element: (
+              <ENSAddressOptionItem
+                ensAddressOption={item}
+                modifierPressHref={modifierPressHref}
+                onPress={onPress}
+                onModifierPress={onModifierPress}
+              />
+            ),
+            address: item.address,
+          })
+        case OnchainItemListOptionType.EarnVault:
+          return (
+            <EarnVaultOptionItem
+              option={item}
+              focusedRowControl={{ rowIndex, setFocusedRowIndex }}
+              rightElement={
+                isHoverable ? (
+                  <FocusedRow rowIndex={rowIndex}>
+                    {(isRowFocused) => (isRowFocused ? <ArrowRight color="$neutral2" size="$icon.20" /> : null)}
+                  </FocusedRow>
+                ) : undefined
+              }
+              onPress={onPress}
+            />
+          )
+        case OnchainItemListOptionType.Category:
+          return (
+            <CategoryOptionItem
+              option={item}
+              focusedRowControl={{ rowIndex, setFocusedRowIndex }}
+              modifierPressHref={modifierPressHref}
+              onPress={onPress}
+              onModifierPress={onModifierPress}
+            />
+          )
+        case OnchainItemListOptionType.Unitag:
+          return wrapRow({
+            variant: 'wallet',
+            element: (
+              <UnitagOptionItem
+                unitagOption={item}
+                modifierPressHref={modifierPressHref}
+                onPress={onPress}
+                onModifierPress={onModifierPress}
+              />
+            ),
+            address: item.address,
+          })
+        case OnchainItemListOptionType.Auction: {
+          const auctionElement = (
+            <AuctionOptionItem
+              option={item}
+              focusedRowControl={{ rowIndex, setFocusedRowIndex }}
+              searchStats={item.searchStats}
+              onPress={onPress}
+            />
+          )
+          return wrapRow({ element: auctionElement, variant: 'auction', auction: item })
+        }
+        default:
+          return <></>
+      }
+    },
+    [
+      categories,
+      getModifierPressHref,
+      getEarnApyPercent,
+      hideTokenCategoryTag,
+      isRwaIssuerMenuReady,
+      onSelect,
+      recordSelection,
+      renderRwaIssuerRow,
+      searchFilters,
+      selectOption,
+      setFocusedRowIndex,
+      toggleExpanded,
+      wrapRow,
+    ],
+  )
+
   return (
-    <SelectorBaseList<SearchModalOption>
-      focusedRowControl={{
-        focusedRowIndex,
-        setFocusedRowIndex,
-      }}
+    <SelectorBaseList<SearchModalListOption>
+      focusedRowStore={focusedRowStore}
+      autoFocusFirstRowKey={resetKey}
       renderItem={renderItem}
-      sections={sections}
+      sections={sectionsWithHeaderActions}
+      expandedItems={expandedItems}
       chainFilter={searchFilters.searchChainFilter}
       refetch={refetch}
       loading={loading}
+      loadingElement={loadingElement}
       hasError={hasError}
       emptyElement={emptyElement}
       errorText={errorText}
-      keyExtractor={key}
+      keyExtractor={searchModalListOptionKey}
       renderedInModal={renderedInModal}
       contentContainerStyle={contentContainerStyle}
     />
   )
 })
-
-// eslint-disable-next-line consistent-return
-function key(item: SearchModalOption): string {
-  switch (item.type) {
-    case OnchainItemListOptionType.Pool:
-      return `pool-${item.chainId}-${item.poolId}-${item.protocolVersion}-${item.hookAddress}-${item.feeTier}`
-    case OnchainItemListOptionType.Token:
-      return `token-${item.currencyInfo.currency.chainId}-${item.currencyInfo.currencyId}`
-    case OnchainItemListOptionType.WalletByAddress:
-      return `wallet-${item.address}`
-    case OnchainItemListOptionType.ENSAddress:
-      return `ens-${item.address}`
-    case OnchainItemListOptionType.Unitag:
-      return `unitag-${item.address}`
-    case OnchainItemListOptionType.NFTCollection:
-      return `nft-${item.chainId}-${item.address}`
-  }
-}

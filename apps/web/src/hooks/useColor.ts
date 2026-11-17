@@ -1,7 +1,8 @@
 import { Currency } from '@uniswap/sdk-core'
-import { useCurrencyInfo } from 'hooks/Tokens'
+import { type TokenColorOverrides, useExtractedTokenColor } from '@universe/mycelium'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
 import { useMemo } from 'react'
-import { useExtractedTokenColor, useSporeColors } from 'ui/src'
+import { useCurrencyInfo } from '~/hooks/Tokens'
 
 type ContrastSettings = { backgroundColor: string; darkMode: boolean }
 
@@ -15,6 +16,7 @@ export function useColor(currency?: Currency, contrastSettings?: ContrastSetting
       src,
       currencyName: currency?.name,
       backgroundColor: contrastSettings?.backgroundColor,
+      colorOverrides: currencyInfo?.colorOverrides,
     }).tokenColor ?? colors.accent1.val
   )
 }
@@ -23,10 +25,14 @@ export function useSrcColor({
   src,
   currencyName,
   backgroundColor,
+  defaultColor,
+  colorOverrides,
 }: {
   src?: string
   currencyName?: string
   backgroundColor?: string
+  defaultColor?: string
+  colorOverrides?: TokenColorOverrides
 }) {
   const colors = useSporeColors()
 
@@ -39,6 +45,7 @@ export function useSrcColor({
     imageUrl: extractSrc,
     tokenName: currencyName,
     backgroundColor: backgroundColor ?? colors.surface1.val,
-    defaultColor: colors.accent1.val,
+    defaultColor: defaultColor ?? colors.accent1.val,
+    colorOverrides,
   })
 }

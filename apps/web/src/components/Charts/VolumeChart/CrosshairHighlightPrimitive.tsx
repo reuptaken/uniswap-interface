@@ -2,17 +2,18 @@
  * Copied from https://github.com/tradingview/lightweight-charts/blob/master/plugin-examples/src/plugins/highlight-bar-crosshair/highlight-bar-crosshair.ts.
  * Modifications are called out with comments.
  */
-import { roundRect } from 'components/Charts/utils'
+
 import { CanvasRenderingTarget2D } from 'fancy-canvas'
 import {
   CrosshairMode,
   ISeriesPrimitive,
-  ISeriesPrimitivePaneRenderer,
-  ISeriesPrimitivePaneView,
+  IPrimitivePaneRenderer,
+  IPrimitivePaneView,
   MouseEventParams,
   SeriesAttachedParameter,
   Time,
 } from 'lightweight-charts'
+import { roundRect } from '~/components/Charts/utils'
 
 interface BitmapPositionLength {
   /** coordinate for use with a bitmap rendering scope */
@@ -63,7 +64,7 @@ interface HighlightBarCrosshairOptions {
   useThinCrosshair?: boolean
 }
 
-class CrosshairHighlightPaneRenderer implements ISeriesPrimitivePaneRenderer {
+class CrosshairHighlightPaneRenderer implements IPrimitivePaneRenderer {
   _data: CrosshairHighlightData & HighlightBarCrosshairOptions
 
   constructor(data: CrosshairHighlightData & HighlightBarCrosshairOptions) {
@@ -74,7 +75,6 @@ class CrosshairHighlightPaneRenderer implements ISeriesPrimitivePaneRenderer {
     if (!this._data.visible) {
       return
     }
-    // biome-ignore lint/correctness/useHookAtTopLevel: this is not a hook
     target.useBitmapCoordinateSpace((scope) => {
       const ctx = scope.context
       const crosshairPos = positionsLine({
@@ -112,9 +112,9 @@ class CrosshairHighlightPaneRenderer implements ISeriesPrimitivePaneRenderer {
         })
       }
 
-      // Modification: lower opacity of all content outside the highlight bar
+      // Modification: slightly lower opacity of all content outside the highlight bar
       ctx.globalCompositeOperation = 'destination-out'
-      ctx.globalAlpha = 0.76 // results in existing items being left with 0.24 opacity
+      ctx.globalAlpha = 0.2 // results in existing items being left with 0.8 opacity
       ctx.fillStyle = 'black'
 
       // lower opacity to left of highlight bar
@@ -133,7 +133,7 @@ class CrosshairHighlightPaneRenderer implements ISeriesPrimitivePaneRenderer {
   }
 }
 
-class CrosshairHighlightPaneView implements ISeriesPrimitivePaneView {
+class CrosshairHighlightPaneView implements IPrimitivePaneView {
   _data: CrosshairHighlightData
   _options: HighlightBarCrosshairOptions
   constructor(data: CrosshairHighlightData, options: HighlightBarCrosshairOptions) {
@@ -146,7 +146,7 @@ class CrosshairHighlightPaneView implements ISeriesPrimitivePaneView {
     this._options = options
   }
 
-  renderer(): ISeriesPrimitivePaneRenderer | null {
+  renderer(): IPrimitivePaneRenderer | null {
     return new CrosshairHighlightPaneRenderer({ ...this._data, ...this._options })
   }
 }

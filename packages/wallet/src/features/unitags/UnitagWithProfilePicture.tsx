@@ -1,4 +1,5 @@
-import { Flex, Text } from 'ui/src'
+import { isAndroid } from '@universe/environment'
+import { Flex, Text, useIsDarkMode } from '@universe/mycelium'
 import { imageSizes } from 'ui/src/theme'
 import { UNITAG_SUFFIX } from 'uniswap/src/features/unitags/constants'
 import { UnitagProfilePicture } from 'wallet/src/features/unitags/UnitagProfilePicture'
@@ -12,8 +13,10 @@ export const UnitagWithProfilePicture = ({
   address: Address
   profilePictureUri?: string
 }): JSX.Element => {
+  const isDarkMode = useIsDarkMode()
+
   return (
-    <Flex centered pb="$spacing28" position="relative" width="100%">
+    <Flex centered pb="$spacing36" position="relative" width="100%">
       <UnitagProfilePicture address={address} size={imageSizes.image100} unitagAvatarUri={profilePictureUri} />
       <Flex
         row
@@ -22,9 +25,12 @@ export const UnitagWithProfilePicture = ({
         backgroundColor="$surface1"
         borderRadius="$rounded32"
         px="$spacing12"
-        py="$spacing8"
+        py="$spacing12"
         shadowColor="$neutral3"
-        shadowOpacity={0.4}
+        // elevationAndroid is a deliberate compat exclusion (deprecated RN key); the Android
+        // elevation carries through the native style instead.
+        style={isAndroid ? { elevation: isDarkMode ? 1.5 : 6 } : undefined}
+        shadowOpacity={0.25}
         shadowRadius="$spacing4"
         transform={[{ rotateZ: '-2deg' }]}
         zIndex="$popover"

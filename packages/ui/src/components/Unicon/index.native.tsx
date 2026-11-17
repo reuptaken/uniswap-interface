@@ -1,10 +1,9 @@
 import { Canvas, Circle, Group, Path } from '@shopify/react-native-skia'
+import { Flex, useIsDarkMode } from '@universe/mycelium'
 import { memo } from 'react'
-import { Flex } from 'ui/src/components/layout'
 import { UniconProps } from 'ui/src/components/Unicon/types'
 import { IconPaths, Icons } from 'ui/src/components/Unicon/UniconSVGs'
 import { getUniconColors, getUniconsDeterministicHash } from 'ui/src/components/Unicon/utils'
-import { useIsDarkMode } from 'ui/src/hooks/useIsDarkMode'
 import { isEVMAddressWithChecksum } from 'utilities/src/addresses/evm/evm'
 import { isSVMAddress } from 'utilities/src/addresses/svm/svm'
 
@@ -12,9 +11,9 @@ import { isSVMAddress } from 'utilities/src/addresses/svm/svm'
 // Add 1 to effectively increase margin between svg and surrounding box, otherwise get a cropping issue
 // Magic numbers to make SVG with border look right - makes the margin larger, and shifts the SVG down and right
 
-export const Unicon = memo(_Unicon)
+export const Unicon = memo(UniconIcon)
 
-export function _Unicon({ address, size = 32 }: UniconProps): JSX.Element | null {
+export function UniconIcon({ address, size = 32 }: UniconProps): JSX.Element | null {
   const isDarkMode = useIsDarkMode()
 
   if (!address || (!isEVMAddressWithChecksum(address) && !isSVMAddress(address))) {

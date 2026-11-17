@@ -1,3 +1,4 @@
+import { getMonitoredSagaReducers, type MonitoredSaga } from 'uniswap/src/utils/saga'
 import {
   removeDelegationActions,
   removeDelegationReducer,
@@ -5,10 +6,18 @@ import {
   removeDelegationSagaName,
 } from 'wallet/src/features/smartWallet/sagas/removeDelegationSaga'
 import {
+  executePlanActions,
+  executePlanReducer,
+  executePlanSaga,
+  executePlanSagaName,
   executeSwapActions,
   executeSwapReducer,
   executeSwapSaga,
   executeSwapSagaName,
+  executeUserOpSwapActions,
+  executeUserOpSwapReducer,
+  executeUserOpSwapSaga,
+  executeUserOpSwapSagaName,
   prepareAndSignSwapActions,
   prepareAndSignSwapReducer,
   prepareAndSignSwapSaga,
@@ -26,7 +35,6 @@ import {
   createAccountsSaga,
   createAccountsSagaName,
 } from 'wallet/src/features/wallet/create/createAccountsSaga'
-import { getMonitoredSagaReducers, MonitoredSaga } from 'wallet/src/state/saga'
 
 // All monitored sagas must be included here
 export const monitoredSagas: Record<string, MonitoredSaga> = {
@@ -53,6 +61,18 @@ export const monitoredSagas: Record<string, MonitoredSaga> = {
     wrappedSaga: executeSwapSaga,
     reducer: executeSwapReducer,
     actions: executeSwapActions,
+  },
+  [executePlanSagaName]: {
+    name: executePlanSagaName,
+    wrappedSaga: executePlanSaga,
+    reducer: executePlanReducer,
+    actions: executePlanActions,
+  },
+  [executeUserOpSwapSagaName]: {
+    name: executeUserOpSwapSagaName,
+    wrappedSaga: executeUserOpSwapSaga,
+    reducer: executeUserOpSwapReducer,
+    actions: executeUserOpSwapActions,
   },
   [removeDelegationSagaName]: {
     name: removeDelegationSagaName,

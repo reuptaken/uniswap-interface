@@ -1,6 +1,6 @@
+import { Platform } from '@universe/chains'
 import { atom, useAtom } from 'jotai'
 import { useUpdateAtom } from 'jotai/utils'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
 import { useEvent } from 'utilities/src/react/hooks'
 
 export enum MenuStateVariant {
@@ -11,10 +11,12 @@ export enum MenuStateVariant {
   LANGUAGE_SETTINGS = 'language_settings',
   PORTFOLIO_BALANCE_SETTINGS = 'portfolio_balance_settings',
   LOCAL_CURRENCY_SETTINGS = 'local_currency_settings',
-  LIMITS = 'limits',
-  POOLS = 'pools',
   PASSKEYS = 'passkeys',
+  RECOVERY_PHRASE = 'recovery_phrase',
+  RECOVERY_PHRASE_DOWNLOAD_PROMPT = 'recovery_phrase_download_prompt',
   OTHER_WALLETS = 'other_wallets',
+  STORAGE_SETTINGS = 'storage_settings',
+  NETWORK_COST_SETTINGS = 'network_cost_settings',
 }
 
 type MenuState =
@@ -23,7 +25,11 @@ type MenuState =
       platform: Platform
     }
   | {
-      variant: Exclude<MenuStateVariant, MenuStateVariant.CONNECT_PLATFORM>
+      variant: MenuStateVariant.OTHER_WALLETS
+      returnTo?: MenuStateVariant.MAIN | MenuStateVariant.SWITCH
+    }
+  | {
+      variant: Exclude<MenuStateVariant, MenuStateVariant.CONNECT_PLATFORM | MenuStateVariant.OTHER_WALLETS>
     }
 
 const miniPortfolioMenuStateAtom = atom<MenuState>({ variant: MenuStateVariant.MAIN })

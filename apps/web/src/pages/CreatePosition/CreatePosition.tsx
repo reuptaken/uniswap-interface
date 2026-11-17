@@ -1,30 +1,21 @@
 import { ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
 import type { Currency } from '@uniswap/sdk-core'
 import { parseRestProtocolVersion } from '@universe/api'
-import { Dropdown } from 'components/Dropdowns/Dropdown'
-import { DynamicFeeTierSpeedbump } from 'components/Liquidity/Create/DynamicFeeTierSpeedbump'
-import { FormStepsWrapper, FormWrapper } from 'components/Liquidity/Create/FormWrapper'
-import { useLiquidityUrlState } from 'components/Liquidity/Create/hooks/useLiquidityUrlState'
-import { useLPSlippageValue } from 'components/Liquidity/Create/hooks/useLPSlippageValues'
-import ResetCreatePositionFormModal from 'components/Liquidity/Create/ResetCreatePositionsFormModal'
-import { DEFAULT_POSITION_STATE, PositionFlowStep } from 'components/Liquidity/Create/types'
-import { FeeTierSearchModal } from 'components/Liquidity/FeeTierSearchModal'
-import { getProtocolVersionLabel } from 'components/Liquidity/utils/protocolVersion'
-import { LPSettings } from 'components/LPSettings'
-import {
-  CreateLiquidityContextProvider,
-  DEFAULT_PRICE_RANGE_STATE,
-  useCreateLiquidityContext,
-} from 'pages/CreatePosition/CreateLiquidityContextProvider'
-import { CreatePositionTxContextProvider } from 'pages/CreatePosition/CreatePositionTxContext'
+import { cn, Flex as FlexCompat, type FlexCompatProps } from '@universe/mycelium'
+import { Button, Flex, Text, TouchableArea } from '@universe/mycelium'
 import type { Dispatch, SetStateAction } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  forwardRef,
+  type ForwardRefExoticComponent,
+  type RefAttributes,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
-import { MultichainContextProvider } from 'state/multichain/MultichainContext'
-import { useMultichainContext } from 'state/multichain/useMultichainContext'
-import { Button, Flex, styled, Text, TouchableArea } from 'ui/src'
 import { RotateLeft } from 'ui/src/components/icons/RotateLeft'
+import { zIndexes } from 'ui/src/theme/zIndexes'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
 import { InterfacePageName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
@@ -33,6 +24,24 @@ import { Slippage } from 'uniswap/src/features/transactions/components/settings/
 import { LPTransactionSettingsStoreContextProvider } from 'uniswap/src/features/transactions/components/settings/stores/transactionSettingsStore/LPTransactionSettingsStoreContextProvider'
 import { useTransactionSettingsStore } from 'uniswap/src/features/transactions/components/settings/stores/transactionSettingsStore/useTransactionSettingsStore'
 import { usePrevious } from 'utilities/src/react/hooks'
+import { Dropdown } from '~/components/Dropdowns/Dropdown'
+import { getNextFlowStep } from '~/features/Liquidity/Create/flowSteps'
+import { FormStepsWrapper, FormWrapper } from '~/features/Liquidity/Create/FormWrapper'
+import { useLiquidityUrlState } from '~/features/Liquidity/Create/hooks/useLiquidityUrlState'
+import { useLPSlippageValue } from '~/features/Liquidity/Create/hooks/useLPSlippageValues'
+import { ResetCreatePositionFormModal } from '~/features/Liquidity/Create/ResetCreatePositionsFormModal'
+import { DEFAULT_POSITION_STATE, PositionFlowStep } from '~/features/Liquidity/Create/types'
+import { LPSettings } from '~/features/Liquidity/LPSettings'
+import { getProtocolVersionLabel } from '~/features/Liquidity/utils/protocolVersion'
+import {
+  CreateLiquidityContextProvider,
+  DEFAULT_PRICE_RANGE_STATE,
+  useCreateLiquidityContext,
+} from '~/pages/CreatePosition/CreateLiquidityContextProvider'
+import { CreatePositionTxContextProvider } from '~/pages/CreatePosition/CreatePositionTxContext'
+import { SharedCreateModals } from '~/pages/CreatePosition/SharedCreateModals'
+import { MultichainContextProvider } from '~/state/multichain/MultichainContext'
+import { useMultichainContext } from '~/state/multichain/useMultichainContext'
 
 function CreatePositionInner({
   currencyInputs,
@@ -47,19 +56,10 @@ function CreatePositionInner({
     step,
     setStep,
   } = useCreateLiquidityContext()
-  const v2Selected = protocolVersion === ProtocolVersion.V2
 
   const handleContinue = useCallback(() => {
-    if (v2Selected) {
-      if (step === PositionFlowStep.SELECT_TOKENS_AND_FEE_TIER && creatingPoolOrPair) {
-        setStep(PositionFlowStep.PRICE_RANGE)
-      } else {
-        setStep(PositionFlowStep.DEPOSIT)
-      }
-    } else {
-      setStep(step + 1)
-    }
-  }, [creatingPoolOrPair, step, v2Selected, setStep])
+    setStep(getNextFlowStep({ currentStep: step, protocolVersion, creatingPoolOrPair: Boolean(creatingPoolOrPair) }))
+  }, [creatingPoolOrPair, step, protocolVersion, setStep])
 
   return (
     <FormStepsWrapper
@@ -78,30 +78,39 @@ interface ResetProps {
 const ResetButton = ({ onClickReset, isDisabled }: ResetProps) => {
   const { t } = useTranslation()
   return (
-    <Button size="small" emphasis="tertiary" onPress={onClickReset} isDisabled={isDisabled} icon={<RotateLeft />}>
+    <Button size="small" emphasis="tertiary" onPress={onClickReset} disabled={isDisabled} icon={<RotateLeft />}>
       {t('common.button.reset')}
     </Button>
   )
 }
 
-const ToolbarContainer = styled(Flex, {
-  row: true,
-  centered: true,
-  gap: '$gap8',
-  $md: {
-    '$platform-web': {
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr auto',
-      gridColumnGap: '8px',
-    },
-  },
+// `$md` stays `$md`: mycelium's `media-md` is `(max-width: 640px)`; Tailwind's stock `md:` is the inversion.
+// Explicit return type: forwardRef's inferred type isn't nameable under declaration emit (TS2883).
+const ToolbarContainer: ForwardRefExoticComponent<FlexCompatProps & RefAttributes<HTMLDivElement>> = forwardRef<
+  HTMLDivElement,
+  FlexCompatProps
+>(function ToolbarContainer({ $md: md, className, ...props }, ref) {
+  return (
+    <FlexCompat
+      ref={ref}
+      row
+      centered
+      gap="$gap8"
+      // `gridColumnGap` is outside `VARIANT_TWIN_PROPS`, so it cannot ride a variant prefix and is
+      // authored as a source class instead (`variantTierPropertyGapError`).
+      className={cn('media-md:[grid-column-gap:8px]', className)}
+      // Merge, don't spread: Tamagui deep-merged a caller's object-valued prop into the config's value for the same key.
+      $md={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', ...md }}
+      {...props}
+    />
+  )
 })
 
 const Toolbar = () => {
-  const navigate = useNavigate()
   const { t } = useTranslation()
   const {
     isNativeTokenAOnly,
+    currencies,
     positionState,
     setPositionState,
     setStep,
@@ -119,7 +128,7 @@ const Toolbar = () => {
   const { reset: resetMultichainState } = useMultichainContext()
 
   const { isTestnetModeEnabled } = useEnabledChains()
-  const prevIsTestnetModeEnabled = usePrevious(isTestnetModeEnabled) ?? false
+  const prevIsTestnetModeEnabled = usePrevious(isTestnetModeEnabled)
 
   const handleReset = useCallback(() => {
     resetCreatePositionState()
@@ -129,19 +138,15 @@ const Toolbar = () => {
   }, [resetDepositState, resetCreatePositionState, resetMultichainState, resetPriceRangeState])
 
   useEffect(() => {
-    if (isTestnetModeEnabled !== prevIsTestnetModeEnabled) {
+    // Only reset when testnet mode changes after initial mount
+    // Don't reset on initial mount to preserve URL parameters
+    if (prevIsTestnetModeEnabled !== undefined && isTestnetModeEnabled !== prevIsTestnetModeEnabled) {
       handleReset()
     }
   }, [handleReset, isTestnetModeEnabled, prevIsTestnetModeEnabled])
 
   const handleVersionChange = useCallback(
     (version: ProtocolVersion) => {
-      const versionUrl = getProtocolVersionLabel(version)
-      if (versionUrl) {
-        // Ensure useLiquidityUrlState is synced
-        setTimeout(() => navigate(`/positions/create/${versionUrl}`), 1)
-      }
-
       setPositionState({
         ...DEFAULT_POSITION_STATE,
         protocolVersion: version,
@@ -150,7 +155,7 @@ const Toolbar = () => {
       setStep(PositionFlowStep.SELECT_TOKENS_AND_FEE_TIER)
       setVersionDropdownOpen(false)
     },
-    [setPositionState, setPriceRangeState, setStep, navigate],
+    [setPositionState, setPriceRangeState, setStep],
   )
 
   const versionOptions = useMemo(
@@ -160,7 +165,9 @@ const Toolbar = () => {
         .map((version) => (
           <TouchableArea key={`version-${version}`} onPress={() => handleVersionChange(version)}>
             <Flex p="$spacing8" borderRadius="$rounded8" hoverStyle={{ backgroundColor: '$surface2' }}>
-              <Text variant="body2">{t('position.new.protocol', { protocol: getProtocolVersionLabel(version) })}</Text>
+              <Text variant="body2">
+                {t('position.new.protocol', { protocol: getProtocolVersionLabel(version) ?? '' })}
+              </Text>
             </Flex>
           </TouchableArea>
         )),
@@ -180,10 +187,11 @@ const Toolbar = () => {
         <Dropdown
           containerStyle={{ width: 'auto' }}
           buttonStyle={{ py: '$spacing8', px: '$spacing12' }}
-          dropdownStyle={{ width: 200, borderRadius: '$rounded16' }}
+          dropdownStyle={{ width: 200, borderRadius: '$rounded16', zIndex: zIndexes.popover }}
+          adaptToSheet
           menuLabel={
             <Text variant="buttonLabel3" lineHeight="16px" whiteSpace="nowrap">
-              {t('position.protocol', { protocol: getProtocolVersionLabel(protocolVersion) })}
+              {t('position.protocol', { protocol: getProtocolVersionLabel(protocolVersion) ?? '' })}
             </Text>
           }
           isOpen={versionDropdownOpen}
@@ -208,19 +216,11 @@ const Toolbar = () => {
             settings={[Slippage, Deadline]}
             iconColor="$neutral1"
             iconSize="$icon.16"
+            isNativePool={Boolean(currencies.sdk.TOKEN0?.isNative || currencies.sdk.TOKEN1?.isNative)}
           />
         </Flex>
       </ToolbarContainer>
     </Flex>
-  )
-}
-
-export const SharedCreateModals = () => {
-  return (
-    <>
-      <FeeTierSearchModal />
-      <DynamicFeeTierSpeedbump />
-    </>
   )
 }
 
@@ -270,18 +270,17 @@ function CreatePositionContent({
   )
 }
 
-export default function CreatePosition() {
-  // URL format is `/positions/create/:protocolVersion`, with possible searchParams `?currencyA=...&currencyB=...&chain=...&feeTier=...&hook=...`
-  const { protocolVersion } = useParams<{
-    protocolVersion: string
-  }>()
-  const paramsProtocolVersion = parseRestProtocolVersion(protocolVersion)
+export function CreatePosition() {
+  // URL format is `/positions/add/new?currencyA=...&currencyB=...&chain=...&fee=...&hook=...`.
+  // The version rides in `?protocolVersion=v3` rather than a path segment: the retired
+  // `/positions/create/:protocolVersion` redirects the segment into this param, so a deep link keeps
+  // the version it asked for instead of silently falling back to the v4 default below.
+  const initialInputs = useLiquidityUrlState()
+  const paramsProtocolVersion = parseRestProtocolVersion(initialInputs.protocolVersion ?? undefined)
 
   const autoSlippageTolerance = useLPSlippageValue({
     version: paramsProtocolVersion,
   })
-
-  const initialInputs = useLiquidityUrlState()
 
   if (initialInputs.loading) {
     return null
@@ -295,3 +294,5 @@ export default function CreatePosition() {
     />
   )
 }
+
+export default CreatePosition

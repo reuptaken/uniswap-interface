@@ -1,15 +1,19 @@
 import { createAction } from '@reduxjs/toolkit'
-import { FeatureFlags, getFeatureFlagName, getStatsigClient } from '@universe/gating'
+import { SharedQueryClient } from '@universe/api'
+import { areEvmAddressesEqual } from '@universe/chains'
+import {
+  createComplianceV2Client,
+  createComplianceV2Transport,
+  fetchIsFeatureGated,
+  GatedFeature,
+} from '@universe/compliance'
+import { isAndroid } from '@universe/environment'
+import { FeatureFlags, getFeatureFlagName, getOverrideAdapter, getStatsigClient } from '@universe/gating'
 import { parseUri } from '@walletconnect/utils'
 import { Alert } from 'react-native'
 import { navigate } from 'src/app/navigation/rootNavigation'
 import { parseScantasticParams } from 'src/components/Requests/ScanSheet/util'
-import {
-  getFormattedUwuLinkTxnRequest,
-  isAllowedUwuLinkRequest,
-  parseUwuLinkDataFromDeeplink,
-} from 'src/components/Requests/Uwulink/utils'
-import { getUwuLinkAllowlist } from 'src/features/deepLinking/configUtils'
+import { getConfig } from 'src/config'
 import {
   DeepLinkAction,
   DeepLinkActionResult,
@@ -26,21 +30,19 @@ import { LinkSource } from 'src/features/deepLinking/types'
 import { closeAllModals, openModal } from 'src/features/modals/modalSlice'
 import { pairWithWalletConnectURI } from 'src/features/walletConnect/utils'
 import { waitForWcWeb3WalletIsReady } from 'src/features/walletConnect/walletConnectClient'
-import { addRequest, setDidOpenFromDeepLink } from 'src/features/walletConnect/walletConnectSlice'
+import { setDidOpenFromDeepLink } from 'src/features/walletConnect/walletConnectSlice'
 import { call, delay, put, select, takeLatest } from 'typed-redux-saga'
-import { AccountType } from 'uniswap/src/features/accounts/types'
 import { MobileEventName, ModalName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import i18n from 'uniswap/src/i18n'
 import { MobileScreens } from 'uniswap/src/types/screens/mobile'
-import { UwULinkRequest } from 'uniswap/src/types/walletConnect'
 import { openUri } from 'uniswap/src/utils/linking'
 import { logger } from 'utilities/src/logger/logger'
-import { isAndroid } from 'utilities/src/platform'
 import { ScantasticParams } from 'wallet/src/features/scantastic/types'
-import { getContractManager, getProviderManager } from 'wallet/src/features/wallet/context'
 import { selectAccounts, selectActiveAccount } from 'wallet/src/features/wallet/selectors'
 import { setAccountAsActive } from 'wallet/src/features/wallet/slice'
+
+const complianceClient = createComplianceV2Client(createComplianceV2Transport())
 
 interface DeepLink {
   url: string
@@ -55,11 +57,17 @@ export function* deepLinkWatcher() {
   yield* takeLatest(openDeepLink.type, handleDeepLink)
 }
 
-// eslint-disable-next-line complexity
 export function* handleDeepLink(action: ReturnType<typeof openDeepLink>) {
   try {
     const { coldStart } = action.payload
     const deepLinkAction = parseDeepLinkUrl(action.payload.url)
+
+    // Handle E2E gate overrides early, before account check, since tests may call this at any point
+    if (deepLinkAction.action === DeepLinkAction.E2EOverrideGates) {
+      yield* call(handleE2EOverrideGates, deepLinkAction.data)
+      return
+    }
+
     const activeAccount = yield* select(selectActiveAccount)
 
     if (!activeAccount) {
@@ -96,10 +104,6 @@ export function* handleDeepLink(action: ReturnType<typeof openDeepLink>) {
         }
         case DeepLinkAction.Scantastic: {
           yield* call(handleScantasticDeepLink, deepLinkAction.data.scantasticQueryParams)
-          break
-        }
-        case DeepLinkAction.UwuLink: {
-          yield* call(handleUwuLinkDeepLink, deepLinkAction.data.url.toString())
           break
         }
         case DeepLinkAction.TransactionScreen:
@@ -154,6 +158,17 @@ export function* handleDeepLink(action: ReturnType<typeof openDeepLink>) {
           yield* call(handleGoToTokenDetailsDeepLink, deepLinkAction.data.currencyId)
           break
         }
+        case DeepLinkAction.EarnScreen: {
+          yield* put(closeAllModals())
+          const mainTabsParams = {
+            screen: MobileScreens.Home,
+            params: {
+              earnCardExpansionRequestId: Date.now(),
+            },
+          } as const
+          yield* call(navigate, MobileScreens.MainTabs, mainTabsParams, { pop: true })
+          break
+        }
         case DeepLinkAction.Unknown:
         case DeepLinkAction.Error: {
           break
@@ -182,9 +197,12 @@ function* _sendAnalyticsEvent(deepLinkAction: DeepLinkActionResult, coldStart: b
 }
 
 function* handleGoToFiatOnRampDeepLink(data: PayloadWithFiatOnRampParams) {
-  const disableForKorea = getStatsigClient().checkGate(getFeatureFlagName(FeatureFlags.DisableFiatOnRampKorea))
-  if (disableForKorea) {
-    navigate(ModalName.KoreaCexTransferInfoModal)
+  const isForRegionBlocked = yield* call(fetchIsFeatureGated, GatedFeature.FIAT_ONRAMP, {
+    queryClient: SharedQueryClient,
+    client: complianceClient,
+  })
+  if (isForRegionBlocked) {
+    navigate(ModalName.CexTransferInfoModal)
   } else {
     const { moonpayOnly, amount, moonpayCurrencyCode } = data
 
@@ -246,8 +264,8 @@ export function* parseAndValidateUserAddress(userAddress: string | null) {
   }
 
   const userAccounts = yield* select(selectAccounts)
-  const matchingAccount = Object.values(userAccounts).find(
-    (account) => account.address.toLowerCase() === userAddress.toLowerCase(),
+  const matchingAccount = Object.values(userAccounts).find((account) =>
+    areEvmAddressesEqual(account.address, userAddress),
   )
 
   if (!matchingAccount) {
@@ -276,52 +294,15 @@ function* launchScantastic(params: ScantasticParams): Generator {
   yield* call(navigate, ModalName.Scantastic, { params })
 }
 
-function* handleUwuLinkDeepLink(uri: string): Generator {
-  try {
-    const decodedUri = decodeURIComponent(uri)
-    const uwulinkData = parseUwuLinkDataFromDeeplink(decodedUri)
-    const parsedUwulinkRequest: UwULinkRequest = JSON.parse(uwulinkData)
-
-    const uwuLinkAllowList = getUwuLinkAllowlist()
-
-    const activeAccount = yield* select(selectActiveAccount)
-    const isSignerAccount = activeAccount?.type === AccountType.SignerMnemonic
-    const isAllowed = isAllowedUwuLinkRequest(parsedUwulinkRequest, uwuLinkAllowList)
-
-    if (!isAllowed || !isSignerAccount) {
-      Alert.alert(
-        i18n.t('walletConnect.error.uwu.title'),
-        !isAllowed ? i18n.t('walletConnect.error.uwu.unsupported') : i18n.t('account.wallet.viewOnly.title'),
-        [
-          {
-            text: i18n.t('common.button.ok'),
-          },
-        ],
-      )
-      return
-    }
-
-    const providerManager = yield* call(getProviderManager)
-    const contractManager = yield* call(getContractManager)
-
-    const uwuLinkTxnRequest = yield* call(getFormattedUwuLinkTxnRequest, {
-      request: parsedUwulinkRequest,
-      activeAccount,
-      allowList: {
-        contracts: [],
-        tokenRecipients: [],
-      },
-      providerManager,
-      contractManager,
-    })
-
-    yield* put(addRequest(uwuLinkTxnRequest.request))
-  } catch {
-    Alert.alert(i18n.t('walletConnect.error.uwu.title'), i18n.t('walletConnect.error.uwu.scan'), [
-      {
-        text: i18n.t('common.button.ok'),
-      },
-    ])
+function handleE2EOverrideGates({ enable }: { enable: string[] }): void {
+  if (!getConfig().isE2ETest) {
     return
+  }
+
+  const overrideAdapter = getOverrideAdapter()
+  overrideAdapter.removeAllOverrides()
+
+  for (const gate of enable) {
+    overrideAdapter.overrideGate(gate, true)
   }
 }

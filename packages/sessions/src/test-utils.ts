@@ -1,12 +1,10 @@
-/** biome-ignore-all lint/suspicious/noExplicitAny: mock handlers */
+/* oxlint-disable typescript/no-explicit-any -- mock handlers */
 import type { PartialMessage } from '@bufbuild/protobuf'
 import type { CallOptions } from '@connectrpc/connect'
 import { createConnectTransport } from '@connectrpc/connect-web'
 import {
   type ChallengeRequest,
   type ChallengeResponse,
-  type DeleteSessionRequest,
-  type DeleteSessionResponse,
   type GetChallengeTypesRequest,
   type GetChallengeTypesResponse,
   type InitSessionRequest,
@@ -33,11 +31,32 @@ export interface MockEndpoints {
   '/uniswap.platformservice.v1.SessionService/InitSession': MockEndpointHandler
   '/uniswap.platformservice.v1.SessionService/Challenge': MockEndpointHandler
   '/uniswap.platformservice.v1.SessionService/Verify': MockEndpointHandler
-  '/uniswap.platformservice.v1.SessionService/DeleteSession': MockEndpointHandler
   '/uniswap.platformservice.v1.SessionService/IntrospectSession': MockEndpointHandler
   '/uniswap.platformservice.v1.SessionService/UpdateSession': MockEndpointHandler
   '/uniswap.platformservice.v1.SessionService/GetChallengeTypes': MockEndpointHandler
   '/uniswap.platformservice.v1.SessionService/Signout': MockEndpointHandler
+}
+
+const throwUnexpectedEndpoint: MockEndpointHandler = async (_request, _headers) => {
+  throw new Error('unexpected SessionService mock endpoint call')
+}
+
+/**
+ * Builds a full {@link MockEndpoints} from the handlers a test actually exercises; any endpoint
+ * the test omits throws if called. Lets tests declare only the relevant RPCs without casting a
+ * partial object to `MockEndpoints`.
+ */
+export function defineMockEndpoints(handlers: Partial<MockEndpoints>): MockEndpoints {
+  return {
+    '/uniswap.platformservice.v1.SessionService/InitSession': throwUnexpectedEndpoint,
+    '/uniswap.platformservice.v1.SessionService/Challenge': throwUnexpectedEndpoint,
+    '/uniswap.platformservice.v1.SessionService/Verify': throwUnexpectedEndpoint,
+    '/uniswap.platformservice.v1.SessionService/IntrospectSession': throwUnexpectedEndpoint,
+    '/uniswap.platformservice.v1.SessionService/UpdateSession': throwUnexpectedEndpoint,
+    '/uniswap.platformservice.v1.SessionService/GetChallengeTypes': throwUnexpectedEndpoint,
+    '/uniswap.platformservice.v1.SessionService/Signout': throwUnexpectedEndpoint,
+    ...handlers,
+  }
 }
 
 // Test transport that intercepts requests and returns mock responses
@@ -50,7 +69,7 @@ export function createTestTransport(mockEndpoints: MockEndpoints): ReturnType<ty
         const path = new URL(url).pathname
         const handler = mockEndpoints[path as keyof MockEndpoints]
 
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        // oxlint-disable-next-line typescript/no-unnecessary-condition
         if (!handler) {
           throw new Error(`No mock handler for ${path}`)
         }
@@ -129,7 +148,7 @@ export class InMemoryUniswapIdentifierService implements UniswapIdentifierServic
 }
 
 // Create a mock session client for testing
-// eslint-disable-next-line max-params
+// oxlint-disable-next-line max-params
 export function createMockSessionClient(
   mockEndpoints: MockEndpoints,
   sessionStorage: SessionStorage,
@@ -173,13 +192,6 @@ export function createMockSessionClient(
 
       const response = await mockEndpoints['/uniswap.platformservice.v1.SessionService/Verify'](request, headers)
       return response as VerifyResponse
-    },
-    deleteSession: async (
-      request: PartialMessage<DeleteSessionRequest>,
-      _options?: CallOptions,
-    ): Promise<DeleteSessionResponse> => {
-      const response = await mockEndpoints['/uniswap.platformservice.v1.SessionService/DeleteSession'](request, {})
-      return response as DeleteSessionResponse
     },
     introspectSession: async (
       request: PartialMessage<IntrospectSessionRequest>,

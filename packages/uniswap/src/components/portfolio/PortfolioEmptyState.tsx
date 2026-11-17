@@ -1,14 +1,15 @@
-import { CellContainer, FlashList } from '@shopify/flash-list'
+import { AnimatedFlex, Flex, UniversalImage, UniversalImageResizeMode } from '@universe/mycelium'
+import { ENTER_PRESET_CLASSES } from '@universe/mycelium/compat'
+import { fadeInQuick } from '@universe/tailwind/animations/reanimated'
+import { TestID } from '@universe/test'
 import React, { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { StyleProp, ViewStyle } from 'react-native'
-import { Flex } from 'ui/src'
+import { FlatList, type StyleProp, type ViewStyle } from 'react-native'
 import { ArrowDownCircle } from 'ui/src/components/icons/ArrowDownCircle'
 import { Buy as BuyIcon } from 'ui/src/components/icons/Buy'
 import { PaperStack } from 'ui/src/components/icons/PaperStack'
 import { borderRadii } from 'ui/src/theme'
-import { ActionCard, ActionCardItem } from 'uniswap/src/components/misc/ActionCard'
-import { ImageUri } from 'uniswap/src/components/nfts/images/ImageUri'
+import { ActionCard, type ActionCardItem } from 'uniswap/src/components/misc/ActionCard'
 import { AccountType } from 'uniswap/src/features/accounts/types'
 import { useCexTransferProviders } from 'uniswap/src/features/fiatOnRamp/useCexTransferProviders'
 import { ElementName } from 'uniswap/src/features/telemetry/constants'
@@ -21,7 +22,7 @@ enum ActionOption {
 }
 
 const ICON_SIZE = 28
-const ICON_SHIFT = -10
+const ICON_SHIFT = 10
 
 type PortfolioEmptyStateProps = {
   onPressReceive: () => void
@@ -55,6 +56,7 @@ export function PortfolioEmptyState({
         icon: <BuyIcon color="$accent1" size="$icon.28" />,
         onPress: onPressBuy,
         backgroundImageWrapperCallback,
+        testId: TestID.EmptyStateBuy,
       },
       [ActionOption.Receive]: {
         title: t('home.tokens.empty.action.receive.title'),
@@ -62,7 +64,7 @@ export function PortfolioEmptyState({
         elementName: ElementName.EmptyStateReceive,
         icon:
           cexTransferProviders.length > 0 ? (
-            <OverlappingLogos logos={cexTransferProviders.map((provider) => provider.logos.lightLogo)} />
+            <OverlappingLogos logos={cexTransferProviders.map((provider) => provider.logos?.lightLogo ?? '')} />
           ) : (
             <ArrowDownCircle color="$accent1" size="$icon.28" />
           ),
@@ -99,6 +101,9 @@ function ReceiveCryptoIcon(): JSX.Element {
       centered
       shrink
       backgroundColor="$surface1"
+      borderColor="$surface1"
+      borderWidth="$spacing1"
+      overflow="hidden"
       style={{
         ...iconContainerStyle,
         borderRadius: borderRadii.roundedFull,
@@ -122,23 +127,19 @@ function ServiceProviderLogo({ uri }: { uri: string }): JSX.Element {
       key={uri}
       centered
       shrink
-      animation="quick"
       backgroundColor="$surface1"
       borderColor="$surface1"
       borderWidth="$spacing2"
-      enterStyle={{ opacity: 0 }}
-      exitStyle={{ opacity: 0 }}
       style={iconContainerStyle}
     >
-      <ImageUri
-        imageStyle={{
-          borderRadius: borderRadii.rounded8,
-          height: ICON_SIZE - 3,
-          overflow: 'hidden',
-          width: ICON_SIZE - 3,
-        }}
-        resizeMode="cover"
+      <UniversalImage
         uri={uri}
+        size={{
+          height: ICON_SIZE - 3,
+          width: ICON_SIZE - 3,
+          resizeMode: UniversalImageResizeMode.Cover,
+        }}
+        style={{ image: { borderRadius: borderRadii.rounded8 } }}
       />
     </Flex>
   )
@@ -161,12 +162,20 @@ const LogoRendererComponent = ({
   index: number
   style: StyleProp<ViewStyle>
 }): JSX.Element => {
-  const cellStyle = [style, { zIndex: -index }]
-
   return (
-    <CellContainer index={index} style={cellStyle} {...props}>
+    // Enter fade only: the legacy exitStyle never ran here — FlatList cells unmount with no
+    // presence wrapper to arm an exit.
+    <AnimatedFlex
+      centered
+      className={ENTER_PRESET_CLASSES.fadeIn}
+      entering={fadeInQuick}
+      marginEnd={-ICON_SHIFT}
+      zIndex={-index}
+      style={[style, { overflow: 'visible' }]}
+      {...props}
+    >
       {children}
-    </CellContainer>
+    </AnimatedFlex>
   )
 }
 
@@ -177,12 +186,13 @@ function renderItem({ item }: { item: string }): JSX.Element {
 function OverlappingLogos({ logos }: { logos: string[] }): JSX.Element {
   return (
     <Flex height={ICON_SIZE}>
-      <FlashList
+      <FlatList
         horizontal
         CellRendererComponent={LogoRendererComponent}
         contentContainerStyle={{
-          paddingRight: -ICON_SHIFT,
+          marginEnd: ICON_SHIFT,
         }}
+        showsHorizontalScrollIndicator={false}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
         data={['icon', ...logos]}
@@ -194,7 +204,6 @@ function OverlappingLogos({ logos }: { logos: string[] }): JSX.Element {
 const iconContainerStyle = {
   borderRadius: borderRadii.rounded8,
   height: ICON_SIZE,
-  marginRight: ICON_SHIFT,
   overflow: 'hidden',
   width: ICON_SIZE,
 }

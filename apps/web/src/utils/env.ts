@@ -1,11 +1,12 @@
-import { isBetaEnv, isProdEnv } from 'utilities/src/environment/env'
+import { isBetaEnv, isProdEnv } from '@universe/environment'
+import { getConfig } from '~/config'
 
 function isAppUniswapOrg({ hostname }: { hostname: string }): boolean {
   return hostname === 'app.uniswap.org'
 }
 
 function isAppUniswapStagingOrg({ hostname }: { hostname: string }): boolean {
-  return hostname === 'app.corn-staging.com'
+  return hostname === 'staging.app.uniswap.org'
 }
 
 export function isBrowserRouterEnabled(): boolean {
@@ -34,5 +35,5 @@ export function isRemoteReportingEnabled(): boolean {
   if (isProdEnv() && !isAppUniswapOrg(window.location)) {
     return false
   }
-  return process.env.REACT_APP_ANALYTICS_ENABLED === 'true'
+  return getConfig().analyticsEnabled
 }

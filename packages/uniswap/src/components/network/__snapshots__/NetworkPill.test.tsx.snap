@@ -1,139 +1,49 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`NetworkPill renders a NetworkPill with border 1`] = `
-<View
-  style={
-    {
-      "alignItems": "center",
-      "backgroundColor": "#FFFFFF1a",
-      "borderBottomLeftRadius": 999999,
-      "borderBottomRightRadius": 999999,
-      "borderBottomWidth": 1,
-      "borderColor": "#FFFFFF",
-      "borderLeftWidth": 1,
-      "borderRightWidth": 1,
-      "borderStyle": "solid",
-      "borderTopLeftRadius": 999999,
-      "borderTopRightRadius": 999999,
-      "borderTopWidth": 1,
-      "flexDirection": "row",
-      "gap": 8,
-      "justifyContent": "center",
-      "paddingBottom": 8,
-      "paddingLeft": 4,
-      "paddingRight": 4,
-      "paddingTop": 8,
-    }
-  }
->
-  <Text
-    allowFontScaling={true}
-    maxFontSizeMultiplier={1.4}
-    style={
-      {
-        "color": "#FFFFFF",
-        "fontFamily": "Basel Grotesk",
-        "fontSize": 17,
-        "fontWeight": "400",
-        "lineHeight": 22.1,
-        "paddingTop": 1,
-      }
-    }
-    suppressHighlighting={true}
+exports[`NetworkPill > renders a NetworkPill with border 1`] = `
+<DocumentFragment>
+  <div
+    class="flex basis-auto box-border relative min-h-[0px] min-w-[0px] shrink-0 flex-row items-center justify-center gap-[8px] px-[4px] py-[8px] border-[1px] rounded-[999999px]"
+    style="background-color: rgba(255, 255, 255, 0.102); border-color: #ffffff;"
   >
-    Ethereum
-  </Text>
-</View>
+    <span
+      class="[display:inline] box-border m-0 [word-wrap:break-word] [font-family:var(--stext-font-book)] text-[16px] [line-height:22px] [font-weight:485] [color:var(--stext-neutral1)] max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+      style="color: rgb(255, 255, 255); padding-top: 1px;"
+    >
+      Ethereum
+    </span>
+  </div>
+</DocumentFragment>
 `;
 
-exports[`NetworkPill renders a NetworkPill without image 1`] = `
-<View
-  style={
-    {
-      "alignItems": "center",
-      "backgroundColor": "#FFFFFF1a",
-      "borderBottomLeftRadius": 999999,
-      "borderBottomRightRadius": 999999,
-      "borderBottomWidth": 1,
-      "borderColor": "transparent",
-      "borderLeftWidth": 1,
-      "borderRightWidth": 1,
-      "borderStyle": "solid",
-      "borderTopLeftRadius": 999999,
-      "borderTopRightRadius": 999999,
-      "borderTopWidth": 1,
-      "flexDirection": "row",
-      "gap": 8,
-      "justifyContent": "center",
-      "paddingBottom": 8,
-      "paddingLeft": 4,
-      "paddingRight": 4,
-      "paddingTop": 8,
-    }
-  }
->
-  <Text
-    allowFontScaling={true}
-    maxFontSizeMultiplier={1.4}
-    style={
-      {
-        "color": "#FFFFFF",
-        "fontFamily": "Basel Grotesk",
-        "fontSize": 17,
-        "fontWeight": "400",
-        "lineHeight": 22.1,
-        "paddingTop": 1,
-      }
-    }
-    suppressHighlighting={true}
+exports[`NetworkPill > renders a NetworkPill without image 1`] = `
+<DocumentFragment>
+  <div
+    class="flex basis-auto box-border relative min-h-[0px] min-w-[0px] shrink-0 flex-row items-center justify-center gap-[8px] px-[4px] py-[8px] border-transparent border-[1px] rounded-[999999px]"
+    style="background-color: rgba(255, 255, 255, 0.102);"
   >
-    Ethereum
-  </Text>
-</View>
+    <span
+      class="[display:inline] box-border m-0 [word-wrap:break-word] [font-family:var(--stext-font-book)] text-[16px] [line-height:22px] [font-weight:485] [color:var(--stext-neutral1)] max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+      style="color: rgb(255, 255, 255); padding-top: 1px;"
+    >
+      Ethereum
+    </span>
+  </div>
+</DocumentFragment>
 `;
 
-exports[`NetworkPill renders an InlineNetworkPill 1`] = `
-<View
-  style={
-    {
-      "alignItems": "center",
-      "backgroundColor": "#FFFFFF1a",
-      "borderBottomLeftRadius": 8,
-      "borderBottomRightRadius": 8,
-      "borderBottomWidth": 1,
-      "borderColor": "transparent",
-      "borderLeftWidth": 1,
-      "borderRightWidth": 1,
-      "borderStyle": "solid",
-      "borderTopLeftRadius": 8,
-      "borderTopRightRadius": 8,
-      "borderTopWidth": 1,
-      "flexDirection": "row",
-      "gap": 8,
-      "justifyContent": "center",
-      "paddingBottom": 0,
-      "paddingLeft": 4,
-      "paddingRight": 4,
-      "paddingTop": 0,
-    }
-  }
->
-  <Text
-    allowFontScaling={true}
-    maxFontSizeMultiplier={1.2}
-    style={
-      {
-        "color": "#FFFFFF",
-        "fontFamily": "Basel Grotesk",
-        "fontSize": 15,
-        "fontWeight": "500",
-        "lineHeight": 17.25,
-        "paddingTop": 1,
-      }
-    }
-    suppressHighlighting={true}
+exports[`NetworkPill > renders an InlineNetworkPill 1`] = `
+<DocumentFragment>
+  <div
+    class="flex basis-auto box-border relative min-h-[0px] min-w-[0px] shrink-0 flex-row items-center justify-center gap-[8px] px-[4px] py-[0px] border-transparent border-[1px] rounded-[8px]"
+    style="background-color: rgba(255, 255, 255, 0.102);"
   >
-    Ethereum
-  </Text>
-</View>
+    <span
+      class="[display:inline] box-border m-0 [word-wrap:break-word] [font-family:var(--stext-font-medium)] text-[14px] [line-height:16.1px] [font-weight:535] [color:var(--stext-neutral1)] max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+      style="color: rgb(255, 255, 255); padding-top: 1px;"
+    >
+      Ethereum
+    </span>
+  </div>
+</DocumentFragment>
 `;

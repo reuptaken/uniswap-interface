@@ -1,15 +1,13 @@
-import { SharedEventName } from '@uniswap/analytics-events'
-import { Flex, Loader, Text, TouchableArea } from 'ui/src'
+import { isWebPlatform } from '@universe/environment'
+import { Flex, Loader, Text, useMedia } from '@universe/mycelium'
 import { fonts, iconSizes } from 'ui/src/theme'
 import { NftTransactionDetails } from 'uniswap/src/components/activity/details/transactions/NftTransactionDetails'
+import { TransactionTokenContextMenu } from 'uniswap/src/components/activity/details/transactions/TransactionTokenContextMenu'
 import { useFormattedCurrencyAmountAndUSDValue } from 'uniswap/src/components/activity/hooks/useFormattedCurrencyAmountAndUSDValue'
 import { CurrencyLogo } from 'uniswap/src/components/CurrencyLogo/CurrencyLogo'
-import { useUniswapContext } from 'uniswap/src/contexts/UniswapContext'
 import { AssetType } from 'uniswap/src/entities/assets'
 import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
-import { ElementName, ModalName } from 'uniswap/src/features/telemetry/constants'
-import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { useCurrencyInfo } from 'uniswap/src/features/tokens/useCurrencyInfo'
 import {
   ReceiveTokenTransactionInfo,
@@ -18,7 +16,8 @@ import {
 } from 'uniswap/src/features/transactions/types/transactionDetails'
 import { getSymbolDisplayText } from 'uniswap/src/utils/currency'
 import { buildCurrencyId } from 'uniswap/src/utils/currencyId'
-import { isWebPlatform } from 'utilities/src/platform'
+
+const OFFSET = 100
 
 export function TransferTransactionDetails({
   transactionDetails,
@@ -35,7 +34,7 @@ export function TransferTransactionDetails({
     isCurrency ? buildCurrencyId(transactionDetails.chainId, typeInfo.tokenAddress) : undefined,
   )
 
-  const { amount, value } = useFormattedCurrencyAmountAndUSDValue({
+  const { amount, value, isLoading } = useFormattedCurrencyAmountAndUSDValue({
     currency: currencyInfo?.currency,
     currencyAmountRaw: typeInfo.currencyAmountRaw,
     formatter,
@@ -48,12 +47,13 @@ export function TransferTransactionDetails({
   return isCurrency ? (
     <CurrencyTransferContent
       currencyInfo={currencyInfo}
+      isLoading={isLoading}
       tokenAmountWithSymbol={tokenAmountWithSymbol}
       value={value}
       onClose={onClose}
     />
   ) : (
-    <NftTransactionDetails transactionDetails={transactionDetails} typeInfo={typeInfo} onClose={onClose} />
+    <NftTransactionDetails typeInfo={typeInfo} />
   )
 }
 
@@ -63,39 +63,26 @@ export function CurrencyTransferContent({
   value,
   onClose,
   showValueAsHeading = false,
+  isLoading,
 }: {
   tokenAmountWithSymbol: string | undefined
   currencyInfo: Maybe<CurrencyInfo>
   value: string
   onClose: () => void
   showValueAsHeading?: boolean
+  isLoading?: boolean
 }): JSX.Element {
-  const { navigateToTokenDetails } = useUniswapContext()
-
-  const onPressToken = (): void => {
-    if (currencyInfo) {
-      sendAnalyticsEvent(SharedEventName.ELEMENT_CLICKED, {
-        element: ElementName.TokenItem,
-        modal: ModalName.TransactionDetails,
-      })
-
-      navigateToTokenDetails(currencyInfo.currencyId)
-      if (!isWebPlatform) {
-        onClose()
-      }
-    }
-  }
+  const media = useMedia()
 
   const headingText = showValueAsHeading ? value : tokenAmountWithSymbol
   const subtitleText = showValueAsHeading ? tokenAmountWithSymbol : value
 
-  const headingIsLoading = headingText === '-'
-  const subtitleIsLoading = subtitleText === '-'
+  const offsetX = isWebPlatform && media.sm ? OFFSET / 2 : OFFSET
 
   return (
-    <TouchableArea onPress={onPressToken}>
-      <Flex centered gap="$spacing8" p="$spacing32">
-        {headingIsLoading ? (
+    <Flex centered gap="$spacing8" p="$spacing32">
+      <TransactionTokenContextMenu currencyInfo={currencyInfo} offsetX={offsetX} onClose={onClose}>
+        {isLoading ? (
           <Loader.Box height={fonts.heading2.lineHeight} width={iconSizes.icon100} />
         ) : (
           <Text variant="heading2" textAlign="center">
@@ -104,7 +91,7 @@ export function CurrencyTransferContent({
         )}
         <Flex centered row gap="$spacing8">
           <CurrencyLogo currencyInfo={currencyInfo} size={iconSizes.icon20} />
-          {subtitleIsLoading ? (
+          {isLoading ? (
             <Loader.Box height={fonts.body2.lineHeight} width={iconSizes.icon48} />
           ) : (
             <Text color="$neutral2" variant="body2">
@@ -112,7 +99,7 @@ export function CurrencyTransferContent({
             </Text>
           )}
         </Flex>
-      </Flex>
-    </TouchableArea>
+      </TransactionTokenContextMenu>
+    </Flex>
   )
 }

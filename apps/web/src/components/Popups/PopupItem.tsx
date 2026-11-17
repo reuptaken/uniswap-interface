@@ -1,30 +1,36 @@
-import { MismatchToastItem } from 'components/Popups/MismatchToastItem'
-import {
-  FailedNetworkSwitchPopup,
-  FORTransactionPopupContent,
-  TransactionPopupContent,
-  UniswapXOrderPopupContent,
-} from 'components/Popups/PopupContent'
-import { ToastRegularSimple } from 'components/Popups/ToastRegularSimple'
-import { PopupContent, PopupType, SwitchNetworkAction } from 'components/Popups/types'
+import { UniverseChainId } from '@universe/chains'
+import { Flex, Text } from '@universe/mycelium'
 import { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text } from 'ui/src'
 import { AlertTriangleFilled } from 'ui/src/components/icons/AlertTriangleFilled'
 import { CheckCircleFilled } from 'ui/src/components/icons/CheckCircleFilled'
 import { Eye } from 'ui/src/components/icons/Eye'
 import { Shuffle } from 'ui/src/components/icons/Shuffle'
-import { spacing } from 'ui/src/theme'
+import { spacing } from 'ui/src/theme/spacing'
 import { NetworkLogo } from 'uniswap/src/components/CurrencyLogo/NetworkLogo'
 import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import { EarnSwapUpsellToast } from '~/components/Popups/EarnSwapUpsellToast'
+import { MismatchToastItem } from '~/components/Popups/MismatchToastItem'
+import {
+  FailedNetworkSwitchPopup,
+  FORTransactionPopupContent,
+  PlanPopupContent,
+  TransactionPopupContent,
+  UniswapXOrderPopupContent,
+} from '~/components/Popups/PopupContent'
+import { ToastRegularSimple } from '~/components/Popups/ToastRegularSimple'
+import { PopupContent, PopupType, SwitchNetworkAction } from '~/state/popups/types'
 
+// oxlint-disable-next-line typescript/consistent-return -- biome-parity: oxlint is stricter here
 export function PopupItem({ content, onClose }: { content: PopupContent; popKey: string; onClose: () => void }) {
   const { t } = useTranslation()
 
   switch (content.type) {
     case PopupType.Transaction: {
       return <TransactionPopupContent hash={content.hash} onClose={onClose} />
+    }
+    case PopupType.Plan: {
+      return <PlanPopupContent planId={content.planId} onClose={onClose} />
     }
     case PopupType.Order: {
       return <UniswapXOrderPopupContent orderHash={content.orderHash} onClose={onClose} />
@@ -66,6 +72,16 @@ export function PopupItem({ content, onClose }: { content: PopupContent; popKey:
           onDismiss={onClose}
           icon={<AlertTriangleFilled color="$statusCritical" size="$icon.24" />}
           text={content.error}
+        />
+      )
+    }
+    case PopupType.EarnSwapUpsell: {
+      return (
+        <EarnSwapUpsellToast
+          outputCurrencyId={content.outputCurrencyId}
+          swapAmountUsd={content.swapAmountUsd}
+          transactionId={content.transactionId}
+          onDismiss={onClose}
         />
       )
     }
@@ -114,8 +130,6 @@ function getSwitchNetworkTitle({
       return t('notification.lp.network', { network: label })
     case SwitchNetworkAction.Limit:
       return t('notification.limit.network', { network: label })
-    case SwitchNetworkAction.PoolFinder:
-      return t('notification.poolFinder.network', { network: label })
     default:
       return ''
   }

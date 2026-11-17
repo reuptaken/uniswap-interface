@@ -1,73 +1,96 @@
-import { SearchTokensResponse, SearchType } from '@uniswap/client-search/dist/search/v1/api_pb'
-import { GqlResult } from '@universe/api'
+import type { ConnectError } from '@connectrpc/connect'
+import type { UseQueryResult } from '@tanstack/react-query'
+import { SearchResponse, SearchType } from '@uniswap/client-data-api/dist/data/v2/search_pb'
+import { UniverseChainId } from '@universe/chains'
 import { useMemo } from 'react'
-import { searchTokenToCurrencyInfo, useSearchTokensAndPoolsQuery } from 'uniswap/src/data/rest/searchTokensAndPools'
-import { useConnectionStatus } from 'uniswap/src/features/accounts/store/hooks'
+import { useSearchQuery } from 'uniswap/src/data/apiClients/dataApiService/search/search'
+import { dataApiMultichainTokenToSearchResult } from 'uniswap/src/data/apiClients/dataApiService/utils/dataApiMultichainToken'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
+import { MultichainSearchResult } from 'uniswap/src/features/dataApi/types'
 import { NUMBER_OF_RESULTS_LONG } from 'uniswap/src/features/search/SearchModal/constants'
-import { isWSOL } from 'uniswap/src/utils/isWSOL'
 import { useEvent } from 'utilities/src/react/hooks'
 
-export function useSearchTokens({
+/**
+ * Converts the token buckets of a data.v2 SearchResponse into app-layer results.
+ * Suppressed (lower-quality) tokens are appended after the default bucket per the Search V2 PRD's
+ * infra-first milestone; the "see more" expando splits them out in a later UI milestone.
+ */
+export function toMultichainSearchResults({
+  response,
+  chainFilter,
+  size,
+}: {
+  response: Pick<SearchResponse, 'tokens' | 'suppressedTokens'>
+  chainFilter: UniverseChainId | null
+  size: number
+}): MultichainSearchResult[] {
+  // maxResults caps each response bucket separately, so default + suppressed together can
+  // exceed the caller's requested size — trim before converting.
+  const results = [
+    ...response.tokens.map((token) => ({ token, isSuppressed: false })),
+    ...response.suppressedTokens.map((token) => ({ token, isSuppressed: true })),
+  ]
+    .slice(0, size)
+    .map(({ token, isSuppressed }) => dataApiMultichainTokenToSearchResult(token, { isSuppressed }))
+    .filter((r): r is MultichainSearchResult => r !== undefined)
+
+  return filterMultichainResultsToChain(results, chainFilter)
+}
+
+/**
+ * Token-only search for the token selector. The search modal fetches every result type in one
+ * request via `useSearchResults` instead.
+ * The request carries no prioritizeSvm hint — v2 SearchRequest has no equivalent field
+ * and the omission is intentional (see the PRD).
+ */
+export function useMultichainSearchTokens({
   searchQuery,
   chainFilter,
+  chainIds,
   skip,
   size = NUMBER_OF_RESULTS_LONG,
-  hideWSOL = false,
 }: {
   searchQuery: string | null
   chainFilter: UniverseChainId | null
+  chainIds?: UniverseChainId[]
   skip: boolean
   size?: number
-  hideWSOL?: boolean
-}): GqlResult<CurrencyInfo[]> {
+}): UseQueryResult<MultichainSearchResult[], ConnectError> {
   const { chains: enabledChainIds } = useEnabledChains()
-
-  const isSvmConnected = useConnectionStatus(Platform.SVM).isConnected
 
   const variables = useMemo(
     () => ({
       searchQuery: searchQuery ?? undefined,
-      chainIds: chainFilter ? [chainFilter] : enabledChainIds,
-      searchType: SearchType.TOKEN,
-      page: 1,
-      size,
-      prioritizeSvm: isSvmConnected,
+      chainIds: chainFilter ? [chainFilter] : (chainIds ?? enabledChainIds),
+      types: [SearchType.TOKEN],
+      maxResults: size,
     }),
-    [searchQuery, chainFilter, size, enabledChainIds, isSvmConnected],
+    [searchQuery, chainFilter, chainIds, size, enabledChainIds],
   )
 
-  const tokenSelect = useEvent((data: SearchTokensResponse): CurrencyInfo[] => {
-    return data.tokens
-      .map((token) => searchTokenToCurrencyInfo(token))
-      .filter((c): c is CurrencyInfo => {
-        if (!c) {
-          return false
-        }
-        // Filter out WSOL from Solana search results when hideWSOL is true
-        if (hideWSOL && isWSOL(c.currency)) {
-          return false
-        }
-        return true
-      })
-  })
+  const select = useEvent((response: SearchResponse): MultichainSearchResult[] =>
+    toMultichainSearchResults({ response, chainFilter, size }),
+  )
 
-  const {
-    data: tokens,
-    error,
-    isPending,
-    refetch,
-  } = useSearchTokensAndPoolsQuery<CurrencyInfo[]>({
+  return useSearchQuery<MultichainSearchResult[]>({
     input: variables,
     enabled: !skip,
-    select: tokenSelect,
+    select,
   })
+}
 
-  return useMemo(
-    () => ({ data: tokens, loading: isPending, error: error ?? undefined, refetch }),
-    [tokens, isPending, error, refetch],
-  )
+export function filterMultichainResultsToChain(
+  results: MultichainSearchResult[],
+  chainFilter: UniverseChainId | null,
+): MultichainSearchResult[] {
+  if (!chainFilter) {
+    return results
+  }
+
+  return results
+    .map((result) => ({
+      ...result,
+      tokens: result.tokens.filter((token) => token.currency.chainId === chainFilter),
+    }))
+    .filter((result) => result.tokens.length > 0)
 }

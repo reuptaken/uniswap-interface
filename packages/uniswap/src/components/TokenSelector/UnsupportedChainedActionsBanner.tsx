@@ -1,14 +1,13 @@
+import { UniverseChainId } from '@universe/chains'
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
+import { Flex, spacing, Text } from '@universe/mycelium'
+import { InfoCircleFilled } from '@universe/mycelium/icons/InfoCircleFilled'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text } from 'ui/src'
-import { InfoCircleFilled } from 'ui/src/components/icons/InfoCircleFilled'
-import { spacing } from 'ui/src/theme'
 import { TradeableAsset } from 'uniswap/src/entities/assets'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { getChainLabel } from 'uniswap/src/features/chains/utils'
 import { isChainSupportedForChainedActions } from 'uniswap/src/features/transactions/swap/utils/chainedActions'
 
-const CHAINS_WITHOUT_ACROSS_BRIDGING: UniverseChainId[] = [UniverseChainId.Celo, UniverseChainId.Avalanche] as const
+const CHAINS_WITHOUT_ACROSS_BRIDGING: UniverseChainId[] = [UniverseChainId.Celo] as const
 
 export function UnsupportedChainedActionsBanner({
   oppositeToken,
@@ -59,9 +58,12 @@ export function UnsupportedChainedActionsBanner({
       gap="$spacing12"
       mx={spacing.spacing16}
       p="$spacing12"
+      mb="$spacing8"
     >
       <InfoCircleFilled color="$neutral2" size="$icon.20" />
-      <Text variant="body3">{message}</Text>
+      <Text flex={1} variant="body3">
+        {message}
+      </Text>
     </Flex>
   )
 }

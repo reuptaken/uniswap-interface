@@ -1,7 +1,7 @@
 import { Token } from '@uniswap/sdk-core'
+import { isSVMChain } from '@universe/chains'
 import { toSupportedChainId } from 'uniswap/src/features/chains/utils'
 import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
-import { isSVMChain } from 'uniswap/src/features/platforms/utils/chains'
 import { CurrencyField } from 'uniswap/src/types/currency'
 
 function getHasTokenFee(currencyInfo: Maybe<CurrencyInfo>): {
@@ -43,11 +43,15 @@ export function getExactOutputWillFail({
   const hasSolanaToken =
     Boolean(inputChainId && isSVMChain(inputChainId)) || Boolean(outputChainId && isSVMChain(outputChainId))
 
+  const isCrossChain = Boolean(inputChainId && outputChainId) && inputChainId !== outputChainId
+
   // Disable exact output for:
   // 1. FOT tokens (fee-on-transfer)
   // 2. Solana tokens (Jupiter doesn't support exact output)
-  const exactOutputWillFail = inputTokenHasSellTax || outputTokenHasBuyTax || hasSolanaToken
-  const exactOutputWouldFailIfCurrenciesSwitched = inputTokenHasBuyTax || outputTokenHasSellTax || hasSolanaToken
+  // 3. Cross-chain swaps (no exact output support)
+  const exactOutputWillFail = inputTokenHasSellTax || outputTokenHasBuyTax || hasSolanaToken || isCrossChain
+  const exactOutputWouldFailIfCurrenciesSwitched =
+    inputTokenHasBuyTax || outputTokenHasSellTax || hasSolanaToken || isCrossChain
 
   return {
     outputTokenHasBuyTax,

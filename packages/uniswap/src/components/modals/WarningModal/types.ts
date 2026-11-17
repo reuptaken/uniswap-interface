@@ -1,13 +1,10 @@
 import { Currency } from '@uniswap/sdk-core'
-import { ColorTokens, GeneratedIcon } from 'ui/src'
+import { type ColorTokens } from '@universe/mycelium'
+// GeneratedIcon has no mycelium equivalent to import here — ui/src icon types stay ui/src by design.
+import { GeneratedIcon } from 'ui/src'
+import { WarningSeverity } from 'uniswap/src/components/modals/WarningModal/warningSeverity'
 
-export enum WarningSeverity {
-  None = 0,
-  Low = 1,
-  Medium = 5,
-  High = 10,
-  Blocked = 11,
-}
+export { WarningSeverity }
 
 export type WarningColor = {
   text: ColorTokens
@@ -38,8 +35,8 @@ export enum WarningLabel {
   InsufficientGasFunds = 'insufficient_gas_funds',
   FormIncomplete = 'form_incomplete',
   UnsupportedNetwork = 'unsupported_network',
-  PriceImpactMedium = 'price_impact_medium',
-  PriceImpactHigh = 'price_impact_high',
+  PriceDifferenceMedium = 'price_difference_medium',
+  PriceDifferenceHigh = 'price_difference_high',
   LowLiquidity = 'low_liquidity',
   SwapRouterError = 'swap_router_error',
   NoRoutesError = 'no_routes_error',
@@ -50,8 +47,10 @@ export enum WarningLabel {
   ViewOnlyAccount = 'view_only_account',
   NetworkError = 'network_error',
   BlockedToken = 'blocked_token',
+  GeoRestricted = 'geo_restricted',
   NoQuotesFound = 'no_quotes_found',
-  AztecUnavailable = 'aztec_unavailable',
+  GasSponsorshipFailed = 'gas_sponsorship_failed',
+  PermissionedPool = 'permissioned_pool',
 }
 
 export interface Warning {

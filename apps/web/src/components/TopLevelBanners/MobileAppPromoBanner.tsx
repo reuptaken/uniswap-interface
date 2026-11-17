@@ -1,38 +1,53 @@
-import { ReactComponent as UniswapLogo } from 'assets/svg/uniswap_app_logo.svg'
-import { useEthersWeb3Provider } from 'hooks/useEthersProvider'
+import { isWebAndroid, isWebIOS } from '@universe/environment'
+import { Anchor, type AnchorProps, Flex, type FlexCompatProps, Text, TouchableArea } from '@universe/mycelium'
 import { useAtom } from 'jotai'
 import { useAtomValue } from 'jotai/utils'
-import { X } from 'react-feather'
+import { forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { hideMobileAppPromoBannerAtom, persistHideMobileAppPromoBannerAtom } from 'state/application/atoms'
-import { Anchor, Flex, styled, Text, useSporeColors } from 'ui/src'
-import { isWebAndroid, isWebIOS } from 'utilities/src/platform'
-import { getWalletMeta } from 'utils/walletMeta'
+import { X } from 'ui/src/components/icons/X'
+import { ReactComponent as UniswapLogo } from '~/assets/svg/uniswap_app_logo.svg'
+import { useEthersWeb3Provider } from '~/hooks/useEthersProvider'
+import { hideMobileAppPromoBannerAtom, persistHideMobileAppPromoBannerAtom } from '~/state/application/atoms'
+import { getWalletMeta } from '~/utils/walletMeta'
 
-const Wrapper = styled(Flex, {
-  height: 56,
-  width: '100%',
-  backgroundColor: '$accent2',
-  pl: '$spacing12',
-  pr: '$spacing16',
-  zIndex: '$sticky',
-  row: true,
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  display: 'none',
-  $md: { display: 'flex' },
+const Wrapper = forwardRef<HTMLDivElement, FlexCompatProps>(function Wrapper({ $md: md, ...props }, ref) {
+  return (
+    <Flex
+      ref={ref}
+      height={56}
+      width="100%"
+      backgroundColor="$accent2Solid"
+      pl="$spacing12"
+      pr="$spacing16"
+      zIndex="$sticky"
+      row
+      justifyContent="space-between"
+      alignItems="center"
+      display="none"
+      $md={{ display: 'flex', ...md }}
+      {...props}
+    />
+  )
 })
 
-const StyledButton = styled(Anchor, {
-  height: '$spacing28',
-  background: '$accent1',
-  borderRadius: '$rounded16',
-  p: '$spacing8',
-  display: 'flex',
-  justifyContent: 'center',
-  alignItems: 'center',
-  whiteSpace: 'nowrap',
-  textDecorationLine: 'none',
+const StyledButton = forwardRef<HTMLElement, AnchorProps>(function StyledButton(props, ref) {
+  return (
+    <Anchor
+      ref={ref}
+      height="$spacing28"
+      // `backgroundColor`, not the legacy `background`: the shorthand carried only a colour, and
+      // only the longhand resolves a Spore token.
+      backgroundColor="$accent1"
+      borderRadius="$rounded16"
+      p="$spacing8"
+      display="flex"
+      justifyContent="center"
+      alignItems="center"
+      whiteSpace="nowrap"
+      textDecorationLine="none"
+      {...props}
+    />
+  )
 })
 
 /**
@@ -81,7 +96,6 @@ function getDownloadLink(userAgent: string, peerWalletAgent?: string): string {
 export function MobileAppPromoBanner() {
   const { t } = useTranslation()
   const [, setHideMobileAppPromoBanner] = useAtom(hideMobileAppPromoBannerAtom)
-  const colors = useSporeColors()
 
   const provider = useEthersWeb3Provider()
 
@@ -90,19 +104,14 @@ export function MobileAppPromoBanner() {
   return (
     <Wrapper>
       <Flex shrink row gap="$spacing8" alignItems="center">
-        <X
-          data-testid="mobile-promo-banner-close-button"
-          size={20}
-          color={colors.neutral2.val}
-          onClick={() => {
-            setHideMobileAppPromoBanner(true)
-          }}
-        />
+        <TouchableArea data-testid="mobile-promo-banner-close-button" onPress={() => setHideMobileAppPromoBanner(true)}>
+          <X size="$icon.20" color="$neutral2" />
+        </TouchableArea>
         <UniswapLogo width="32px" height="32px" />
         <Flex shrink>
           <Text variant="body3">{t('mobileAppPromo.banner.title')}</Text>
           <Text variant="body4" color="$neutral2">
-            {t('mobileAppPromo.banner.getTheApp.link')}
+            {t('mobileAppPromo.banner.getTheApp.link') as string}
           </Text>
         </Flex>
       </Flex>

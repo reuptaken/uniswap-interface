@@ -1,6 +1,7 @@
-import { TouchableArea } from 'ui/src'
+import { TouchableArea } from '@universe/mycelium'
+import { useTranslation } from 'react-i18next'
 import { InlineWarningCard } from 'uniswap/src/components/InlineWarningCard/InlineWarningCard'
-import { Warning } from 'uniswap/src/components/modals/WarningModal/types'
+import { Warning, WarningLabel } from 'uniswap/src/components/modals/WarningModal/types'
 
 export const TransactionWarning = ({
   warning,
@@ -9,7 +10,22 @@ export const TransactionWarning = ({
   warning: Warning
   onShowWarning: () => void
 }): JSX.Element => {
-  const { title, severity, message, link } = warning
+  const { t } = useTranslation()
+  const { title, severity, message, link, type, icon } = warning
+  const isPriceImpactWarning = type === WarningLabel.PriceDifferenceMedium || type === WarningLabel.PriceDifferenceHigh
+
+  if (isPriceImpactWarning) {
+    return (
+      <InlineWarningCard
+        hideCtaIcon
+        Icon={icon}
+        severity={severity}
+        heading={t('swap.warning.priceImpact.label')}
+        description={message}
+        learnMoreUrl={link}
+      />
+    )
+  }
 
   return (
     <TouchableArea onPress={onShowWarning}>

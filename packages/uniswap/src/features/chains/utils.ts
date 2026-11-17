@@ -1,11 +1,13 @@
 import { BigNumber, BigNumberish } from '@ethersproject/bignumber'
 import { Token } from '@uniswap/sdk-core'
 import { GraphQLApi } from '@universe/api'
+import { areEvmAddressesEqual, isSVMChain, Platform, UniverseChainId } from '@universe/chains'
+import { AppId, getConfig } from '@universe/config'
 import { PollingInterval } from 'uniswap/src/constants/misc'
 import { ALL_CHAIN_IDS, getChainInfo, ORDERED_CHAINS } from 'uniswap/src/features/chains/chainInfo'
-import { EnabledChainsInfo, GqlChainId, NetworkLayer, UniverseChainId } from 'uniswap/src/features/chains/types'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
-
+import { DEFAULT_NATIVE_ADDRESS } from 'uniswap/src/features/chains/evm/defaults'
+import { DEFAULT_NATIVE_ADDRESS_SOLANA } from 'uniswap/src/features/chains/svm/defaults'
+import { EnabledChainsInfo, GqlChainId, NetworkLayer } from 'uniswap/src/features/chains/types'
 // Some code from the web app uses chainId types as numbers
 // This validates them as coerces into SupportedChainId
 export function toSupportedChainId(chainId?: BigNumberish): UniverseChainId | null {
@@ -13,6 +15,23 @@ export function toSupportedChainId(chainId?: BigNumberish): UniverseChainId | nu
     return null
   }
   return parseInt(chainId.toString(), 10) as UniverseChainId
+}
+
+/**
+ * Like `toSupportedChainId`, but also accepts the hex strings dapps send. Fails closed on
+ * anything unparseable.
+ */
+export function toSupportedDappChainId(chainId?: BigNumberish | null): UniverseChainId | null {
+  if (chainId === undefined || chainId === null) {
+    return null
+  }
+
+  const asNumber = Number(chainId.toString())
+  if (!Number.isFinite(asNumber)) {
+    return null
+  }
+
+  return toSupportedChainId(asNumber)
 }
 
 export function getChainLabel(chainId: UniverseChainId): string {
@@ -71,6 +90,8 @@ export function fromGraphQLChain(chain: GraphQLApi.Chain | string | undefined): 
       return UniverseChainId.Mainnet
     case GraphQLApi.Chain.Arbitrum:
       return UniverseChainId.ArbitrumOne
+    case GraphQLApi.Chain.Arc:
+      return UniverseChainId.Arc
     case GraphQLApi.Chain.Avalanche:
       return UniverseChainId.Avalanche
     case GraphQLApi.Chain.Base:
@@ -81,12 +102,20 @@ export function fromGraphQLChain(chain: GraphQLApi.Chain | string | undefined): 
       return UniverseChainId.Blast
     case GraphQLApi.Chain.Celo:
       return UniverseChainId.Celo
+    case GraphQLApi.Chain.Ink:
+      return UniverseChainId.Ink
+    case GraphQLApi.Chain.Linea:
+      return UniverseChainId.Linea
+    case GraphQLApi.Chain.Megaeth:
+      return UniverseChainId.MegaETH
     case GraphQLApi.Chain.Monad:
       return UniverseChainId.Monad
     case GraphQLApi.Chain.Optimism:
       return UniverseChainId.Optimism
     case GraphQLApi.Chain.Polygon:
       return UniverseChainId.Polygon
+    case GraphQLApi.Chain.Robinhood:
+      return UniverseChainId.Robinhood
     case GraphQLApi.Chain.EthereumSepolia:
       return UniverseChainId.Sepolia
     case GraphQLApi.Chain.Unichain:
@@ -95,6 +124,8 @@ export function fromGraphQLChain(chain: GraphQLApi.Chain | string | undefined): 
       return UniverseChainId.Solana
     case GraphQLApi.Chain.Soneium:
       return UniverseChainId.Soneium
+    case GraphQLApi.Chain.Xlayer:
+      return UniverseChainId.XLayer
     case GraphQLApi.Chain.AstrochainSepolia:
       return UniverseChainId.UnichainSepolia
     case GraphQLApi.Chain.Worldchain:
@@ -103,6 +134,8 @@ export function fromGraphQLChain(chain: GraphQLApi.Chain | string | undefined): 
       return UniverseChainId.Zksync
     case GraphQLApi.Chain.Zora:
       return UniverseChainId.Zora
+    case GraphQLApi.Chain.Tempo:
+      return UniverseChainId.Tempo
   }
 
   return null
@@ -118,6 +151,8 @@ export function fromUniswapWebAppLink(network: string | null): UniverseChainId {
       return UniverseChainId.Mainnet
     case GraphQLApi.Chain.Arbitrum.toLowerCase():
       return UniverseChainId.ArbitrumOne
+    case GraphQLApi.Chain.Arc.toLowerCase():
+      return UniverseChainId.Arc
     case GraphQLApi.Chain.Avalanche.toLowerCase():
       return UniverseChainId.Avalanche
     case GraphQLApi.Chain.Base.toLowerCase():
@@ -128,19 +163,30 @@ export function fromUniswapWebAppLink(network: string | null): UniverseChainId {
       return UniverseChainId.Bnb
     case GraphQLApi.Chain.Celo.toLowerCase():
       return UniverseChainId.Celo
+    case GraphQLApi.Chain.Ink.toLowerCase():
+      return UniverseChainId.Ink
+    case GraphQLApi.Chain.Linea.toLowerCase():
+      return UniverseChainId.Linea
+    case GraphQLApi.Chain.Megaeth.toLowerCase():
+      return UniverseChainId.MegaETH
     case GraphQLApi.Chain.Monad.toLowerCase():
       return UniverseChainId.Monad
     case GraphQLApi.Chain.Optimism.toLowerCase():
       return UniverseChainId.Optimism
     case GraphQLApi.Chain.Polygon.toLowerCase():
       return UniverseChainId.Polygon
+    case GraphQLApi.Chain.Robinhood.toLowerCase():
+      return UniverseChainId.Robinhood
     case GraphQLApi.Chain.EthereumSepolia.toLowerCase():
       return UniverseChainId.Sepolia
     case GraphQLApi.Chain.Unichain.toLowerCase():
       return UniverseChainId.Unichain
     case GraphQLApi.Chain.Soneium.toLowerCase():
       return UniverseChainId.Soneium
+    case GraphQLApi.Chain.Xlayer.toLowerCase():
+      return UniverseChainId.XLayer
     case GraphQLApi.Chain.AstrochainSepolia.toLowerCase():
+    case 'unichain_sepolia':
       return UniverseChainId.UnichainSepolia
     case GraphQLApi.Chain.Worldchain.toLowerCase():
       return UniverseChainId.WorldChain
@@ -148,60 +194,64 @@ export function fromUniswapWebAppLink(network: string | null): UniverseChainId {
       return UniverseChainId.Zksync
     case GraphQLApi.Chain.Zora.toLowerCase():
       return UniverseChainId.Zora
+    case GraphQLApi.Chain.Tempo.toLowerCase():
+      return UniverseChainId.Tempo
     default:
       throw new Error(`Network "${network}" can not be mapped`)
   }
 }
 
-export function toUniswapWebAppLink(chainId: UniverseChainId): string | null {
-  switch (chainId) {
-    case UniverseChainId.Mainnet:
-      return GraphQLApi.Chain.Ethereum.toLowerCase()
-    case UniverseChainId.ArbitrumOne:
-      return GraphQLApi.Chain.Arbitrum.toLowerCase()
-    case UniverseChainId.Avalanche:
-      return GraphQLApi.Chain.Avalanche.toLowerCase()
-    case UniverseChainId.Base:
-      return GraphQLApi.Chain.Base.toLowerCase()
-    case UniverseChainId.Blast:
-      return GraphQLApi.Chain.Blast.toLowerCase()
-    case UniverseChainId.Bnb:
-      return GraphQLApi.Chain.Bnb.toLowerCase()
-    case UniverseChainId.Celo:
-      return GraphQLApi.Chain.Celo.toLowerCase()
-    case UniverseChainId.Monad:
-      return GraphQLApi.Chain.Monad.toLowerCase()
-    case UniverseChainId.Optimism:
-      return GraphQLApi.Chain.Optimism.toLowerCase()
-    case UniverseChainId.Polygon:
-      return GraphQLApi.Chain.Polygon.toLowerCase()
-    case UniverseChainId.Sepolia:
-      return GraphQLApi.Chain.EthereumSepolia.toLowerCase()
-    case UniverseChainId.Unichain:
-      return GraphQLApi.Chain.Unichain.toLowerCase()
-    case UniverseChainId.Soneium:
-      return GraphQLApi.Chain.Soneium.toLowerCase()
-    case UniverseChainId.UnichainSepolia:
-      return GraphQLApi.Chain.AstrochainSepolia.toLowerCase()
-    case UniverseChainId.WorldChain:
-      return GraphQLApi.Chain.Worldchain.toLowerCase()
-    case UniverseChainId.Zksync:
-      return GraphQLApi.Chain.Zksync.toLowerCase()
-    case UniverseChainId.Zora:
-      return GraphQLApi.Chain.Zora.toLowerCase()
-    default:
-      throw new Error(`ChainID "${chainId}" can not be mapped`)
-  }
+const CHAIN_ID_TO_UNISWAP_WEB_APP_LINK: Partial<Record<UniverseChainId, string>> = {
+  [UniverseChainId.ArbitrumOne]: GraphQLApi.Chain.Arbitrum.toLowerCase(),
+  [UniverseChainId.Arc]: GraphQLApi.Chain.Arc.toLowerCase(),
+  [UniverseChainId.Avalanche]: GraphQLApi.Chain.Avalanche.toLowerCase(),
+  [UniverseChainId.Base]: GraphQLApi.Chain.Base.toLowerCase(),
+  [UniverseChainId.Blast]: GraphQLApi.Chain.Blast.toLowerCase(),
+  [UniverseChainId.Bnb]: GraphQLApi.Chain.Bnb.toLowerCase(),
+  [UniverseChainId.Celo]: GraphQLApi.Chain.Celo.toLowerCase(),
+  [UniverseChainId.Ink]: GraphQLApi.Chain.Ink.toLowerCase(),
+  [UniverseChainId.Linea]: GraphQLApi.Chain.Linea.toLowerCase(),
+  [UniverseChainId.Mainnet]: GraphQLApi.Chain.Ethereum.toLowerCase(),
+  [UniverseChainId.MegaETH]: GraphQLApi.Chain.Megaeth.toLowerCase(),
+  [UniverseChainId.Monad]: GraphQLApi.Chain.Monad.toLowerCase(),
+  [UniverseChainId.Optimism]: GraphQLApi.Chain.Optimism.toLowerCase(),
+  [UniverseChainId.Polygon]: GraphQLApi.Chain.Polygon.toLowerCase(),
+  [UniverseChainId.Robinhood]: GraphQLApi.Chain.Robinhood.toLowerCase(),
+  [UniverseChainId.Sepolia]: GraphQLApi.Chain.EthereumSepolia.toLowerCase(),
+  [UniverseChainId.Soneium]: GraphQLApi.Chain.Soneium.toLowerCase(),
+  [UniverseChainId.Tempo]: GraphQLApi.Chain.Tempo.toLowerCase(),
+  [UniverseChainId.Unichain]: GraphQLApi.Chain.Unichain.toLowerCase(),
+  [UniverseChainId.UnichainSepolia]: 'unichain_sepolia',
+  [UniverseChainId.WorldChain]: GraphQLApi.Chain.Worldchain.toLowerCase(),
+  [UniverseChainId.XLayer]: GraphQLApi.Chain.Xlayer.toLowerCase(),
+  [UniverseChainId.Zksync]: GraphQLApi.Chain.Zksync.toLowerCase(),
+  [UniverseChainId.Zora]: GraphQLApi.Chain.Zora.toLowerCase(),
 }
 
-export function filterChainIdsByFeatureFlag(
-  featureFlaggedChainIds: {
-    [key in UniverseChainId]?: boolean
-  },
-): UniverseChainId[] {
+export function toUniswapWebAppLink(chainId: UniverseChainId): string | null {
+  const network = CHAIN_ID_TO_UNISWAP_WEB_APP_LINK[chainId]
+
+  if (!network) {
+    throw new Error(`ChainID "${chainId}" can not be mapped`)
+  }
+
+  return network
+}
+
+export function filterChainIdsByFeatureFlag(featureFlaggedChainIds: {
+  [key in UniverseChainId]?: boolean
+}): UniverseChainId[] {
   return ALL_CHAIN_IDS.filter((chainId) => {
     return featureFlaggedChainIds[chainId] ?? true
   })
+}
+
+export function isChainSupportedOnApp(chainId: UniverseChainId, appId: AppId): boolean {
+  return getChainInfo(chainId).supportedApps.includes(appId)
+}
+
+export function filterChainIdsByAppSupport(chainIds: UniverseChainId[], appId: AppId): UniverseChainId[] {
+  return chainIds.filter((chainId) => isChainSupportedOnApp(chainId, appId))
 }
 
 /**
@@ -229,13 +279,21 @@ export function getEnabledChains({
   includeTestnets = false,
   isTestnetModeEnabled,
   featureFlaggedChainIds,
+  appId = getConfig().appId,
 }: {
   platform?: Platform
   isTestnetModeEnabled: boolean
   featureFlaggedChainIds: UniverseChainId[]
   includeTestnets?: boolean
+  /** Override for tests; defaults to the running app's AppId. */
+  appId?: AppId
 }): EnabledChainsInfo {
   const enabledChainInfos = ORDERED_CHAINS.filter((chainInfo) => {
+    // Filter by app support (structural — not a feature flag concern)
+    if (!chainInfo.supportedApps.includes(appId)) {
+      return false
+    }
+
     // Filter by platform
     if (platform !== undefined && platform !== chainInfo.platform) {
       return false
@@ -283,9 +341,24 @@ function getDefaultChainId({
   return isTestnetModeEnabled ? UniverseChainId.Sepolia : UniverseChainId.Mainnet
 }
 
+/** Platform-wide native sentinel the data API accepts for any chain: zero address on EVM, system program on SVM. */
+export function getDefaultNativeAddress(chainId: UniverseChainId): string {
+  return isSVMChain(chainId) ? DEFAULT_NATIVE_ADDRESS_SOLANA : DEFAULT_NATIVE_ADDRESS
+}
+
 /** Returns all stablecoins for a given chainId. */
 export function getStablecoinsForChain(chainId: UniverseChainId): Token[] {
   return getChainInfo(chainId).tokens.stablecoins
+}
+
+/** Checks if a token address is a stablecoin on the given chain. */
+export function isStablecoinAddress(chainId: UniverseChainId, tokenAddress: string): boolean {
+  try {
+    const stablecoins = getStablecoinsForChain(chainId)
+    return stablecoins.some((stablecoin) => areEvmAddressesEqual(stablecoin.address, tokenAddress))
+  } catch {
+    return false
+  }
 }
 
 /** Returns the primary stablecoin for a given chainId. */

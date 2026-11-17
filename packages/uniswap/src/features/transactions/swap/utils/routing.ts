@@ -1,8 +1,16 @@
 import { ADDRESS_ZERO } from '@uniswap/v3-sdk'
+import type { ChainedQuoteResponse } from '@universe/api'
 import { TradingApi } from '@universe/api'
 import { UnexpectedTransactionStateError } from 'uniswap/src/features/transactions/errors'
-import { type SwapTxAndGasInfo } from 'uniswap/src/features/transactions/swap/types/swapTxAndGasInfo'
+import {
+  type BridgeSwapTxAndGasInfo,
+  type ClassicSwapTxAndGasInfo,
+  type SwapTxAndGasInfo,
+  type WrapSwapTxAndGasInfo,
+} from 'uniswap/src/features/transactions/swap/types/swapTxAndGasInfo'
+import type { Trade } from 'uniswap/src/features/transactions/swap/types/trade'
 import { type ValidatedTransactionRequest } from 'uniswap/src/features/transactions/types/transactionRequests'
+import type { RpcUserOperation } from 'viem/account-abstraction'
 
 export const UNISWAPX_ROUTING_VARIANTS = [
   TradingApi.Routing.DUTCH_V2,
@@ -42,10 +50,96 @@ export function isJupiter<T extends { routing: TradingApi.Routing }>(
   return obj.routing === TradingApi.Routing.JUPITER
 }
 
+export function isUserOpSwap(swapTxContext: SwapTxAndGasInfo): swapTxContext is (
+  | ClassicSwapTxAndGasInfo
+  | WrapSwapTxAndGasInfo
+  | BridgeSwapTxAndGasInfo
+) & {
+  unsignedUserOperation: RpcUserOperation<'0.8'>
+} {
+  return (
+    (isClassic(swapTxContext) || isWrap(swapTxContext) || isBridge(swapTxContext)) &&
+    swapTxContext.unsignedUserOperation !== undefined
+  )
+}
+
+/**
+ * Whether gas for this trade's execution is actually paid by our paymaster: the quote's sponsorship
+ * offer only takes effect when execution runs through a paymaster-driven path (4337 userOp /
+ * 5792 walletCall), signaled by `executesViaPaymaster`. UniswapX fill gas is always filler-paid
+ * (at most the Permit2 approval is sponsored), so orders never count. Undefined when the quote
+ * carries no sponsorship info.
+ */
+export function isGasSponsoredTradeExecution({
+  trade,
+  executesViaPaymaster,
+}: {
+  trade: Trade
+  executesViaPaymaster: boolean
+}): boolean | undefined {
+  const quote = trade.quote
+  if (!('sponsorshipInfo' in quote)) {
+    return undefined
+  }
+  if (isUniswapX(trade)) {
+    return false
+  }
+  return Boolean(quote.sponsorshipInfo?.sponsored) && executesViaPaymaster
+}
+
+/**
+ * Context-level variant of {@link isGasSponsoredTradeExecution}: derives whether execution runs
+ * through a paymaster-driven path from the pre-submit swap context (paymasterService / userOp).
+ */
+export function isGasSponsoredExecution(swapTxContext: SwapTxAndGasInfo): boolean | undefined {
+  const trade = swapTxContext.trade
+  if (!trade) {
+    return undefined
+  }
+  const executesViaPaymaster =
+    ('paymasterService' in swapTxContext && Boolean(swapTxContext.paymasterService)) ||
+    ('unsignedUserOperation' in swapTxContext && Boolean(swapTxContext.unsignedUserOperation))
+  return isGasSponsoredTradeExecution({ trade, executesViaPaymaster })
+}
+
 export function isChained<T extends { routing: TradingApi.Routing }>(
   obj: T,
 ): obj is Extract<T, { routing: TradingApi.Routing.CHAINED }> {
   return obj.routing === TradingApi.Routing.CHAINED
+}
+
+/**
+ * True for a plain token-for-token swap. Bridge and wrap/unwrap flows reuse the swap screens but
+ * must not surface swap-only details (swap fee, routing, slippage).
+ */
+export function isSwapRouting(obj: { routing: TradingApi.Routing }): boolean {
+  return !isBridge(obj) && !isWrap(obj)
+}
+
+export function isChainedQuoteResponse(
+  quote: { routing: TradingApi.Routing } | undefined | null,
+): quote is ChainedQuoteResponse {
+  return quote?.routing === TradingApi.Routing.CHAINED
+}
+
+/**
+ * Checks if a quote requires gas to be paid on multiple chains.
+ * Returns false for non-chained quotes or quotes where the gas is paid on a single chain.
+ */
+export function isMultiChainGasQuote(quote: { routing: TradingApi.Routing } | undefined | null): boolean {
+  if (!isChainedQuoteResponse(quote)) {
+    return false
+  }
+
+  const chainIds = new Set<number>()
+
+  quote.quote.steps?.forEach((step) => {
+    if (step.tokenInChainId !== undefined) {
+      chainIds.add(step.tokenInChainId)
+    }
+  })
+
+  return chainIds.size > 1
 }
 
 // Returns the first EVM txRequest in a SwapTxAndGasInfo object if it exists, otherwise undefined
@@ -70,4 +164,56 @@ export const ACROSS_DAPP_INFO = {
   name: 'Across API',
   address: ADDRESS_ZERO,
   icon: 'https://protocol-icons.s3.amazonaws.com/icons/across.jpg',
+}
+
+/**
+ * Converts a TradingApi.PlanStepType whose steps are derived from TradingApi.Routing to TradingApi.Routing.
+ *
+ * @throws {Error} If the PlanStepType and TradingApi.Routing mapping fall out of sync.
+ */
+export function planStepTypeToTradingRoute(stepType: TradingApi.PlanStepType): Exclude<
+  TradingApi.Routing,
+  // Jupiter API is not supported yet
+  TradingApi.Routing.JUPITER
+> {
+  switch (stepType) {
+    case TradingApi.PlanStepType.APPROVAL_PERMIT:
+    case TradingApi.PlanStepType.APPROVAL_TXN:
+    case TradingApi.PlanStepType.RESET_APPROVAL_TXN:
+    case TradingApi.PlanStepType.QUICKROUTE:
+    case TradingApi.PlanStepType.CLASSIC:
+      return TradingApi.Routing.CLASSIC
+    case TradingApi.PlanStepType.DUTCH_LIMIT:
+      return TradingApi.Routing.DUTCH_LIMIT
+    case TradingApi.PlanStepType.DUTCH_V2:
+      return TradingApi.Routing.DUTCH_V2
+    case TradingApi.PlanStepType.DUTCH_V3:
+      return TradingApi.Routing.DUTCH_V3
+    case TradingApi.PlanStepType.BRIDGE:
+      return TradingApi.Routing.BRIDGE
+    case TradingApi.PlanStepType.PRIORITY:
+      return TradingApi.Routing.PRIORITY
+    case TradingApi.PlanStepType.WRAP:
+      return TradingApi.Routing.WRAP
+    case TradingApi.PlanStepType.UNWRAP:
+      return TradingApi.Routing.UNWRAP
+    case TradingApi.PlanStepType.LIMIT_ORDER:
+      return TradingApi.Routing.LIMIT_ORDER
+    // Margin steps have no dedicated Routing value (like vault steps) — they're chained-plan steps.
+    // MARGIN_RECOVER stays mapped so the function is total over the enum; the FE surfaces no recover
+    // action, but a plan could still carry a recover step and must not throw here.
+    case TradingApi.PlanStepType.CHAINED:
+    case TradingApi.PlanStepType.VAULT_DEPOSIT:
+    case TradingApi.PlanStepType.VAULT_WITHDRAW:
+    case TradingApi.PlanStepType.MARGIN_EXECUTE:
+    case TradingApi.PlanStepType.MARGIN_PRE_SWAP:
+    case TradingApi.PlanStepType.MARGIN_OPEN:
+    case TradingApi.PlanStepType.MARGIN_CLOSE:
+    case TradingApi.PlanStepType.MARGIN_BRIDGE:
+    case TradingApi.PlanStepType.MARGIN_ADJUST:
+    case TradingApi.PlanStepType.MARGIN_RECOVER:
+      return TradingApi.Routing.CHAINED
+    default:
+      throw new Error(`planStepTypeToTradingRoute: Unknown step type: ${stepType}`)
+  }
 }

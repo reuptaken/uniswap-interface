@@ -7,16 +7,14 @@ export function sleep(milliseconds: number): Promise<boolean> {
 }
 
 export async function promiseTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T | null> {
-  // Create a promise that rejects in <ms> milliseconds
+  let timeoutId: ReturnType<typeof setTimeout>
+  // Resolve to null after <ms> milliseconds if the input promise hasn't settled first.
   const timeout = new Promise<null>((resolve) => {
-    const id = setTimeout(() => {
-      clearTimeout(id)
-      resolve(null)
-    }, milliseconds)
+    timeoutId = setTimeout(() => resolve(null), milliseconds)
   })
-  // Awaits the race, which will throw on timeout
-  const result = await Promise.race([promise, timeout])
-  return result
+  // Clear the timer once the race settles, so a still-pending timeout can't keep a short-lived
+  // process (e.g. a CLI) alive after the input promise already won.
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId))
 }
 
 /**
@@ -37,7 +35,7 @@ export async function promiseMinDelay(promise: Promise<unknown>, milliseconds: n
 }
 
 // https://usehooks-typescript.com/react-hook/use-interval
-// eslint-disable-next-line max-params
+// oxlint-disable-next-line max-params
 export function useInterval(callback: () => void, delay: number | null, immediateStart?: boolean): void {
   const savedCallback = useRef<() => void | null>(undefined)
 
@@ -49,9 +47,9 @@ export function useInterval(callback: () => void, delay: number | null, immediat
   // Set up the interval.
   useEffect(() => {
     const tick = (): void => {
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      // oxlint-disable-next-line typescript/no-unnecessary-condition
       if (typeof savedCallback?.current !== 'undefined') {
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        // oxlint-disable-next-line typescript/no-unnecessary-condition
         savedCallback?.current()
       }
     }
@@ -131,7 +129,7 @@ export function useDebounceWithStatus<T>({
     // Cancel the timeout if value changes (also on delay change or unmount)
     // This is how we prevent debounced value from updating if value is changed ...
     // .. within the delay period. Timeout gets cleared and restarted.
-    // eslint-disable-next-line consistent-return
+    // oxlint-disable-next-line typescript/consistent-return
     return () => {
       clearTimeout(handler)
     }

@@ -1,12 +1,18 @@
-import { useAccountDrawer } from 'components/AccountDrawer/MiniPortfolio/hooks'
-import { useConnectionStatus } from 'features/accounts/store/hooks'
-import { useBuyFormContext } from 'pages/Swap/Buy/BuyFormContext'
+import { isSVMChain } from '@universe/chains'
+import { Button, type ButtonProps, useIsShortMobileDevice } from '@universe/mycelium'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button, type ButtonProps, useIsShortMobileDevice } from 'ui/src'
 import { MAINNET_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/mainnet'
 import { SOLANA_CHAIN_INFO } from 'uniswap/src/features/chains/svm/info/solana'
-import { isSVMChain } from 'uniswap/src/features/platforms/utils/chains'
+import { CexTransferInfoModal } from 'uniswap/src/features/fiatOnRamp/CexTransferInfoModal'
+import { RampDirection } from 'uniswap/src/features/fiatOnRamp/types'
+import { useIsForRegionBlocked } from 'uniswap/src/features/fiatOnRamp/useIsForRegionBlocked'
 import { useIsMissingPlatformWallet } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/hooks/useIsMissingPlatformWallet'
+import { useAccountDrawer } from '~/components/AccountDrawer/MiniPortfolio/hooks'
+import { useOpenReceiveCryptoModal } from '~/components/ReceiveCryptoModal/useOpenReceiveCryptoModal'
+import { useConnectionStatus } from '~/features/accounts/store/hooks'
+import { useBuyFormContext } from '~/pages/Swap/Buy/BuyFormContext'
+import { ReceiveModalState } from '~/types/receiveCryptoModal'
 
 interface BuyFormButtonProps {
   forceDisabled?: boolean
@@ -19,9 +25,18 @@ export function BuyFormButton({ forceDisabled }: BuyFormButtonProps) {
   const isShortMobileDevice = useIsShortMobileDevice()
 
   const { buyFormState, derivedBuyFormInfo, setBuyFormState } = useBuyFormContext()
-  const { inputAmount, quoteCurrency } = buyFormState
+  const { inputAmount, quoteCurrency, rampDirection } = buyFormState
+  const isForRegionBlocked = useIsForRegionBlocked({ isOfframp: rampDirection === RampDirection.OFF_RAMP })
+  const [isCexTransferModalOpen, setIsCexTransferModalOpen] = useState(false)
+  const openReceiveModal = useOpenReceiveCryptoModal({ modalState: ReceiveModalState.DEFAULT })
+  const openCexTransferModal = () => setIsCexTransferModalOpen(true)
+  const closeCexTransferModal = () => setIsCexTransferModalOpen(false)
+  const receiveFromCexTransferModal = () => {
+    closeCexTransferModal()
+    openReceiveModal()
+  }
 
-  const { notAvailableInThisRegion, quotes, fetchingQuotes, error } = derivedBuyFormInfo
+  const { notAvailableInThisRegion, quotes, fetchingQuotes, amountOutLoading, error } = derivedBuyFormInfo
   const chainId = quoteCurrency?.currencyInfo?.currency.chainId
   const isMissingPlatformWallet = useIsMissingPlatformWallet(chainId)
 
@@ -39,9 +54,24 @@ export function BuyFormButton({ forceDisabled }: BuyFormButtonProps) {
     )
   }
 
+  if (isForRegionBlocked) {
+    return (
+      <>
+        <Button size={buttonSize} variant="branded" emphasis="secondary" fill onPress={openCexTransferModal}>
+          {t('fiatOnRamp.cexTransferModal.title')}
+        </Button>
+        <CexTransferInfoModal
+          isOpen={isCexTransferModalOpen}
+          onClose={closeCexTransferModal}
+          onPressReceive={receiveFromCexTransferModal}
+        />
+      </>
+    )
+  }
+
   if (!inputAmount || forceDisabled || notAvailableInThisRegion || !quoteCurrency) {
     return (
-      <Button size={buttonSize} key="BuyFormButton" isDisabled>
+      <Button size={buttonSize} key="BuyFormButton" disabled>
         {notAvailableInThisRegion
           ? t('common.notAvailableInRegion.error')
           : quoteCurrency
@@ -55,9 +85,9 @@ export function BuyFormButton({ forceDisabled }: BuyFormButtonProps) {
     <Button
       size={buttonSize}
       variant="branded"
-      loading={fetchingQuotes}
+      loading={fetchingQuotes || amountOutLoading}
       key="BuyFormButton"
-      isDisabled={Boolean(fetchingQuotes || !quotes || !quotes.quotes || quotes.quotes.length === 0 || error)}
+      disabled={Boolean(fetchingQuotes || !quotes || quotes.quotes.length === 0 || error)}
       onPress={() => {
         setBuyFormState((prev) => ({ ...prev, providerModalOpen: true }))
       }}

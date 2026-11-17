@@ -1,4 +1,5 @@
 export type {
+  AuctionLpPercentOverridesMap,
   DatadogIgnoredErrorsValType,
   DatadogSessionSampleRateValType,
   DynamicConfigKeys,
@@ -7,42 +8,56 @@ export type {
   GasStrategies,
   GasStrategyType,
   GasStrategyWithConditions,
-  UwULinkAllowlist,
-  UwULinkAllowlistItem,
+  RWAIssuerLogo,
+  RWAIssuerLogosMap,
 } from '@universe/gating/src/configs'
 export {
   AllowedV4WethHookAddressesConfigKey,
+  AuctionFdvWarningConfigKey,
+  AuctionOverridesConfigKey,
   BlockedAsyncSubmissionChainIdsConfigKey,
+  CategoriesOrderConfigKey,
   ChainsConfigKey,
   DatadogIgnoredErrorsConfigKey,
   DatadogSessionSampleRateKey,
+  DisableWalletSearchTermsConfigKey,
   DynamicConfigs,
+  EarnConfigKey,
+  EmbeddedWalletBetaPassphrasesKey,
   EmbeddedWalletConfigKey,
   ExtensionBiometricUnlockConfigKey,
   ExternallyConnectableExtensionConfigKey,
   ForceUpgradeConfigKey,
   HomeScreenExploreTokensConfigKey,
+  LaunchesNetworkFilterChainIdsConfigKey,
+  LiquidityApprovalSimulationConfigKey,
+  LiquidityGasPreEstimationConfigKey,
   LPConfigKey,
+  LpIncentivesChainIdsConfigKey,
   NetworkRequestsConfigKey,
   OnDeviceRecoveryConfigKey,
-  OutageBannerChainIdConfigKey,
+  RWAIssuerLogosConfigKey,
+  Permit2MismatchDelegatesConfigKey,
   SwapConfigKey,
+  SynchronizedHeartbeatsConfigKey,
   SyncTransactionSubmissionChainIdsConfigKey,
-  UwuLinkConfigKey,
+  TokenCategoriesSearchSpotlightConfigKey,
+  UniswapBuiltHookAddressesConfigKey,
+  VerifiedAuctionsConfigKey,
 } from '@universe/gating/src/configs'
-export { StatsigCustomAppValue } from '@universe/gating/src/constants'
+export { StatsigCustomAppValue, TEST_STATSIG_SDK_KEY } from '@universe/gating/src/constants'
 export type { ExperimentProperties } from '@universe/gating/src/experiments'
 export {
+  ArbitrumXV2SamplingProperties,
+  EmbeddedWalletOnboardingProperties,
+  EthAsErc20UniswapXProperties,
   Experiments,
-  ForFiltersProperties,
   LayerProperties,
   Layers,
+  NativeTokenPercentageBufferExperimentGroup,
   NativeTokenPercentageBufferProperties,
-  PortfolioDisconnectedDemoViewProperties,
-  PriceUxUpdateProperties,
-  PrivateRpcProperties,
-  UnichainFlashblocksProperties,
-  WebFORNudgesProperties,
+  SwapConfirmationProperties,
+  SwapLayerProperties,
 } from '@universe/gating/src/experiments'
 export {
   FeatureFlagClient,
@@ -51,29 +66,42 @@ export {
   WALLET_FEATURE_FLAG_NAMES,
   WEB_FEATURE_FLAG_NAMES,
 } from '@universe/gating/src/flags'
-export { getIsSessionServiceEnabled, useIsSessionServiceEnabled } from '@universe/gating/src/getIsSessionServiceEnabled'
-export { getIsSessionUpgradeAutoEnabled } from '@universe/gating/src/getIsSessionUpgradeAutoEnabled'
+export { getIsHashcashSolverEnabled, useIsHashcashSolverEnabled } from '@universe/gating/src/getIsHashcashSolverEnabled'
+export {
+  useIsPoolCategoriesEnabled,
+  useIsPoolCategoriesEnabledWithLoading,
+} from '@universe/gating/src/useIsPoolCategoriesEnabled'
+export {
+  useIsTokenCategoriesEnabled,
+  useIsTokenCategoriesEnabledWithLoading,
+} from '@universe/gating/src/useIsTokenCategoriesEnabled'
+export {
+  getIsTurnstileSolverEnabled,
+  useIsTurnstileSolverEnabled,
+} from '@universe/gating/src/getIsTurnstileSolverEnabled'
 export { getStatsigEnvName } from '@universe/gating/src/getStatsigEnvName'
 export {
   getDynamicConfigValue,
   getExperimentValue,
   getExperimentValueFromLayer,
   getFeatureFlag,
+  getFeatureFlagWithExposureLoggingDisabled,
   useDynamicConfigValue,
   useExperimentValue,
   useExperimentValueFromLayer,
+  useExperimentValueWithExposureLoggingDisabled,
   useFeatureFlag,
   useFeatureFlagWithExposureLoggingDisabled,
   useFeatureFlagWithLoading,
   useStatsigClientStatus,
 } from '@universe/gating/src/hooks'
-export { LocalOverrideAdapterWrapper } from '@universe/gating/src/LocalOverrideAdapterWrapper'
-export type {
-  StatsigOptions,
-  StatsigUser,
-  StorageProvider,
-} from '@universe/gating/src/sdk/statsig'
 export {
+  getLocalOverridesStorageKey,
+  LocalOverrideAdapterWrapper,
+} from '@universe/gating/src/LocalOverrideAdapterWrapper'
+export type { StatsigOptions, StatsigUser, StorageProvider } from '@universe/gating/src/sdk/statsig'
+export {
+  bootstrapStatsigClient,
   getOverrideAdapter,
   getStatsigClient,
   StatsigClient,
@@ -82,6 +110,15 @@ export {
   Storage,
   useClientAsyncInit,
   useExperiment,
+  useGateValue,
   useLayer,
 } from '@universe/gating/src/sdk/statsig'
-export { getOverrides } from '@universe/gating/src/utils'
+export {
+  getOverrides,
+  isOverrideName,
+  isStatsigClientRegistered,
+  namedOverrideEntries,
+  waitForStatsigReady,
+} from '@universe/gating/src/utils'
+export type { GatingOverrideTarget, GatingUrlOverrides, GatingUrlParams } from '@universe/gating/src/urlOverrides'
+export { applyGatingUrlOverrides, GATING_URL_PARAMS, parseGatingUrlOverrides } from '@universe/gating/src/urlOverrides'

@@ -1,14 +1,14 @@
 import { ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
-import { PositionInfo } from 'components/Liquidity/types'
-import { BIPS_BASE } from 'constants/misc'
+import { iconSizes, Text } from '@universe/mycelium'
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text } from 'ui/src'
-import { iconSizes } from 'ui/src/theme/iconSizes'
 import { SplitLogo } from 'uniswap/src/components/CurrencyLogo/SplitLogo'
 import { V2_DEFAULT_FEE_TIER } from 'uniswap/src/constants/pools'
+import { PositionInfo } from 'uniswap/src/features/positions/types'
 import { useCurrencyInfos } from 'uniswap/src/features/tokens/useCurrencyInfo'
 import { currencyId } from 'uniswap/src/utils/currencyId'
+import { CollapsibleCellLayout } from '~/components/Table/PinnedColumns/collapse/CollapsibleCellLayout'
+import { BIPS_BASE } from '~/constants/misc'
 
 // Helper function to get fee label from position
 function getFeeLabel(position: PositionInfo, t: ReturnType<typeof useTranslation>['t']): string {
@@ -42,22 +42,24 @@ export const PoolInfoCell = memo(function PoolInfoCell({ position }: { position:
   }
 
   return (
-    <Flex row alignItems="center" gap="$gap8">
-      <SplitLogo
-        inputCurrencyInfo={currency0Info}
-        outputCurrencyInfo={currency1Info}
-        size={iconSizes.icon32}
-        chainId={position.chainId}
-      />
-      <Flex>
-        <Text variant="body3" color="$neutral1">
-          {currency0Info.currency.symbol} / {currency1Info.currency.symbol}
-        </Text>
-        <Text variant="body4" color="$neutral2">
-          {getFeeLabel(position, t)} • {getVersionText()}
-        </Text>
-      </Flex>
-    </Flex>
+    <CollapsibleCellLayout
+      gapPx={8}
+      logo={
+        <SplitLogo
+          inputCurrencyInfo={currency0Info}
+          outputCurrencyInfo={currency1Info}
+          size={iconSizes.icon32}
+          chainId={position.chainId}
+        />
+      }
+    >
+      <Text variant="body3" color="$neutral1" numberOfLines={1}>
+        {currency0Info.currency.symbol} / {currency1Info.currency.symbol}
+      </Text>
+      <Text variant="body4" color="$neutral2" numberOfLines={1}>
+        {getFeeLabel(position, t)} • {getVersionText()}
+      </Text>
+    </CollapsibleCellLayout>
   )
 })
 PoolInfoCell.displayName = 'PoolInfoCell'

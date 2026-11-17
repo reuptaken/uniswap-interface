@@ -1,4 +1,4 @@
-/* eslint-disable max-lines */
+/* oxlint-disable max-lines */
 /**
  * Util to format numbers inside reanimated worklets.
  *
@@ -267,6 +267,7 @@ const currencyFormatMap = {
   'zh-Hant': 'pre',
 }
 
+// oxlint-disable-next-line typescript/no-duplicate-type-constituents -- biome-parity: oxlint is stricter here
 export type Language = keyof typeof currencyFormatMap | keyof typeof transformForLocale
 
 const currencySymbols: { [key: string]: string } = {
@@ -454,6 +455,7 @@ export function numberToLocaleStringWorklet({
 
   if (options.currency && options.style === 'currency') {
     const format = currencyFormats[<string>mapMatch(currencyFormatMap, locale)]
+    // oxlint-disable-next-line universe-custom/no-tolowercase-address-currencyid -- fiat currency code key, not an address
     const targetSymbol = symbol ?? currencySymbols[options.currency.toLowerCase()]
     if (format) {
       sNum = renderFormat(format, {

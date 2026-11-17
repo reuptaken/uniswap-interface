@@ -1,25 +1,32 @@
+import { BottomSheetScrollView } from '@gorhom/bottom-sheet'
+import {
+  Flex,
+  fonts,
+  spacing,
+  Text,
+  TouchableArea,
+  UniversalList,
+  type UniversalListRenderItemInfo,
+  type UniversalListStyle,
+  AnimatedFlex,
+} from '@universe/mycelium'
+import { useDeviceDimensions, useSporeColors } from '@universe/mycelium/theme-hooks-compat'
 import React, { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ListRenderItemInfo } from 'react-native'
 import { FadeIn, FadeOut } from 'react-native-reanimated'
 import { SvgUri } from 'react-native-svg'
 import { Loader } from 'src/components/loading/loaders'
 import { useFiatOnRampContext } from 'src/features/fiatOnRamp/FiatOnRampContext'
-import { Flex, Text, TouchableArea, useSporeColors } from 'ui/src'
-import { AnimatedBottomSheetFlashList } from 'ui/src/components/AnimatedFlashList/AnimatedFlashList'
 import { Check } from 'ui/src/components/icons'
-import { AnimatedFlex } from 'ui/src/components/layout/AnimatedFlex'
-import { useDeviceDimensions } from 'ui/src/hooks/useDeviceDimensions'
-import { fonts, spacing } from 'ui/src/theme'
 import { Modal } from 'uniswap/src/components/modals/Modal'
-import { useFiatOnRampAggregatorCountryListQuery } from 'uniswap/src/features/fiatOnRamp/api'
 import { FOR_MODAL_SNAP_POINTS } from 'uniswap/src/features/fiatOnRamp/constants'
+import { useFiatOnRampAggregatorCountryListQuery } from 'uniswap/src/features/fiatOnRamp/hooks/useFiatOnRampQueries'
+import { useFilteredCountryData } from 'uniswap/src/features/fiatOnRamp/hooks/useFilteredCountryData'
 import { FORCountry, RampDirection } from 'uniswap/src/features/fiatOnRamp/types'
 import { getCountryFlagSvgUrl } from 'uniswap/src/features/fiatOnRamp/utils'
 import { SearchTextInput } from 'uniswap/src/features/search/SearchTextInput'
 import { ModalName } from 'uniswap/src/features/telemetry/constants'
 import { useAppInsets } from 'uniswap/src/hooks/useAppInsets'
-import { bubbleToTop } from 'utilities/src/primitives/array'
 import { useDebounce } from 'utilities/src/time/timing'
 
 const ICON_SIZE = 32 // design prefers a custom value here
@@ -39,24 +46,21 @@ function CountrySelectorContent({ onSelectCountry, countryCode }: CountrySelecto
   const { isOffRamp } = useFiatOnRampContext()
 
   const { data, isLoading } = useFiatOnRampAggregatorCountryListQuery({
-    rampDirection: isOffRamp ? RampDirection.OFFRAMP : RampDirection.ONRAMP,
+    rampDirection: isOffRamp ? RampDirection.OFF_RAMP : RampDirection.ON_RAMP,
   })
 
   const [searchText, setSearchText] = useState('')
 
   const debouncedSearchText = useDebounce(searchText)
 
-  const filteredData: FORCountry[] = useMemo(() => {
-    if (!data) {
-      return []
-    }
-    return bubbleToTop(data.supportedCountries, (c) => c.countryCode === countryCode).filter(
-      (item) => !debouncedSearchText || item.displayName.toLowerCase().startsWith(debouncedSearchText.toLowerCase()),
-    )
-  }, [countryCode, data, debouncedSearchText])
+  const filteredData = useFilteredCountryData({
+    countries: data?.supportedCountries,
+    searchText: debouncedSearchText,
+    selectedCountryCode: countryCode,
+  })
 
   const renderItem = useCallback(
-    ({ item }: ListRenderItemInfo<FORCountry>): JSX.Element => {
+    ({ item }: UniversalListRenderItemInfo<FORCountry>): JSX.Element => {
       const countryFlagUrl = getCountryFlagSvgUrl(item.countryCode)
 
       return (
@@ -78,6 +82,11 @@ function CountrySelectorContent({ onSelectCountry, countryCode }: CountrySelecto
     [countryCode, onSelectCountry],
   )
 
+  const contentContainerStyle = useMemo<UniversalListStyle>(
+    () => ({ style: { paddingBottom: insets.bottom + spacing.spacing12 } }),
+    [insets.bottom],
+  )
+
   return (
     <Flex grow gap="$spacing16" px="$spacing16">
       <Text color="$neutral1" mt="$spacing2" textAlign="center" variant="subheading1">
@@ -90,22 +99,24 @@ function CountrySelectorContent({ onSelectCountry, countryCode }: CountrySelecto
         value={searchText}
         onChangeText={setSearchText}
       />
-      <Flex grow>
+      {/* `fill` (flex:1) not `grow` (flexGrow:1): Legend List needs a parent with a definite height, else it
+          sizes to its content and pushes the title under the search input (same trap as SelectorBaseList). */}
+      <Flex fill>
         <AnimatedFlex grow entering={FadeIn} exiting={FadeOut}>
           {isLoading ? (
             <CountryListPlaceholder itemsCount={10} />
           ) : (
-            <AnimatedBottomSheetFlashList
-              ListEmptyComponent={<Flex />}
-              bounces={true}
-              contentContainerStyle={{ paddingBottom: insets.bottom + spacing.spacing12 }}
+            <UniversalList
+              contentContainerStyle={contentContainerStyle}
               data={filteredData}
-              keyExtractor={key}
               keyboardDismissMode="on-drag"
               keyboardShouldPersistTaps="always"
+              keyExtractor={key}
+              ListEmptyComponent={<Flex />}
               renderItem={renderItem}
+              // Always rendered inside a bottom sheet, so scroll gestures route through the sheet's scrollable.
+              renderScrollComponent={BottomSheetScrollView}
               showsVerticalScrollIndicator={false}
-              windowSize={5}
             />
           )}
         </AnimatedFlex>

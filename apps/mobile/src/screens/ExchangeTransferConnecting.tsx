@@ -1,18 +1,18 @@
+import { UniverseChainId } from '@universe/chains'
+import { Flex, UniversalImage } from '@universe/mycelium'
+import { useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDispatch } from 'react-redux'
 import { Screen } from 'src/components/layout/Screen'
 import { useFiatOnRampContext } from 'src/features/fiatOnRamp/FiatOnRampContext'
-import { Flex, useIsDarkMode } from 'ui/src'
-import { ImageUri } from 'uniswap/src/components/nfts/images/ImageUri'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { useFiatOnRampAggregatorTransferWidgetQuery } from 'uniswap/src/features/fiatOnRamp/api'
+import { UniswapStaticUrls } from 'uniswap/src/constants/urls'
 import { ServiceProviderLogoStyles } from 'uniswap/src/features/fiatOnRamp/constants'
 import { FiatOnRampConnectingView } from 'uniswap/src/features/fiatOnRamp/FiatOnRampConnectingView'
 import { useFiatOnRampTransactionCreator } from 'uniswap/src/features/fiatOnRamp/hooks'
-import { FORServiceProvider } from 'uniswap/src/features/fiatOnRamp/types'
-import { getServiceProviderLogo } from 'uniswap/src/features/fiatOnRamp/utils'
+import { useFiatOnRampAggregatorTransferWidgetQuery } from 'uniswap/src/features/fiatOnRamp/hooks/useFiatOnRampQueries'
+import { type FORServiceProvider } from 'uniswap/src/features/fiatOnRamp/types'
+import { getOptionalServiceProviderLogo } from 'uniswap/src/features/fiatOnRamp/utils'
 import { pushNotification } from 'uniswap/src/features/notifications/slice/slice'
 import { AppNotificationType } from 'uniswap/src/features/notifications/slice/types'
 import { FiatOnRampEventName } from 'uniswap/src/features/telemetry/constants'
@@ -66,7 +66,7 @@ export function ExchangeTransferConnecting({
     serviceProvider: serviceProvider.serviceProvider,
     walletAddress: activeAccountAddress,
     externalSessionId: externalTransactionId,
-    redirectUrl: `${uniswapUrls.redirectUrlBase}?screen=transaction&fiatOnRamp=true&userAddress=${activeAccountAddress}`,
+    redirectUrl: `${UniswapStaticUrls.redirectUrlBase}?screen=transaction&fiatOnRamp=true&userAddress=${activeAccountAddress}`,
   })
 
   useEffect(() => {
@@ -100,7 +100,7 @@ export function ExchangeTransferConnecting({
   ])
 
   const isDarkMode = useIsDarkMode()
-  const logoUrl = getServiceProviderLogo(serviceProvider.logos, isDarkMode)
+  const logoUrl = getOptionalServiceProviderLogo(serviceProvider.logos, isDarkMode) ?? ''
 
   return (
     <Screen>
@@ -113,7 +113,14 @@ export function ExchangeTransferConnecting({
             justifyContent="center"
             width={ServiceProviderLogoStyles.icon.width}
           >
-            <ImageUri imageStyle={ServiceProviderLogoStyles.icon} uri={logoUrl} />
+            <UniversalImage
+              uri={logoUrl}
+              size={{
+                height: ServiceProviderLogoStyles.icon.height,
+                width: ServiceProviderLogoStyles.icon.width,
+              }}
+              style={{ image: { borderRadius: ServiceProviderLogoStyles.icon.borderRadius } }}
+            />
           </Flex>
         }
         serviceProviderName={serviceProvider.name}

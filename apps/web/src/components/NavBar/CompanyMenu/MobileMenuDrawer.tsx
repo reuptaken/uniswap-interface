@@ -1,20 +1,21 @@
-import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { HelpModal } from 'components/HelpModal/HelpModal'
-import { MenuSectionTitle, useMenuContent } from 'components/NavBar/CompanyMenu/Content'
-import { MenuLink } from 'components/NavBar/CompanyMenu/MenuDropdown'
-import { LegalAndPrivacyMenu } from 'components/NavBar/LegalAndPrivacyMenu'
-import { NavDropdown } from 'components/NavBar/NavDropdown'
-import { getSettingsViewIndex } from 'components/NavBar/PreferencesMenu'
-import { CurrencySettings } from 'components/NavBar/PreferencesMenu/Currency'
-import { LanguageSettings } from 'components/NavBar/PreferencesMenu/Language'
-import { PreferencesView } from 'components/NavBar/PreferencesMenu/shared'
-import { useTabsContent } from 'components/NavBar/Tabs/TabsContent'
-import { Socials } from 'pages/Landing/sections/Footer'
+import { Accordion, Flex, Square, Text } from '@universe/mycelium'
+import { AnimateTransition } from '@universe/mycelium/animate-presence-pager'
+import { TestID } from '@universe/test'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronDown } from 'react-feather'
 import { useTranslation } from 'react-i18next'
-import { Accordion, AnimateTransition, Flex, Separator, Square, Text, useSporeColors } from 'ui/src'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
+import { Separator } from 'ui/src'
+import { RotatableChevron } from 'ui/src/components/icons/RotatableChevron'
+import { HelpModal } from '~/components/HelpModal/HelpModal'
+import { MenuSectionTitle, useMenuContent } from '~/components/NavBar/CompanyMenu/Content'
+import { MenuLink } from '~/components/NavBar/CompanyMenu/MenuLink'
+import { LegalAndPrivacyMenu } from '~/components/NavBar/LegalAndPrivacyMenu'
+import { NavDropdown } from '~/components/NavBar/NavDropdown'
+import { getSettingsViewIndex } from '~/components/NavBar/PreferencesMenu'
+import { CurrencySettings } from '~/components/NavBar/PreferencesMenu/Currency'
+import { LanguageSettings } from '~/components/NavBar/PreferencesMenu/Language'
+import { PreferencesView } from '~/components/NavBar/PreferencesMenu/shared'
+import { useTabsContent } from '~/components/NavBar/Tabs/TabsContent'
+import { Socials } from '~/pages/Landing/sections/Footer'
 
 function MenuSection({
   title,
@@ -25,27 +26,31 @@ function MenuSection({
   children: JSX.Element | JSX.Element[]
   collapsible?: boolean
 }) {
-  const colors = useSporeColors()
-
   return (
     <Accordion.Item value={title} disabled={!collapsible}>
-      <Flex gap="8px">
-        <Accordion.Trigger flexDirection="row" p="0" gap="4px">
+      <Flex gap="$none">
+        <Accordion.Trigger
+          flexDirection="row"
+          alignItems="center"
+          p="$none"
+          gap="4px"
+          minHeight={collapsible ? 36 : undefined}
+        >
           {({ open }: { open: boolean }) => (
             <>
-              <Text variant="body4" color="$neutral2">
+              <Text variant="body3" color="$neutral2">
                 {title}
               </Text>
               {collapsible && (
-                <Square animation="200ms" rotate={open ? '-180deg' : '0deg'}>
-                  <ChevronDown size="16px" color={colors.neutral2.val} />
+                <Square animation="200ms" rotate={open ? '90deg' : '270deg'}>
+                  <RotatableChevron size="$icon.20" color="$neutral2" />
                 </Square>
               )}
             </>
           )}
         </Accordion.Trigger>
-        <Accordion.Content p="0" forceMount={!collapsible || undefined}>
-          <Flex gap="8px">{children}</Flex>
+        <Accordion.Content p="$none" forceMount={!collapsible || undefined}>
+          <Flex gap="$none">{children}</Flex>
         </Accordion.Content>
       </Flex>
     </Accordion.Item>
@@ -55,9 +60,7 @@ function MenuSection({
 export function MobileMenuDrawer({ isOpen, closeMenu }: { isOpen: boolean; closeMenu: () => void }) {
   const [openSections, setOpenSections] = useState<string[]>()
   const [settingsView, setSettingsView] = useState<PreferencesView>(PreferencesView.SETTINGS)
-  const isConversionTrackingEnabled = useFeatureFlag(FeatureFlags.ConversionTracking)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: +setSettingsView, +dropdownRef
   const changeView = useCallback(
     (view: PreferencesView) => {
       setSettingsView(view)
@@ -115,46 +118,54 @@ export function MobileMenuDrawer({ isOpen, closeMenu }: { isOpen: boolean; close
                     internal
                     closeMenu={closeMenu}
                     icon={tab.icon}
-                    textVariant="body2"
+                    textVariant="body1"
+                    elementName={tab.elementName}
                   />
                 ))}
               </MenuSection>
-              {Object.values(productContent).map((sectionContent, index) => (
-                <MenuSection key={`${sectionContent.title}_${index}`} title={sectionContent.title} collapsible={false}>
-                  {sectionContent.items.map(({ label, href, internal, icon }, index) => (
-                    <MenuLink
-                      key={`${label}_${index}}`}
-                      label={label}
-                      href={href}
-                      internal={internal}
-                      closeMenu={closeMenu}
-                      icon={icon}
-                      textVariant="body2"
-                    />
-                  ))}
-                </MenuSection>
-              ))}
+
+              <Flex gap="$spacing8">
+                {Object.values(productContent).map((sectionContent, index) => (
+                  <MenuSection key={`${sectionContent.title}_${index}`} title={sectionContent.title}>
+                    {/* oxlint-disable-next-line no-shadow */}
+                    {sectionContent.items.map(({ label, href, internal, elementName }, index) => (
+                      <MenuLink
+                        key={`${label}_${index}}`}
+                        label={label}
+                        href={href}
+                        internal={internal}
+                        closeMenu={closeMenu}
+                        textVariant="body2"
+                        elementName={elementName}
+                      />
+                    ))}
+                  </MenuSection>
+                ))}
+                {Object.values(menuContent).map((sectionContent, index) => (
+                  <MenuSection key={`${sectionContent.title}_${index}`} title={sectionContent.title}>
+                    {/* oxlint-disable-next-line no-shadow */}
+                    {sectionContent.items.map(({ label, href, internal, elementName }, index) => (
+                      <MenuLink
+                        key={`${label}_${index}}`}
+                        label={label}
+                        href={href}
+                        internal={internal}
+                        closeMenu={closeMenu}
+                        textVariant="body2"
+                        elementName={elementName}
+                      />
+                    ))}
+                  </MenuSection>
+                ))}
+              </Flex>
 
               <Separator backgroundColor="$surface3" />
 
-              {Object.values(menuContent).map((sectionContent, index) => (
-                <MenuSection key={`${sectionContent.title}_${index}`} title={sectionContent.title}>
-                  {sectionContent.items.map(({ label, href, internal }, index) => (
-                    <MenuLink
-                      key={`${label}_${index}}`}
-                      label={label}
-                      href={href}
-                      internal={internal}
-                      closeMenu={closeMenu}
-                    />
-                  ))}
-                </MenuSection>
-              ))}
-              {isConversionTrackingEnabled && <LegalAndPrivacyMenu closeMenu={closeMenu} />}
-              <Flex row width="100%" justifyContent="space-between" alignItems="flex-end">
-                <HelpModal showOnXL />
-                <Flex gap="$spacing16">
-                  <Socials iconSize="20px" />
+              <Flex gap="$spacing12">
+                <LegalAndPrivacyMenu closeMenu={closeMenu} />
+                <Flex row width="100%" justifyContent="space-between" alignItems="flex-end">
+                  <HelpModal showOnXL flushInDrawer />
+                  <Socials iconSize="24px" gap="$spacing12" iconPadding="$spacing4" flushLastRight />
                 </Flex>
               </Flex>
             </Flex>

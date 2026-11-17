@@ -1,16 +1,17 @@
 import { Currency, Percent } from '@uniswap/sdk-core'
-import { SwapResult } from 'hooks/useSwapCallback'
+import { getIsPermissionedForAnalytics } from 'uniswap/src/features/permissionedTokens/getIsPermissionedForAnalytics'
+import { SwapPriceUpdateUserResponse } from 'uniswap/src/features/telemetry/types'
+import { TransactionOriginType } from 'uniswap/src/features/transactions/types/transactionDetails'
 import {
   formatPercentInBasisPointsNumber,
   formatToDecimal,
   getDurationUntilTimestampSeconds,
   getTokenAddress,
-} from 'lib/utils/analytics'
-import { InterfaceTrade, TradeFillType } from 'state/routing/types'
-import { isClassicTrade, isUniswapXTradeType } from 'state/routing/utils'
-import { SwapPriceUpdateUserResponse } from 'uniswap/src/features/telemetry/types'
-import { TransactionOriginType } from 'uniswap/src/features/transactions/types/transactionDetails'
-import { computeRealizedPriceImpact } from 'utils/prices'
+} from '~/lib/utils/analytics'
+import type { InterfaceTrade } from '~/state/routing/types'
+import { isClassicTrade, isUniswapXTradeType } from '~/state/routing/utils'
+import type { LimitOrderResult } from '~/types/trade'
+import { computeRealizedPriceImpact } from '~/utils/prices'
 
 export function formatSwapPriceUpdatedEventProperties({
   trade,
@@ -36,7 +37,7 @@ export function formatSwapPriceUpdatedEventProperties({
 interface AnalyticsEventProps {
   trade: InterfaceTrade
   inputCurrency?: Currency
-  swapResult?: SwapResult
+  limitOrderResult?: LimitOrderResult
   allowedSlippage: Percent
   transactionDeadlineSecondsSinceEpoch?: number
   isAutoSlippage: boolean
@@ -48,7 +49,7 @@ interface AnalyticsEventProps {
 export const formatSwapButtonClickEventProperties = ({
   trade,
   inputCurrency,
-  swapResult,
+  limitOrderResult,
   allowedSlippage,
   transactionDeadlineSecondsSinceEpoch,
   isAutoSlippage,
@@ -56,19 +57,19 @@ export const formatSwapButtonClickEventProperties = ({
   fiatValueInput,
   fiatValueOutput,
 }: AnalyticsEventProps) => {
-  // trade object sometimes may be the wrapped version of user's native input currency, i.e. for limit orders.
-  // For analytics, we want to send the user's original input currency
+  // If inputCurrency is provided separately (e.g., for limit orders), use it for analytics.
+  // Otherwise use the currency from the trade object.
   const displayedInputCurrency = inputCurrency ?? trade.inputAmount.currency
 
   return {
     estimated_network_fee_usd: isClassicTrade(trade) ? trade.gasUseEstimateUSD?.toString() : undefined,
-    transaction_hash: swapResult?.type === TradeFillType.Classic ? swapResult.response.hash : undefined,
-    order_hash: isUniswapXTradeType(swapResult?.type) ? swapResult.response.orderHash : undefined,
+    order_hash: isUniswapXTradeType(limitOrderResult?.type) ? limitOrderResult.response.orderHash : undefined,
     transaction_deadline_seconds: getDurationUntilTimestampSeconds(transactionDeadlineSecondsSinceEpoch),
     token_in_address: getTokenAddress(displayedInputCurrency),
     token_out_address: getTokenAddress(trade.outputAmount.currency),
     token_in_symbol: displayedInputCurrency.symbol,
     token_out_symbol: trade.outputAmount.currency.symbol,
+    is_permissioned: getIsPermissionedForAnalytics([displayedInputCurrency, trade.outputAmount.currency]),
     token_in_amount: formatToDecimal(trade.inputAmount, trade.inputAmount.currency.decimals),
     token_out_amount: formatToDecimal(trade.outputAmount, trade.outputAmount.currency.decimals),
     token_in_amount_usd: fiatValueInput,

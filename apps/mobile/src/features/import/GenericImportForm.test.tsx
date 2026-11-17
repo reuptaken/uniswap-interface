@@ -1,20 +1,17 @@
 import React from 'react'
 import { GenericImportForm } from 'src/features/import/GenericImportForm'
-import { render, screen } from 'src/test/test-utils'
+import { fireEvent, render, screen } from 'src/test/test-utils'
 import { noOpFunction } from 'utilities/src/test/utils'
-import { TamaguiProvider } from 'wallet/src/providers/tamagui-provider'
 
 describe(GenericImportForm, () => {
   it('renders a placeholder when there is no value', async () => {
     const tree = render(
-      <TamaguiProvider>
-        <GenericImportForm
-          errorMessage={undefined}
-          placeholderLabel="seed phrase"
-          value={undefined}
-          onChange={noOpFunction}
-        />
-      </TamaguiProvider>,
+      <GenericImportForm
+        errorMessage={undefined}
+        placeholderLabel="seed phrase"
+        value={undefined}
+        onChange={noOpFunction}
+      />,
     )
 
     expect(await screen.findByText('seed phrase')).toBeDefined()
@@ -23,14 +20,12 @@ describe(GenericImportForm, () => {
 
   it('renders a value', async () => {
     render(
-      <TamaguiProvider>
-        <GenericImportForm
-          errorMessage={undefined}
-          placeholderLabel="seed phrase"
-          value="hello"
-          onChange={noOpFunction}
-        />
-      </TamaguiProvider>,
+      <GenericImportForm
+        errorMessage={undefined}
+        placeholderLabel="seed phrase"
+        value="hello"
+        onChange={noOpFunction}
+      />,
     )
 
     expect(await screen.queryByText('seed phrase')).toBeNull()
@@ -39,15 +34,17 @@ describe(GenericImportForm, () => {
 
   it('renders an error message', async () => {
     render(
-      <TamaguiProvider>
-        <GenericImportForm
-          errorMessage="there is an error"
-          placeholderLabel="seed phrase"
-          value="wrong value"
-          onChange={noOpFunction}
-        />
-      </TamaguiProvider>,
+      <GenericImportForm
+        errorMessage="there is an error"
+        placeholderLabel="seed phrase"
+        value="wrong value"
+        onChange={noOpFunction}
+      />,
     )
+
+    // In jsdom the autofocused input starts focused, which hides the error; blur to show it
+    // (on device the error also only shows when the input isn't focused)
+    fireEvent(await screen.findByDisplayValue('wrong value'), 'blur')
 
     expect(await screen.findByText('there is an error')).toBeDefined()
   })

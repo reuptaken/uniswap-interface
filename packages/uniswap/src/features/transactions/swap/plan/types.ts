@@ -1,19 +1,46 @@
 import { TradingApi } from '@universe/api'
 import { SagaGenerator } from 'typed-redux-saga'
-import { SwapTradeBaseProperties } from 'uniswap/src/features/telemetry/types'
+import { CAIP25Session } from 'uniswap/src/features/capabilities/caip25/types'
+import { AppNotification } from 'uniswap/src/features/notifications/slice/types'
+import type { SwapRouting, SwapTradeBaseProperties } from 'uniswap/src/features/telemetry/types'
+import { HandledTransactionInterrupt } from 'uniswap/src/features/transactions/errors'
 import {
   HandleApprovalStepParams,
   HandleSignatureStepParams,
-  HandleSwapStepParams,
+  HandleSwapWalletCallStepParams,
+  HandleSwapStepSyncParams,
   HandleUniswapXPlanSignatureStepParams,
   SignatureTransactionStep,
   TransactionStep,
 } from 'uniswap/src/features/transactions/steps/types'
 import { ExtractedBaseTradeAnalyticsProperties } from 'uniswap/src/features/transactions/swap/analytics'
-import { SwapExecutionCallbacks } from 'uniswap/src/features/transactions/swap/types/swapCallback'
+import type { SwapExecutionCallbacks } from 'uniswap/src/features/transactions/swap/types/swapCallback'
 import { ValidatedSwapTxContext } from 'uniswap/src/features/transactions/swap/types/swapTxAndGasInfo'
+import type {
+  PlanSwapTransactionInfoFields,
+  TransactionStatus,
+} from 'uniswap/src/features/transactions/types/transactionDetails'
 
-export interface PlanParams extends SwapExecutionCallbacks {
+export interface PlanFinalizedCallbackParams {
+  planId: string
+  /** Final transaction status derived from the latest plan/step state; Earn uses Success for optimistic positions. */
+  status?: TransactionStatus
+  /** Latest plan response when available, so callers do not need an immediate refetch after finalization. */
+  planResponse?: TradingApi.PlanResponse
+  /** Latest finalized step status when the plan watcher has one. */
+  stepStatus?: TradingApi.PlanStepStatus
+}
+
+export interface PlanFailureCallbackContext {
+  willFinalize: boolean
+}
+
+export type PlanFailureCallback = (
+  ...args: [...Parameters<SwapExecutionCallbacks['onFailure']>, context?: PlanFailureCallbackContext]
+) => void
+
+export interface PlanParams extends Omit<SwapExecutionCallbacks, 'onFailure'> {
+  onFailure: PlanFailureCallback
   address: Address
   swapTxContext: ValidatedSwapTxContext
   selectChain: (chainId: number) => Promise<boolean>
@@ -21,11 +48,23 @@ export interface PlanParams extends SwapExecutionCallbacks {
   getOnPressRetry?: (error: Error | undefined) => (() => void) | undefined
   onTransactionHash?: (hash: string) => void
   handleApprovalTransactionStep: (params: HandleApprovalStepParams<TradingApi.PlanStep>) => SagaGenerator<string>
-  handleSwapTransactionStep: (params: HandleSwapStepParams<TradingApi.PlanStep>) => SagaGenerator<string>
+  handleSwapTransactionStep: (params: HandleSwapStepSyncParams<TradingApi.PlanStep>) => SagaGenerator<string>
+  handleSwapTransactionWalletCallStep: (
+    params: HandleSwapWalletCallStepParams,
+  ) => SagaGenerator<{ batchId: string; hash?: string }>
   handleSignatureStep: (
     params: HandleSignatureStepParams<SignatureTransactionStep, TradingApi.PlanStep>,
   ) => SagaGenerator<string>
   handleUniswapXPlanSignatureStep: (params: HandleUniswapXPlanSignatureStepParams) => SagaGenerator<string>
+  /**
+   * General function to send a toast notification. Note that this needs to manage both
+   * web and wallet so each caller will not have the same implementation.
+   */
+  sendToast: (appNotification: AppNotification, planId: string) => SagaGenerator<void>
+  onPlanFinalized?: (params: PlanFinalizedCallbackParams) => void
+  caip25Info: CAIP25Session | undefined
+  /** Action type the saga waits on to detect modal close. Earn passes its own modal close action. */
+  modalClosedActionType?: string
   getDisplayableError: ({
     error,
     step,
@@ -37,7 +76,53 @@ export interface PlanParams extends SwapExecutionCallbacks {
   }) => Error | undefined
 }
 
-export type PlanSagaAnalytics = SwapTradeBaseProperties | ExtractedBaseTradeAnalyticsProperties
+// Plan analytics fields added by planSaga when augmenting analytics
+export interface PlanAnalyticsFields {
+  plan_id?: string
+  step_index?: number
+  total_steps?: number
+  total_non_error_steps?: number
+  step_type?: string
+  step_routing?: SwapRouting
+  is_final_step?: boolean
+}
+
+export interface EarnPlanAnalyticsFields {
+  earn_action?: TradingApi.EarnAction
+  earn_vault_address?: string
+  earn_vault_chain_id?: TradingApi.ChainId
+  earn_withdraw_mode?: TradingApi.EarnWithdrawMode
+}
+
+export type PlanSagaAnalytics = (SwapTradeBaseProperties | ExtractedBaseTradeAnalyticsProperties) &
+  PlanAnalyticsFields &
+  EarnPlanAnalyticsFields
+
+/** Converts camelCase plan fields to snake_case analytics fields */
+export function planAnalyticsToSnakeCase(fields?: PlanSwapTransactionInfoFields): PlanAnalyticsFields {
+  return {
+    plan_id: fields?.planId,
+    step_index: fields?.stepIndex,
+    total_steps: fields?.totalSteps,
+    total_non_error_steps: fields?.totalNonErrorSteps,
+    step_type: fields?.stepType,
+    step_routing: fields?.stepRouting,
+    is_final_step: fields?.isFinalStep,
+  }
+}
+
+/** Converts snake_case analytics fields to camelCase plan fields */
+export function planAnalyticsToCamelCase(analytics: PlanAnalyticsFields): PlanSwapTransactionInfoFields {
+  return {
+    planId: analytics.plan_id,
+    stepIndex: analytics.step_index,
+    totalSteps: analytics.total_steps,
+    totalNonErrorSteps: analytics.total_non_error_steps,
+    stepType: analytics.step_type,
+    stepRouting: analytics.step_routing,
+    isFinalStep: analytics.is_final_step,
+  }
+}
 
 /**
  * Plan saga error thrown when the plan saga fails in a way that the
@@ -69,5 +154,52 @@ export class PlanValidationError extends Error {
   constructor(message: string, error?: Error | unknown) {
     super(message, { cause: error })
     this.name = 'PlanValidationError'
+  }
+}
+
+/**
+ * Plan error thrown when the plan's refreshed price has moved beyond the acceptable threshold.
+ * Extends HandledTransactionInterrupt so getDisplayableError returns undefined (no error dialog).
+ */
+export class PlanPriceChangeInterrupt extends HandledTransactionInterrupt {
+  constructor() {
+    super('Plan price changed beyond threshold')
+    this.name = 'PlanPriceChangeInterrupt'
+  }
+}
+
+/**
+ * A submitted plan step reached a terminal failure state.
+ *
+ * This remains an expected plan interruption so the resumable plan is retained, but callers
+ * can distinguish it from benign interruptions and show recovery UI.
+ */
+export class PlanStepFailedError extends HandledTransactionInterrupt {
+  constructor() {
+    super('Plan step failed')
+    this.name = 'PlanStepFailedError'
+  }
+}
+
+/**
+ * Expected plan error thrown when the plan saga is interrupted by a known condition
+ * (e.g., modal closed during plan creation). This error is expected and should be
+ * handled gracefully without retrying.
+ */
+export class ExpectedPlanError extends Error {
+  constructor(message: string, error?: Error | unknown) {
+    super(message, { cause: error })
+    this.name = 'ExpectedPlanError'
+  }
+}
+
+/**
+ * Plan error thrown when polling for a plan step exceeds the maximum number of attempts.
+ * Distinct from generic errors to allow targeted monitoring (e.g., Datadog filter on error.name).
+ */
+export class PlanStepTimeoutError extends Error {
+  constructor(message: string, error?: Error | unknown) {
+    super(message, { cause: error })
+    this.name = 'PlanStepTimeoutError'
   }
 }

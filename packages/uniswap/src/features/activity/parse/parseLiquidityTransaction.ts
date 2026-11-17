@@ -19,10 +19,9 @@ import {
 import { buildCurrencyId } from 'uniswap/src/utils/currencyId'
 
 /**
- * Parse LP transaction types from the REST API
  * Handles: Claim, CreatePair, CreatePool, LiquidityIncrease, LiquidityDecrease, LPIncentivesClaim
  */
-export function parseRestLiquidityTransaction(
+export function parseLiquidityTransaction(
   transaction: OnChainTransaction,
 ):
   | LiquidityIncreaseTransactionInfo
@@ -76,6 +75,8 @@ export function parseRestLiquidityTransaction(
       type: TransactionType.CollectFees,
       currency0Id,
       currency0AmountRaw,
+      currency1Id,
+      currency1AmountRaw,
       isSpam: false,
       dappInfo,
     }

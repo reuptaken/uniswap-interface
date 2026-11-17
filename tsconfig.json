@@ -35,16 +35,76 @@
       "path": "./config/vitest-presets"
     },
     {
-      "path": "./tools/uniswap-nx"
-    },
-    {
       "path": "./packages/gating"
     },
     {
       "path": "./packages/notifications"
     },
     {
-      "path": "./apps/cli"
+      "path": "./packages/hashcash-native"
+    },
+    {
+      "path": "./packages/mycelium"
+    },
+    {
+      "path": "./packages/websocket"
+    },
+    {
+      "path": "./packages/prices"
+    },
+    {
+      "path": "./apps/mobile"
+    },
+    {
+      "path": "./packages/privacy"
+    },
+    {
+      "path": "./packages/logger"
+    },
+    {
+      "path": "./packages/react-query"
+    },
+    {
+      "path": "./packages/analytics"
+    },
+    {
+      "path": "./packages/trpc"
+    },
+    {
+      "path": "./packages/chains"
+    },
+    {
+      "path": "./packages/encoding"
+    },
+    {
+      "path": "./packages/environment"
+    },
+    {
+      "path": "./packages/config-cli"
+    },
+    {
+      "path": "./packages/cryptography"
+    },
+    {
+      "path": "./packages/compliance"
+    },
+    {
+      "path": "./packages/tailwind"
+    },
+    {
+      "path": "./packages/experiments"
+    },
+    {
+      "path": "packages/embedded-wallet"
+    },
+    {
+      "path": "packages/test"
+    },
+    {
+      "path": "packages/swap-ui"
+    },
+    {
+      "path": "packages/cca"
     }
   ]
 }

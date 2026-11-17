@@ -1,9 +1,8 @@
+import { spacing, AnimatedFlex } from '@universe/mycelium'
 import { useCallback, useMemo } from 'react'
 import { Directions, FlingGestureHandler, FlingGestureHandlerGestureEvent, State } from 'react-native-gesture-handler'
 import { useAnimatedStyle, useSharedValue, withDelay, withSpring } from 'react-native-reanimated'
-import { AnimatedFlex } from 'ui/src/components/layout/AnimatedFlex'
-import { spacing } from 'ui/src/theme'
-import { NotificationToastProps } from 'uniswap/src/components/notifications/NotificationToast'
+import type { NotificationToastProps } from 'uniswap/src/components/notifications/NotificationToast'
 import { NotificationToastContent } from 'uniswap/src/components/notifications/NotificationToastContent'
 import {
   HIDE_OFFSET_Y,
@@ -26,6 +25,7 @@ export function NotificationToast({
   address,
   smallToast,
   contentOverride,
+  onExplicitDismiss,
 }: NotificationToastProps): JSX.Element {
   const showOffset = useAppInsets().top + spacing.spacing4
   const bannerOffset = useSharedValue(HIDE_OFFSET_Y)
@@ -39,10 +39,12 @@ export function NotificationToast({
 
   const onDismissLatest = useCallback(() => {
     bannerOffset.value = withSpring(HIDE_OFFSET_Y, SPRING_ANIMATION)
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
   }, [])
 
   const onShowCurrentNotification = useCallback(() => {
     bannerOffset.value = withDelay(SPRING_ANIMATION_DELAY, withSpring(showOffset, SPRING_ANIMATION))
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
   }, [showOffset])
 
   const { onActionButtonPress, onNotificationPress, cancelDismiss, dismissLatest } = useNotificationLifecycle({
@@ -53,10 +55,15 @@ export function NotificationToast({
     onDismissLatest,
     onShowCurrentNotification,
   })
+  const resolvedContentOverride = useMemo(
+    () => (typeof contentOverride === 'function' ? contentOverride({ cancelDismiss, dismissLatest }) : contentOverride),
+    [cancelDismiss, contentOverride, dismissLatest],
+  )
 
   const onFling = ({ nativeEvent }: FlingGestureHandlerGestureEvent): void => {
     if (nativeEvent.state === State.ACTIVE) {
       cancelDismiss()
+      onExplicitDismiss?.()
       dismissLatest()
     }
   }
@@ -68,7 +75,7 @@ export function NotificationToast({
         subtitle={subtitle}
         icon={icon}
         postCaptionElement={postCaptionElement}
-        contentOverride={contentOverride}
+        contentOverride={resolvedContentOverride}
         smallToast={smallToast}
         actionButton={actionButton}
         onPressIn={onPressIn}
@@ -81,7 +88,7 @@ export function NotificationToast({
       subtitle,
       icon,
       postCaptionElement,
-      contentOverride,
+      resolvedContentOverride,
       smallToast,
       actionButton,
       onPressIn,

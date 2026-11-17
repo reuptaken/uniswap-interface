@@ -1,44 +1,19 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`renders selection circle 1`] = `
-<View
-  style={
-    {
-      "alignItems": "center",
-      "borderBottomColor": "#FF37C7",
-      "borderBottomLeftRadius": 999999,
-      "borderBottomRightRadius": 999999,
-      "borderBottomWidth": 1,
-      "borderLeftColor": "#FF37C7",
-      "borderLeftWidth": 1,
-      "borderRightColor": "#FF37C7",
-      "borderRightWidth": 1,
-      "borderStyle": "solid",
-      "borderTopColor": "#FF37C7",
-      "borderTopLeftRadius": 999999,
-      "borderTopRightRadius": 999999,
-      "borderTopWidth": 1,
-      "flexDirection": "column",
-      "height": 20,
-      "justifyContent": "center",
-      "width": 20,
-    }
-  }
->
-  <View
-    style={
-      {
-        "backgroundColor": "#FF37C7",
-        "borderBottomLeftRadius": 999999,
-        "borderBottomRightRadius": 999999,
-        "borderTopLeftRadius": 999999,
-        "borderTopRightRadius": 999999,
-        "flexDirection": "column",
-        "height": 10,
-        "opacity": 1,
-        "width": 10,
-      }
-    }
+<DocumentFragment>
+  <div
+    class="css-view-175oi2r"
+    style="width: 20px; height: 20px; border-top-left-radius: 999999px; border-top-right-radius: 999999px; border-bottom-right-radius: 999999px; border-bottom-left-radius: 999999px; border-top-width: 1px; border-right-width: 1px; border-bottom-width: 1px; border-left-width: 1px;"
+  >
+    <div
+      class="css-view-175oi2r"
+      style="width: 10px; height: 10px; border-top-left-radius: 999999px; border-top-right-radius: 999999px; border-bottom-right-radius: 999999px; border-bottom-left-radius: 999999px; opacity: 1;"
+    />
+  </div>
+  <div
+    class="css-view-175oi2r r-bottom-1p0dtai r-left-1d2f490 r-position-u8s1d r-right-zchlnj r-top-ipm5af r-pointerEvents-12vffkv"
+    data-testid="portal-layer"
   />
-</View>
+</DocumentFragment>
 `;

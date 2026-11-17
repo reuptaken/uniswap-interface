@@ -1,22 +1,29 @@
+import { UniverseChainId } from '@universe/chains'
 import { PropsWithChildren, useCallback } from 'react'
 import { createSearchParams, useLocation, useNavigate } from 'react-router'
 import { navigateToInterfaceFiatOnRamp } from 'src/app/features/for/utils'
 import { AppRoutes, HomeQueryParams, HomeTabs } from 'src/app/navigation/constants'
 import { navigate } from 'src/app/navigation/state'
 import {
+  focusOrCreateEarnVaultTab,
   focusOrCreateTokensExploreTab,
   focusOrCreateUniswapInterfaceTab,
   SidebarLocationState,
 } from 'src/app/navigation/utils'
-import { uniswapUrls } from 'uniswap/src/constants/urls'
+import { UniswapStaticUrls } from 'uniswap/src/constants/urls'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
+import {
+  EarnAnalyticsSurface,
+  EarnEntryPoint,
+  getEarnVaultAnalyticsProperties,
+  logEarnVaultSelected,
+} from 'uniswap/src/features/earn/analytics'
 import { useNavigateToNftExplorerLink } from 'uniswap/src/features/nfts/hooks/useNavigateToNftExplorerLink'
 import { CopyNotificationType } from 'uniswap/src/features/notifications/slice/types'
 import { WalletEventName } from 'uniswap/src/features/telemetry/constants'
 import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { ShareableEntity } from 'uniswap/src/types/sharing'
-import { getPoolDetailsURL, getTokenUrl } from 'uniswap/src/utils/linking'
+import { getPoolDetailsURL, getPortfolioUrl, getTokenUrl } from 'uniswap/src/utils/linking'
 import { logger } from 'utilities/src/logger/logger'
 import { escapeRegExp } from 'utilities/src/primitives/string'
 import { noop } from 'utilities/src/react/noop'
@@ -24,6 +31,8 @@ import { useCopyToClipboard } from 'wallet/src/components/copy/useCopyToClipboar
 import {
   getNavigateToSendFlowArgsInitialState,
   getNavigateToSwapFlowArgsInitialState,
+  NavigateToEarnVaultArgs,
+  NavigateToExternalProfileArgs,
   NavigateToFiatOnRampArgs,
   NavigateToSendFlowArgs,
   NavigateToSwapFlowArgs,
@@ -77,14 +86,14 @@ function SharedExtensionNavigationProvider({
   const navigateToReceive = useNavigateToReceive()
   const navigateToSend = useNavigateToSend()
   const navigateToTokenDetails = useNavigateToTokenDetails()
-  const navigateToNftCollection = useCallback(() => {
-    // no-op until we have proper NFT collection
-  }, [])
   const navigateToFiatOnRamp = useNavigateToFiatOnRamp()
-  const navigateToExternalProfile = useCallback(() => {
-    // no-op until we have an external profile screen on extension
+  const navigateToExternalProfile = useCallback(({ address }: NavigateToExternalProfileArgs) => {
+    // oxlint-disable-next-line typescript/no-floating-promises -- biome-parity: oxlint is stricter here
+    focusOrCreateUniswapInterfaceTab({ url: getPortfolioUrl(address) })
   }, [])
   const navigateToPoolDetails = useNavigateToPoolDetails()
+  const navigateToAdvancedSettings = useNavigateToAdvancedSettings()
+  const navigateToEarnVault = useNavigateToEarnVault()
 
   return (
     <WalletNavigationProvider
@@ -92,15 +101,16 @@ function SharedExtensionNavigationProvider({
       navigateToAccountActivityList={navigateToAccountActivityList}
       navigateToAccountTokenList={navigateToAccountTokenList}
       navigateToBuyOrReceiveWithEmptyWallet={navigateToBuyOrReceiveWithEmptyWallet}
+      navigateToEarnVault={navigateToEarnVault}
       navigateToExternalProfile={navigateToExternalProfile}
       navigateToFiatOnRamp={navigateToFiatOnRamp}
-      navigateToNftCollection={navigateToNftCollection}
       navigateToNftDetails={navigateToNftDetails}
       navigateToPoolDetails={navigateToPoolDetails}
       navigateToReceive={navigateToReceive}
       navigateToSend={navigateToSend}
       navigateToSwapFlow={navigateToSwapFlow}
       navigateToTokenDetails={navigateToTokenDetails}
+      navigateToAdvancedSettings={navigateToAdvancedSettings}
     >
       {children}
     </WalletNavigationProvider>
@@ -206,8 +216,8 @@ function useNavigateToPoolDetails(): (args: { poolId: Address; chainId: Universe
     await focusOrCreateUniswapInterfaceTab({
       url: getPoolDetailsURL(poolId, chainId),
       // We want to reuse the active tab only if it's already in any other PDP.
-      // eslint-disable-next-line security/detect-non-literal-regexp
-      reuseActiveTabIfItMatches: new RegExp(`^${escapeRegExp(uniswapUrls.webInterfacePoolsUrl)}`),
+      // oxlint-disable-next-line security/detect-non-literal-regexp
+      reuseActiveTabIfItMatches: new RegExp(`^${escapeRegExp(UniswapStaticUrls.webInterfacePoolsUrl)}`),
     })
   }, [])
 }
@@ -221,5 +231,27 @@ function useNavigateToBuyOrReceiveWithEmptyWallet(): () => void {
 function useNavigateToFiatOnRamp(): (args: NavigateToFiatOnRampArgs) => void {
   return useCallback(({ prefilledCurrency }: NavigateToFiatOnRampArgs): void => {
     navigateToInterfaceFiatOnRamp(prefilledCurrency?.currencyInfo?.currency.chainId)
+  }, [])
+}
+
+function useNavigateToAdvancedSettings(): () => void {
+  return useCallback((): void => {
+    navigate(`/${AppRoutes.Settings}`, { state: { openAdvancedSettings: true } })
+  }, [])
+}
+
+function useNavigateToEarnVault(): (args: NavigateToEarnVaultArgs) => void {
+  return useCallback(async ({ analyticsEntryPoint, position, vault }: NavigateToEarnVaultArgs): Promise<void> => {
+    // The vault opens in a web tab, so this click is the extension's last chance to attribute
+    // the selection — mirrors the mobile navigation provider.
+    logEarnVaultSelected(
+      getEarnVaultAnalyticsProperties({
+        entryPoint: analyticsEntryPoint ?? EarnEntryPoint.GlobalModal,
+        position,
+        surface: EarnAnalyticsSurface.Extension,
+        vault,
+      }),
+    )
+    await focusOrCreateEarnVaultTab({ analyticsEntryPoint, vault })
   }, [])
 }

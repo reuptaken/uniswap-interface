@@ -1,8 +1,10 @@
-import { useState } from 'react'
-import { Flex, Popover, ScrollView, Text, TouchableArea } from 'ui/src'
+import { Flex, Text, TouchableArea } from '@universe/mycelium'
+import { useScrollbarStyles } from '@universe/mycelium/theme-hooks-compat'
+import { useRef, useState } from 'react'
+import { useLockScroll } from 'src/app/hooks/useLockScroll'
+import { animationPresets, Popover } from 'ui/src'
 import { Check, RotatableChevron } from 'ui/src/components/icons'
 import { iconSizes, zIndexes } from 'ui/src/theme'
-
 type DropdownItem = {
   label: string
   value: unknown
@@ -16,13 +18,17 @@ export type SettingsDropdownProps = {
 }
 
 const MAX_DROPDOWN_HEIGHT = 220
-const MAX_DROPDOWN_WIDTH = 200
+const MAX_DROPDOWN_WIDTH = 250
 
 export function SettingsDropdown({ selected, items, disableDropdown, onSelect }: SettingsDropdownProps): JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
+  const containerRef = useRef(null)
+  const scrollbarStyles = useScrollbarStyles()
+
+  useLockScroll({ ref: containerRef, enabled: isOpen })
 
   return (
-    <Flex>
+    <Flex ref={containerRef}>
       <Popover open={isOpen} stayInFrame={true} onOpenChange={setIsOpen}>
         <Popover.Trigger disabled={disableDropdown}>
           <Flex
@@ -38,22 +44,24 @@ export function SettingsDropdown({ selected, items, disableDropdown, onSelect }:
             <Text color="$neutral1" variant="buttonLabel4">
               {selected}
             </Text>
-            <RotatableChevron
-              color="$neutral1"
-              direction={isOpen ? 'up' : 'down'}
-              height={iconSizes.icon16}
-              width={iconSizes.icon20}
-            />
+            <RotatableChevron color="$neutral1" direction={isOpen ? 'up' : 'down'} size="$icon.16" />
           </Flex>
         </Popover.Trigger>
-        <Popover.Content zIndex={zIndexes.popover} backgroundColor="$transparent" enableRemoveScroll={true}>
+        <Popover.Content
+          zIndex={zIndexes.popover}
+          animation="quicker"
+          animateOnly={['transform', 'opacity']}
+          backgroundColor="$transparent"
+          {...animationPresets.fadeInDownOutUp}
+        >
           <Flex
+            backgroundColor="$surface1"
             borderColor="$surface3"
+            borderWidth="$spacing1"
             borderRadius="$rounded16"
             shadowColor="$shadowColor"
             shadowOffset={{ width: 0, height: 2 }}
             shadowRadius={20}
-            style={{ backdropFilter: 'blur(12px)' }}
           >
             <Flex
               backgroundColor="$surface4"
@@ -63,13 +71,22 @@ export function SettingsDropdown({ selected, items, disableDropdown, onSelect }:
               position="absolute"
               width="100%"
             />
-            <ScrollView>
-              <Flex gap="$spacing8" maxHeight={MAX_DROPDOWN_HEIGHT} maxWidth={MAX_DROPDOWN_WIDTH} p="$spacing8">
+            <Flex
+              maxHeight={MAX_DROPDOWN_HEIGHT}
+              maxWidth={MAX_DROPDOWN_WIDTH}
+              $platform-web={{
+                overflowY: 'auto',
+                overflowX: 'hidden',
+              }}
+              style={scrollbarStyles}
+            >
+              <Flex gap="$spacing8" p="$spacing8">
                 {items.map((item, index) => (
                   <TouchableArea
                     key={item.label}
                     hoverable
                     borderRadius="$rounded8"
+                    hoverStyle={{ backgroundColor: '$surface3' }}
                     onPress={() => {
                       onSelect(item.value)
                       setIsOpen(false)
@@ -90,7 +107,7 @@ export function SettingsDropdown({ selected, items, disableDropdown, onSelect }:
                   </TouchableArea>
                 ))}
               </Flex>
-            </ScrollView>
+            </Flex>
           </Flex>
         </Popover.Content>
       </Popover>

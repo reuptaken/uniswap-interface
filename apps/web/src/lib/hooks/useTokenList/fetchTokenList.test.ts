@@ -1,28 +1,19 @@
 import defaultTokenList from '@uniswap/default-token-list'
-import fetchTokenList from 'lib/hooks/useTokenList/fetchTokenList'
-import contenthashToUri from 'lib/utils/contenthashToUri'
-import { mocked } from 'test-utils/mocked'
-import { logger } from 'utilities/src/logger/logger'
+import { mockLogger } from 'utilities/src/logger/mocks'
 import createFetchMock from 'vitest-fetch-mock'
+import { fetchTokenList } from '~/lib/hooks/useTokenList/fetchTokenList'
+import { contenthashToUri } from '~/lib/utils/contenthashToUri'
+import { mocked } from '~/test-utils/mocked'
 
-vi.mock('lib/utils/contenthashToUri', () => ({
-  default: vi.fn(),
-}))
-
-vi.mock('utilities/src/logger/logger', () => ({
-  logger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
+vi.mock('~/lib/utils/contenthashToUri', () => ({
+  contenthashToUri: vi.fn(),
 }))
 
 const fetchMocker = createFetchMock(vi)
 const mockContenthashToUri = mocked(contenthashToUri)
-const mockLoggerDebug = mocked(logger.debug)
+const mockLoggerDebug = mocked(mockLogger.debug)
 
-// eslint-disable-next-line jest/no-disabled-tests
+// oxlint-disable-next-line jest/no-disabled-tests
 describe.skip('fetchTokenList', () => {
   const resolver = vi.fn()
 
@@ -82,7 +73,7 @@ describe.skip('fetchTokenList', () => {
     mockContenthashToUri.mockImplementation(() => 'ipfs://QmPgEqyV3m8SB52BS2j2mJpu9zGprhj2BGCHtRiiw2fdM1')
     const url = 'example.eth'
     const contenthash = '0xe3010170122013e051d1cfff20606de36845d4fe28deb9861a319a5bc8596fa4e610e8803918'
-    const translatedUri = 'https://ipfs.io/ipfs/QmPgEqyV3m8SB52BS2j2mJpu9zGprhj2BGCHtRiiw2fdM1/'
+    const translatedUri = 'https://ipfs.pools.xyz/ipfs/QmPgEqyV3m8SB52BS2j2mJpu9zGprhj2BGCHtRiiw2fdM1'
     resolver.mockResolvedValue(contenthash)
     fetchMocker.mockOnceIf(translatedUri, () => Promise.resolve(JSON.stringify(defaultTokenList)))
     await expect(fetchTokenList({ listUrl: url, resolveENSContentHash: resolver })).resolves.toStrictEqual(

@@ -1,8 +1,9 @@
 import { Currency } from '@uniswap/sdk-core'
+import { UniverseChainId } from '@universe/chains'
 import { BigNumber, providers } from 'ethers'
 import { formatEther } from 'ethers/lib/utils'
 import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
-import { UniverseChainId, UniverseChainInfo } from 'uniswap/src/features/chains/types'
+import { UniverseChainInfo } from 'uniswap/src/features/chains/types'
 import { getCurrencyAmount, ValueType } from 'uniswap/src/features/tokens/getCurrencyAmount'
 import { isBridge, isClassic } from 'uniswap/src/features/transactions/swap/utils/routing'
 import {
@@ -129,18 +130,45 @@ export function getPercentageError(
   return diff !== undefined && estimated !== undefined && estimated !== 0 ? (diff / estimated) * 100 : undefined
 }
 
+export type RpcErrorCategory =
+  | 'gapped_nonce'
+  | 'nonce_too_low'
+  | 'nonce_too_high'
+  | 'nonce_other'
+  | 'reverted'
+  | 'gas_too_low'
+  | 'insufficient_funds'
+  | 'rate_limited'
+  | 'already_known'
+  | 'no_network'
+  | 'confirmation_timeout'
+  | 'timeout'
+  | 'invalid_data'
+  | 'tx_limit_reached_for_delegated_account'
+  | 'bad_gateway'
+  | 'unknown'
+
 /**
  * Parses the incoming error from an attempted RPC call and returns a
  * category. As more distinct patterns are found from the errors, we
  * should update this function to categorize them.
  */
-// eslint-disable-next-line complexity
-export function getRPCErrorCategory(error: Error): string {
+export function getRPCErrorCategory(error: Error): RpcErrorCategory {
   const message = error.message
+  const lowerMessage = message.toLowerCase()
   switch (true) {
-    case message.includes('nonce'):
-    case message.includes('future transaction tries to replace pending'):
-      return 'nonce_error'
+    // Nonce sub-categories (SWAP-2471). Specific checks first; `gapped-nonce` contains the
+    // substring "nonce" so it MUST precede the generic nonce bucket. "future transaction tries
+    // to replace pending" is geth's gapped/future-nonce rejection from a delegated account.
+    case lowerMessage.includes('gapped-nonce'):
+    case lowerMessage.includes('future transaction tries to replace pending'):
+      return 'gapped_nonce'
+    case lowerMessage.includes('nonce too low'):
+      return 'nonce_too_low'
+    case lowerMessage.includes('nonce too high'):
+      return 'nonce_too_high'
+    case lowerMessage.includes('nonce'):
+      return 'nonce_other'
     case message.includes('Failed in pending block with: Reverted'):
       return 'reverted'
     case message.includes('intrinsic gas too low'):
@@ -175,6 +203,34 @@ export function getRPCErrorCategory(error: Error): string {
   }
 }
 
+/**
+ * Parses the incoming error from an attempted RPC call and returns
+ * the network that the error came from.
+ */
+export function getRPCProvider(error: Error): string {
+  const message = error.message
+  switch (true) {
+    case message.includes('quicknode'):
+      return 'quicknode'
+    case message.includes('infura'):
+      return 'infura'
+    case message.includes('flashbots'):
+      return 'flashbots'
+    default:
+      return 'n/a'
+  }
+}
+
+/**
+ * Parses the incoming error from an attempted RPC call and returns
+ * the code of the error from the RPC provider. Will truncate if it's
+ * too long.
+ */
+export function getRPCErrorCode(error: Error): string | undefined {
+  const message = error.message
+  return message.split('code=')[1]?.split(',')[0]?.trim().slice(0, 50) || undefined
+}
+
 export function buildNetworkFeeFromReceipt({
   receipt,
   nativeCurrency,
@@ -189,6 +245,7 @@ export function buildNetworkFeeFromReceipt({
     tokenSymbol: nativeCurrency.symbol,
     tokenAddress: nativeCurrency.address,
     chainId,
+    valueType: ValueType.Exact,
   }
 }
 

@@ -1,22 +1,27 @@
+import 'react-native-reanimated'
+import { Platform } from '@universe/chains'
+import { Flex, Text, TouchableArea, useSporeColorsForTheme } from '@universe/mycelium'
+import { QrCode } from '@universe/mycelium/icons/QrCode'
+import { Scan } from '@universe/mycelium/icons/Scan'
+import { useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
 import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Alert } from 'react-native'
-import 'react-native-reanimated'
 import { QRCodeScanner } from 'src/components/QRCodeScanner/QRCodeScanner'
+import type { EIP681URI } from 'src/components/Requests/ScanSheet/util'
 import { getSupportedURI, URIType } from 'src/components/Requests/ScanSheet/util'
-import { Flex, Text, TouchableArea, useIsDarkMode } from 'ui/src'
-import { QrCode, Scan } from 'ui/src/components/icons'
-import { useSporeColorsForTheme } from 'ui/src/hooks/useSporeColors'
 import { Modal } from 'uniswap/src/components/modals/Modal'
 import { ScannerModalState } from 'uniswap/src/components/ReceiveQRCode/constants'
 import { ReceiveQRCode } from 'uniswap/src/components/ReceiveQRCode/ReceiveQRCode'
+import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
 import { ModalName } from 'uniswap/src/features/telemetry/constants'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
+import { logger } from 'utilities/src/logger/logger'
 import { useActiveAccountAddress } from 'wallet/src/features/wallet/hooks'
 
 type Props = {
   onClose: () => void
-  onSelectRecipient: (address: string) => void
+  onSelectRecipient: (address: string, paymentRequest?: EIP681URI) => void
 }
 
 export function RecipientScanModal({ onSelectRecipient, onClose }: Props): JSX.Element {
@@ -24,6 +29,7 @@ export function RecipientScanModal({ onSelectRecipient, onClose }: Props): JSX.E
   const isDarkMode = useIsDarkMode()
 
   const activeAddress = useActiveAccountAddress()
+  const { chains: enabledChainIds } = useEnabledChains({ platform: Platform.EVM })
   const [currentScreenState, setCurrentScreenState] = useState<ScannerModalState>(ScannerModalState.ScanQr)
   const [shouldFreezeCamera, setShouldFreezeCamera] = useState(false)
 
@@ -38,21 +44,29 @@ export function RecipientScanModal({ onSelectRecipient, onClose }: Props): JSX.E
     }
 
     setShouldFreezeCamera(true)
-    const supportedURI = await getSupportedURI(uri)
 
-    if (supportedURI?.type === URIType.Address) {
-      onSelectRecipient(supportedURI.value)
-      onClose()
-    } else {
-      Alert.alert(t('qrScanner.recipient.error.title'), t('qrScanner.recipient.error.message'), [
-        {
-          text: t('common.button.tryAgain'),
-          onPress: (): void => {
-            setShouldFreezeCamera(false)
-          },
-        },
-      ])
+    try {
+      const supportedURI = await getSupportedURI(uri, { enabledChainIds })
+
+      if (supportedURI?.type === URIType.Address || supportedURI?.type === URIType.EIP681) {
+        onSelectRecipient(supportedURI.value, supportedURI.type === URIType.EIP681 ? supportedURI : undefined)
+        onClose()
+        return
+      }
+    } catch (error) {
+      logger.error(error, {
+        tags: { file: 'RecipientScanModal', function: 'onScanCode' },
+      })
     }
+
+    Alert.alert(t('qrScanner.recipient.error.title'), t('qrScanner.recipient.error.message'), [
+      {
+        text: t('common.button.tryAgain'),
+        onPress: (): void => {
+          setShouldFreezeCamera(false)
+        },
+      },
+    ])
   }
 
   const onPressBottomToggle = (): void => {
@@ -92,11 +106,11 @@ export function RecipientScanModal({ onSelectRecipient, onClose }: Props): JSX.E
         >
           <Flex row alignItems="center" gap="$spacing12">
             {currentScreenState === ScannerModalState.ScanQr ? (
-              <QrCode color="$neutral1" size="$icon.24" />
+              <QrCode color={colors.neutral1.val} size="$icon.24" />
             ) : (
-              <Scan color="$neutral1" size="$icon.24" />
+              <Scan color={colors.neutral1.val} size="$icon.24" />
             )}
-            <Text color="$neutral1" variant="buttonLabel2">
+            <Text color={colors.neutral1.val} variant="buttonLabel2">
               {currentScreenState === ScannerModalState.ScanQr
                 ? t('qrScanner.recipient.action.show')
                 : t('qrScanner.recipient.action.scan')}

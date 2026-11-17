@@ -1,8 +1,8 @@
+import { Flex, Text, type TextCompatProps as TextProps, TouchableArea } from '@universe/mycelium'
 import { useTranslation } from 'react-i18next'
-import { Flex, Text, TextProps, TouchableArea } from 'ui/src'
 import { ClipboardPaste } from 'ui/src/components/icons/ClipboardPaste'
 import { StickyNoteSquare } from 'ui/src/components/icons/StickyNoteSquare'
-import { getClipboard } from 'uniswap/src/utils/clipboard'
+import { getClipboard } from 'utilities/src/clipboard/clipboard'
 
 export default function PasteButton({
   inline,

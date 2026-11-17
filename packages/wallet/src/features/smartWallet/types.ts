@@ -1,10 +1,11 @@
-import type { UniverseChainId } from 'uniswap/src/features/chains/types'
+import type { UniverseChainId } from '@universe/chains'
 
 export enum WalletStatus {
   Active = 'Active',
   Inactive = 'Inactive',
   Unavailable = 'Unavailable',
   ActionRequired = 'ActionRequired',
+  Pending = 'Pending',
 }
 
 export interface ActiveDelegation {

@@ -1,62 +1,68 @@
 import { useDispatch } from 'react-redux'
+import { NotifSettingType } from 'src/features/notifications/constants'
 import {
   NotificationPermission,
   useNotificationOSPermissionsEnabled,
 } from 'src/features/notifications/hooks/useNotificationOSPermissionsEnabled'
-import { useAddressNotificationToggle } from 'src/features/notifications/hooks/useNotificationsToggle'
+import {
+  useAddressNotificationToggle,
+  useSettingNotificationToggle,
+} from 'src/features/notifications/hooks/useNotificationsToggle'
 import { promptPushPermission } from 'src/features/notifications/Onesignal'
 import { showNotificationSettingsAlert } from 'src/features/notifications/showNotificationSettingsAlert'
+import { updateNotifSettings } from 'src/features/notifications/slice'
 import { act, renderHook, waitFor } from 'src/test/test-utils'
+import type { MockedFunction } from 'vitest'
 import { useSelectAccountNotificationSetting } from 'wallet/src/features/wallet/hooks'
 
-jest.mock('react-redux', () => ({
-  ...jest.requireActual('react-redux'), // Keep all other exports
-  useDispatch: jest.fn(),
+vi.mock('react-redux', async () => ({
+  ...(await vi.importActual('react-redux')), // Keep all other exports
+  useDispatch: vi.fn(),
 }))
 
-jest.mock('src/features/notifications/Onesignal', () => ({
-  promptPushPermission: jest.fn(),
+vi.mock('src/features/notifications/Onesignal', () => ({
+  promptPushPermission: vi.fn(),
 }))
 
-jest.mock('src/features/notifications/hooks/useNotificationOSPermissionsEnabled', () => ({
-  ...jest.requireActual('src/features/notifications/hooks/useNotificationOSPermissionsEnabled'),
-  useNotificationOSPermissionsEnabled: jest.fn(),
+vi.mock('src/features/notifications/hooks/useNotificationOSPermissionsEnabled', async () => ({
+  ...(await vi.importActual('src/features/notifications/hooks/useNotificationOSPermissionsEnabled')),
+  useNotificationOSPermissionsEnabled: vi.fn(),
 }))
 
-jest.mock('wallet/src/features/wallet/accounts/editAccountSaga', () => ({
-  ...jest.requireActual('wallet/src/features/wallet/accounts/editAccountSaga'),
+vi.mock('wallet/src/features/wallet/accounts/editAccountSaga', async () => ({
+  ...(await vi.importActual('wallet/src/features/wallet/accounts/editAccountSaga')),
   editAccountActions: {
-    trigger: jest.fn((payload) => ({ type: 'EDIT_ACCOUNT', payload })),
+    trigger: vi.fn((payload) => ({ type: 'EDIT_ACCOUNT', payload })),
   },
 }))
 
-jest.mock('src/features/notifications/showNotificationSettingsAlert', () => ({
-  showNotificationSettingsAlert: jest.fn(),
+vi.mock('src/features/notifications/showNotificationSettingsAlert', () => ({
+  showNotificationSettingsAlert: vi.fn(),
 }))
 
-jest.mock('src/utils/useAppStateTrigger', () => ({
-  useAppStateTrigger: jest.fn(),
+vi.mock('src/utils/useAppStateTrigger', () => ({
+  useAppStateTrigger: vi.fn(),
 }))
 
-jest.mock('wallet/src/features/wallet/hooks', () => ({
-  useSelectAccountNotificationSetting: jest.fn(),
+vi.mock('wallet/src/features/wallet/hooks', () => ({
+  useSelectAccountNotificationSetting: vi.fn(),
+  useIsViewOnlyWallet: (): boolean => false,
 }))
 
 describe('useAddressNotificationToggle', () => {
   const mockAddress = '0xAddress'
-  const mockDispatch = jest.fn()
-  const mockUseDispatch = useDispatch as jest.MockedFunction<typeof useDispatch>
-  const mockPermissionPrompt = jest.mocked(promptPushPermission)
-  const mockSettingsAlert = jest.mocked(showNotificationSettingsAlert)
-  const mockUseSelectAccountNotificationSetting = jest.mocked(useSelectAccountNotificationSetting)
-  const mockUseNotificationOSPermissionsQuery = jest.mocked(useNotificationOSPermissionsEnabled)
+  const mockDispatch = vi.fn()
+  const mockUseDispatch = useDispatch as MockedFunction<typeof useDispatch>
+  const mockPermissionPrompt = vi.mocked(promptPushPermission)
+  const mockSettingsAlert = vi.mocked(showNotificationSettingsAlert)
+  const mockUseSelectAccountNotificationSetting = vi.mocked(useSelectAccountNotificationSetting)
+  const mockUseNotificationOSPermissionsQuery = vi.mocked(useNotificationOSPermissionsEnabled)
 
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
     mockUseDispatch.mockReturnValue(mockDispatch)
   })
 
-  // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
   function setupHook({
     osPermissionStatus = NotificationPermission.Enabled,
     firebaseEnabled = true,
@@ -68,7 +74,7 @@ describe('useAddressNotificationToggle', () => {
   } = {}) {
     mockUseNotificationOSPermissionsQuery.mockReturnValue({
       notificationPermissionsEnabled: osPermissionStatus,
-      checkNotificationPermissions: jest.fn(),
+      checkNotificationPermissions: vi.fn(),
     })
     mockUseSelectAccountNotificationSetting.mockReturnValue(firebaseEnabled)
     return renderHook(() => useAddressNotificationToggle({ address: mockAddress, onToggle: onPermissionChanged }))
@@ -144,6 +150,26 @@ describe('useAddressNotificationToggle', () => {
       })
     })
 
+    it('keeps the app preference enabled after obtaining OS permissions', async () => {
+      mockPermissionPrompt.mockResolvedValueOnce(true)
+      const onPermissionChanged = vi.fn()
+      const { result } = setupHook({
+        osPermissionStatus: NotificationPermission.Disabled,
+        firebaseEnabled: true,
+        onPermissionChanged,
+      })
+
+      await act(async () => {
+        result.current.toggle()
+        await new Promise(requestAnimationFrame)
+      })
+
+      await waitFor(() => {
+        expect(result.current.isEnabled).toBe(true)
+        expect(onPermissionChanged).toHaveBeenCalledWith(true)
+      })
+    })
+
     it('handles OS permission prompt flow failure', async () => {
       mockPermissionPrompt.mockResolvedValueOnce(false)
 
@@ -168,7 +194,7 @@ describe('useAddressNotificationToggle', () => {
 
   describe('callbacks', () => {
     it('calls onPermissionChanged after successful toggle', async () => {
-      const onPermissionChanged = jest.fn()
+      const onPermissionChanged = vi.fn()
 
       const { result } = setupHook({
         osPermissionStatus: NotificationPermission.Enabled,
@@ -204,6 +230,69 @@ describe('useAddressNotificationToggle', () => {
         expect(mockSettingsAlert).toHaveBeenCalled()
         expect(result.current.isEnabled).toBe(false)
       })
+    })
+  })
+})
+
+describe('useSettingNotificationToggle', () => {
+  const mockDispatch = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(useDispatch).mockReturnValue(mockDispatch)
+    vi.mocked(useNotificationOSPermissionsEnabled).mockReturnValue({
+      notificationPermissionsEnabled: NotificationPermission.Enabled,
+      checkNotificationPermissions: vi.fn(),
+    })
+  })
+
+  it('uses the price alerts preference independently of general updates', () => {
+    const { result } = renderHook(() => useSettingNotificationToggle({ type: NotifSettingType.PriceAlerts }), {
+      preloadedState: { pushNotifications: { generalUpdatesEnabled: false, priceAlertsEnabled: true } },
+    })
+    expect(result.current.isEnabled).toBe(true)
+  })
+
+  it('disables only price alerts and reports the preference change', async () => {
+    const onToggle = vi.fn()
+    const { result } = renderHook(
+      () => useSettingNotificationToggle({ type: NotifSettingType.PriceAlerts, onToggle }),
+      {
+        preloadedState: { pushNotifications: { generalUpdatesEnabled: true, priceAlertsEnabled: true } },
+      },
+    )
+
+    await act(async () => {
+      result.current.toggle()
+      await new Promise(requestAnimationFrame)
+    })
+
+    await waitFor(() => {
+      expect(mockDispatch).toHaveBeenCalledWith(updateNotifSettings({ [NotifSettingType.PriceAlerts]: false }))
+      expect(onToggle).toHaveBeenCalledWith(false)
+      expect(result.current.isEnabled).toBe(false)
+    })
+  })
+
+  it('enables price alerts after requesting OS permission when the app preference is already enabled', async () => {
+    vi.mocked(useNotificationOSPermissionsEnabled).mockReturnValue({
+      notificationPermissionsEnabled: NotificationPermission.Disabled,
+      checkNotificationPermissions: vi.fn(),
+    })
+    vi.mocked(promptPushPermission).mockResolvedValueOnce(true)
+    const { result } = renderHook(() => useSettingNotificationToggle({ type: NotifSettingType.PriceAlerts }), {
+      preloadedState: { pushNotifications: { generalUpdatesEnabled: true, priceAlertsEnabled: true } },
+    })
+
+    expect(result.current.isEnabled).toBe(false)
+    await act(async () => {
+      result.current.toggle()
+      await new Promise(requestAnimationFrame)
+    })
+
+    await waitFor(() => {
+      expect(mockDispatch).toHaveBeenCalledWith(updateNotifSettings({ [NotifSettingType.PriceAlerts]: true }))
+      expect(result.current.isEnabled).toBe(true)
     })
   })
 })

@@ -1,7 +1,8 @@
+import type { GeneratedIcon } from '@universe/mycelium/icons'
+import { Bank } from '@universe/mycelium/icons/Bank'
+import { CoinConvert } from '@universe/mycelium/icons/CoinConvert'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GeneratedIcon } from 'ui/src'
-import { Bank, SwapDotted } from 'ui/src/components/icons'
 import { CurrencyField } from 'uniswap/src/types/currency'
 
 interface TokenCTAButtonVariant {
@@ -16,11 +17,79 @@ interface UseTokenDetailsCTAVariantParams {
   nativeFiatOnRampCurrency: unknown | undefined
   fiatOnRampCurrency: unknown | undefined
   bridgingTokenWithHighestBalance: unknown | undefined
-  hasZeroNativeBalance: boolean | undefined
+  hasZeroGasBalance: boolean | undefined
   tokenSymbol: string | undefined
   onPressBuyFiatOnRamp: (isOfframp: boolean) => void
   onPressGet: () => void
   onPressSwap: (currencyField: CurrencyField) => void
+}
+
+interface MultichainBuyVariant {
+  title?: string
+  icon?: GeneratedIcon
+  onPress: () => void
+}
+
+interface UseMultichainBuyVariantParams {
+  hasTokenBalance: boolean
+  isNativeCurrency: boolean
+  nativeFiatOnRampCurrency: unknown | undefined
+  fiatOnRampCurrency: unknown | undefined
+  bridgingTokenWithHighestBalance: unknown | undefined
+  hasZeroGasBalance: boolean | undefined
+  tokenSymbol: string | undefined
+  onPressBuyWithCash: () => void
+  onPressGet: () => void
+  onPressBuy: () => void
+}
+
+/** Determines the Buy button title and handler for the multichain TDP variant. */
+export function useMultichainBuyVariant({
+  hasTokenBalance,
+  isNativeCurrency,
+  nativeFiatOnRampCurrency,
+  fiatOnRampCurrency,
+  bridgingTokenWithHighestBalance,
+  hasZeroGasBalance,
+  tokenSymbol,
+  onPressBuyWithCash,
+  onPressGet,
+  onPressBuy,
+}: UseMultichainBuyVariantParams): MultichainBuyVariant {
+  const { t } = useTranslation()
+
+  return useMemo(() => {
+    if (hasTokenBalance) {
+      return { onPress: onPressBuy }
+    }
+
+    const isOnrampCurrency = (isNativeCurrency && nativeFiatOnRampCurrency) || fiatOnRampCurrency
+
+    if (isOnrampCurrency && !bridgingTokenWithHighestBalance) {
+      return { title: t('fiatOnRamp.action.buyWithCash'), icon: Bank, onPress: onPressBuyWithCash }
+    }
+
+    if (hasZeroGasBalance) {
+      return {
+        title: tokenSymbol ? t('tdp.button.getToken', { tokenSymbol }) : t('tdp.button.getTokenFallback'),
+        onPress: onPressGet,
+      }
+    }
+
+    return { onPress: onPressBuy }
+  }, [
+    hasTokenBalance,
+    isNativeCurrency,
+    fiatOnRampCurrency,
+    nativeFiatOnRampCurrency,
+    bridgingTokenWithHighestBalance,
+    hasZeroGasBalance,
+    tokenSymbol,
+    t,
+    onPressBuyWithCash,
+    onPressGet,
+    onPressBuy,
+  ])
 }
 
 export function useTokenDetailsCTAVariant({
@@ -29,7 +98,7 @@ export function useTokenDetailsCTAVariant({
   nativeFiatOnRampCurrency,
   fiatOnRampCurrency,
   bridgingTokenWithHighestBalance,
-  hasZeroNativeBalance,
+  hasZeroGasBalance,
   tokenSymbol,
   onPressBuyFiatOnRamp,
   onPressGet,
@@ -40,7 +109,7 @@ export function useTokenDetailsCTAVariant({
   return useMemo(() => {
     const swapVariant = {
       title: t('common.button.swap'),
-      icon: SwapDotted,
+      icon: CoinConvert,
       onPress: () => onPressSwap(hasTokenBalance ? CurrencyField.INPUT : CurrencyField.OUTPUT),
     }
 
@@ -58,7 +127,7 @@ export function useTokenDetailsCTAVariant({
       }
     }
 
-    if (!isNativeCurrency && hasZeroNativeBalance) {
+    if (!isNativeCurrency && hasZeroGasBalance) {
       return {
         title: tokenSymbol ? t('tdp.button.getToken', { tokenSymbol }) : t('tdp.button.getTokenFallback'),
         onPress: onPressGet,
@@ -72,7 +141,7 @@ export function useTokenDetailsCTAVariant({
     fiatOnRampCurrency,
     nativeFiatOnRampCurrency,
     bridgingTokenWithHighestBalance,
-    hasZeroNativeBalance,
+    hasZeroGasBalance,
     tokenSymbol,
     t,
     onPressBuyFiatOnRamp,

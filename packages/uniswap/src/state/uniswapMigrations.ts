@@ -1,66 +1,89 @@
-/* biome-ignore-all lint/suspicious/noExplicitAny: legacy code needs review */
+import { Platform, getValidAddress } from '@universe/chains'
 import { FiatCurrency } from 'uniswap/src/features/fiatCurrency/constants'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
 import {
   SearchHistoryResultType,
-  WalletByAddressSearchHistoryResult,
+  type WalletByAddressSearchHistoryResult,
 } from 'uniswap/src/features/search/SearchHistoryResult'
 import { searchResultId } from 'uniswap/src/features/search/searchHistorySlice'
 import {
-  SerializedTokenMap,
-  TokenDismissInfo,
-  TokenWarningDismissal,
+  type SerializedTokenMap,
+  type TokenDismissInfo,
+  type TokenWarningDismissal,
 } from 'uniswap/src/features/tokens/warnings/slice/types'
 import { TokenProtectionWarning } from 'uniswap/src/features/tokens/warnings/types'
+import { createSafeMigrationFactory } from 'uniswap/src/state/createSafeMigration'
 import { PreV55SearchResultType } from 'uniswap/src/state/oldTypes'
-import { getValidAddress } from 'uniswap/src/utils/addresses'
+const createSafeMigration = createSafeMigrationFactory('uniswapMigrations')
 
 // Mobile: 82
 // Extension: 18
 // Web: 21
-export function unchecksumDismissedTokenWarningKeys(state: any): any {
-  if (!state?.tokens?.dismissedTokenWarnings) {
-    return state
-  }
+export const unchecksumDismissedTokenWarningKeys = createSafeMigration({
+  name: 'unchecksumDismissedTokenWarningKeys',
+  migrate: (state: any) => {
+    if (!state?.tokens?.dismissedTokenWarnings) {
+      return state
+    }
 
-  const newDismissedWarnings: SerializedTokenMap<TokenDismissInfo> = Object.entries(
-    state.tokens.dismissedTokenWarnings,
-  ).reduce(
-    (acc, [chainId, warningsForChain]) => ({
-      ...acc,
-      [chainId]: Object.entries(warningsForChain as Record<string, TokenDismissInfo>).reduce(
-        (chainAcc, [address, warning]) => {
-          const lowercasedAddress = getValidAddress({
-            address,
-            platform: Platform.EVM,
-            withEVMChecksum: false,
-          })
-          return lowercasedAddress ? { ...chainAcc, [lowercasedAddress]: warning } : chainAcc
-        },
-        {},
-      ),
-    }),
-    {},
-  )
+    const newDismissedWarnings: SerializedTokenMap<TokenDismissInfo> = Object.entries(
+      state.tokens.dismissedTokenWarnings,
+    ).reduce(
+      (acc, [chainId, warningsForChain]) => ({
+        ...acc,
+        [chainId]:
+          warningsForChain && typeof warningsForChain === 'object'
+            ? Object.entries(warningsForChain as Record<string, TokenDismissInfo>).reduce(
+                (chainAcc, [address, warning]) => {
+                  const lowercasedAddress = getValidAddress({
+                    address,
+                    platform: Platform.EVM,
+                    withEVMChecksum: false,
+                  })
+                  return lowercasedAddress ? { ...chainAcc, [lowercasedAddress]: warning } : chainAcc
+                },
+                {},
+              )
+            : {},
+      }),
+      {},
+    )
 
-  return {
+    return {
+      ...state,
+      tokens: {
+        ...state.tokens,
+        dismissedTokenWarnings: newDismissedWarnings,
+      },
+    }
+  },
+  onError: (state: any) => ({
     ...state,
     tokens: {
       ...state.tokens,
-      dismissedTokenWarnings: newDismissedWarnings,
+      dismissedTokenWarnings: {},
     },
-  }
-}
+  }),
+})
 
 // Mobile: 89
 // Extension: 25
 // Web: 25
 export function removeThaiBahtFromFiatCurrency(state: any): any {
-  const newState = { ...state }
-  if (newState.userSettings.currentCurrency === 'THB') {
-    newState.userSettings.currentCurrency = FiatCurrency.UnitedStatesDollar
+  if (!state?.userSettings) {
+    return state
   }
-  return newState
+
+  if (state.userSettings.currentCurrency === 'THB') {
+    return {
+      ...state,
+      userSettings: {
+        ...state.userSettings,
+        currentCurrency: FiatCurrency.UnitedStatesDollar,
+      },
+    }
+  }
+
+  return state
 }
 
 // Mobile: 93
@@ -73,15 +96,18 @@ export function removeThaiBahtFromFiatCurrency(state: any): any {
  * 2. Handle enum reordering - remove ENSAddress and Unitag, and update remaining values
  * Used by both mobile and extension platforms
  */
-export function migrateSearchHistory(state: any): any {
-  const newState = { ...state }
+export const migrateSearchHistory = createSafeMigration({
+  name: 'migrateSearchHistory',
+  migrate: (state: any) => {
+    if (!state?.searchHistory?.results || !Array.isArray(state.searchHistory.results)) {
+      return state
+    }
 
-  if (newState.searchHistory?.results) {
     // Map over search results, handle enum reordering, and remove deleted fields
-    const migratedResults = newState.searchHistory.results
+    const migratedResults = state.searchHistory.results
       .map((result: any) => {
         // Map old enum values to new ones
-        switch (result.type) {
+        switch (result?.type) {
           case PreV55SearchResultType.ENSAddress:
           case PreV55SearchResultType.Unitag: {
             // ENSAddress and Unitag no longer exist, we convert them into WalletByAddress
@@ -121,7 +147,7 @@ export function migrateSearchHistory(state: any): any {
           case PreV55SearchResultType.NFTCollection:
             // NFTCollection: 3 → 2
             return {
-              type: SearchHistoryResultType.NFTCollection,
+              type: 2,
               chainId: result.chainId,
               address: result.address,
               name: result.name,
@@ -151,11 +177,19 @@ export function migrateSearchHistory(state: any): any {
       })
       .filter((result: any) => result !== null)
 
-    newState.searchHistory.results = migratedResults
-  }
-
-  return newState
-}
+    return {
+      ...state,
+      searchHistory: {
+        ...state.searchHistory,
+        results: migratedResults,
+      },
+    }
+  },
+  onError: (state: any) => ({
+    ...state,
+    searchHistory: { results: [] },
+  }),
+})
 
 // Mobile: 94
 // Extension: 28
@@ -191,28 +225,88 @@ export function addActivityVisibility(state: any): any {
 // Mobile: 96
 // Extension: 30
 // Web: 60
-export function migrateDismissedTokenWarnings(state: any): any {
-  if (!state?.tokens?.dismissedTokenWarnings) {
+export const migrateDismissedTokenWarnings = createSafeMigration({
+  name: 'migrateDismissedTokenWarnings',
+  migrate: (state: any) => {
+    if (!state?.tokens?.dismissedTokenWarnings) {
+      return state
+    }
+
+    const newDismissedWarnings: SerializedTokenMap<TokenWarningDismissal> = Object.entries(
+      state.tokens.dismissedTokenWarnings,
+    ).reduce(
+      (acc, [chainId, warningsForChain]) => ({
+        ...acc,
+        [chainId]:
+          warningsForChain && typeof warningsForChain === 'object'
+            ? Object.entries(warningsForChain as Record<string, TokenDismissInfo>).reduce(
+                (chainAcc, [address, token]) => {
+                  return { ...chainAcc, [address]: { token, warnings: [TokenProtectionWarning.NonDefault] } }
+                },
+                {},
+              )
+            : {},
+      }),
+      {},
+    )
+
+    return {
+      ...state,
+      tokens: { ...state.tokens, dismissedTokenWarnings: newDismissedWarnings },
+    }
+  },
+  onError: (state: any) => ({
+    ...state,
+    tokens: { ...state.tokens, dismissedTokenWarnings: {} },
+  }),
+})
+
+// Mobile: 98
+// Extension: 32
+// Web: 62
+export function addEnableCustomGasFeeEntry(state: any): any {
+  if (!state?.userSettings) {
     return state
   }
-
-  const newDismissedWarnings: SerializedTokenMap<TokenWarningDismissal> = Object.entries(
-    state.tokens.dismissedTokenWarnings,
-  ).reduce(
-    (acc, [chainId, warningsForChain]) => ({
-      ...acc,
-      [chainId]: Object.entries(warningsForChain as Record<string, TokenDismissInfo>).reduce(
-        (chainAcc, [address, token]) => {
-          return { ...chainAcc, [address]: { token, warnings: [TokenProtectionWarning.NonDefault] } }
-        },
-        {},
-      ),
-    }),
-    {},
-  )
-
   return {
     ...state,
-    tokens: { ...state.tokens, dismissedTokenWarnings: newDismissedWarnings },
+    userSettings: {
+      ...state.userSettings,
+      enableCustomGasFeeEntry: false,
+    },
+  }
+}
+
+// Mobile: 99
+// Extension: 33
+// Web: 63
+export function removeUniswapWrapped2025BehaviorHistory(state: any): any {
+  if (!state?.uniswapBehaviorHistory) {
+    return state
+  }
+  const newState = {
+    ...state,
+    uniswapBehaviorHistory: { ...state.uniswapBehaviorHistory },
+  }
+  delete newState.uniswapBehaviorHistory.hasDismissedUniswapWrapped2025Banner
+  return newState
+}
+
+// Mobile: 100
+// Extension: 34
+// Web: 64
+// Marks installs that predate the pools-balances launch as coachmark-eligible (`false`), overwriting
+// the old always-`true` default. Fresh state created after this version has no value and is instead
+// classified at startup by `initializePoolsBalanceCoachmarkDismissed` from the flag.
+export function markPoolsBalanceCoachmarkEligible(state: any): any {
+  if (!state?.uniswapBehaviorHistory) {
+    return state
+  }
+  return {
+    ...state,
+    uniswapBehaviorHistory: {
+      ...state.uniswapBehaviorHistory,
+      hasDismissedPoolsBalanceCoachmark: false,
+    },
   }
 }

@@ -1,3 +1,5 @@
+import { isAndroid } from '@universe/environment'
+import { Flex } from '@universe/mycelium'
 import { Unitag } from 'ui/src/components/icons'
 import { LogoWithTxStatus } from 'uniswap/src/components/CurrencyLogo/LogoWithTxStatus'
 import { NotificationToast } from 'uniswap/src/components/notifications/NotificationToast'
@@ -10,12 +12,14 @@ import { useWalletNavigation } from 'wallet/src/contexts/WalletNavigationContext
 import { formTransferNFTNotificationTitle } from 'wallet/src/features/notifications/utils'
 import { useActiveAccountAddressWithThrow, useDisplayName } from 'wallet/src/features/wallet/hooks'
 
+const platformAdjustedUnitagYPosition = isAndroid ? -1 : -2
+
 export function TransferNFTNotification({ notification }: { notification: TransferNFTTxNotification }): JSX.Element {
   const { address, assetType, chainId, tokenAddress, tokenId, txType, txStatus, hideDelay } = notification
   const userAddress = useActiveAccountAddressWithThrow()
   const senderOrRecipient = txType === TransactionType.Send ? notification.recipient : notification.sender
   const nftOwner = txType === TransactionType.Send ? notification.recipient : userAddress
-  const { data: nft } = useNFT({ owner: nftOwner, address: tokenAddress, tokenId })
+  const nft = useNFT({ owner: nftOwner, address: tokenAddress, tokenId })
   const { name: displayName, type: displayNameType } =
     useDisplayName(senderOrRecipient, { includeUnitagSuffix: true }) ?? {}
   const showUnicon = txStatus !== TransactionStatus.Canceled && displayNameType === DisplayNameType.Unitag
@@ -35,7 +39,7 @@ export function TransferNFTNotification({ notification }: { notification: Transf
     <LogoWithTxStatus
       assetType={assetType}
       chainId={chainId}
-      nftImageUrl={nft?.thumbnail?.url ?? undefined}
+      nftImageUrl={nft?.thumbnailUrl ?? undefined}
       size={NOTIFICATION_ICON_SIZE}
       txStatus={txStatus}
       txType={txType}
@@ -47,7 +51,13 @@ export function TransferNFTNotification({ notification }: { notification: Transf
       address={address}
       hideDelay={hideDelay}
       icon={icon}
-      postCaptionElement={showUnicon ? <Unitag size="$icon.24" /> : undefined}
+      postCaptionElement={
+        showUnicon ? (
+          <Flex y={platformAdjustedUnitagYPosition}>
+            <Unitag size="$icon.24" />
+          </Flex>
+        ) : undefined
+      }
       title={title}
       onPress={navigateToAccountActivityList}
     />

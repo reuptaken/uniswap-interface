@@ -1,5 +1,5 @@
-import type { UniverseChainIdByPlatform } from 'uniswap/src/features/chains/types'
-import type { Platform } from 'uniswap/src/features/platforms/types/Platform'
+import type { Platform, UniverseChainIdByPlatform } from '@universe/chains'
+import { CAIP25Session } from 'uniswap/src/features/capabilities/caip25/types'
 
 /**
  * Defines the chain context scope for a wallet session.
@@ -54,4 +54,6 @@ export interface Session<SupportedPlatforms extends Platform = Platform> {
   walletId: string
   currentAccountIndex: number
   chainScope: ChainScope<SupportedPlatforms>
+
+  caip25Info?: CAIP25Session
 }

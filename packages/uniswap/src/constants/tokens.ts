@@ -1,23 +1,30 @@
 import { Currency, NativeCurrency, Token, UNI_ADDRESSES, WETH9 } from '@uniswap/sdk-core'
+import { UniverseChainId } from '@universe/chains'
 import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
 import { ARBITRUM_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/arbitrum'
+import { ARC_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/arc'
 import { AVALANCHE_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/avalanche'
 import { BASE_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/base'
 import { BLAST_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/blast'
 import { BNB_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/bnb'
 import { CELO_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/celo'
+import { INK_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/ink'
+import { LINEA_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/linea'
 import { MAINNET_CHAIN_INFO, SEPOLIA_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/mainnet'
+import { MEGAETH_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/megaeth'
 import { MONAD_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/monad'
 import { OPTIMISM_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/optimism'
 import { POLYGON_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/polygon'
+import { ROBINHOOD_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/robinhood'
 import { SONEIUM_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/soneium'
+import { TEMPO_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/tempo'
 import { UNICHAIN_CHAIN_INFO, UNICHAIN_SEPOLIA_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/unichain'
 import { WORLD_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/worldchain'
+import { XLAYER_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/xlayer'
 import { ZKSYNC_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/zksync'
 import { ZORA_CHAIN_INFO } from 'uniswap/src/features/chains/evm/info/zora'
 import { WRAPPED_SOL_ADDRESS_SOLANA } from 'uniswap/src/features/chains/svm/defaults'
 import { SOLANA_CHAIN_INFO } from 'uniswap/src/features/chains/svm/info/solana'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { isUniverseChainId } from 'uniswap/src/features/chains/utils'
 import { SolanaToken } from 'uniswap/src/features/tokens/SolanaToken'
 import { logger } from 'utilities/src/logger/logger'
@@ -30,7 +37,23 @@ export const { USDC: USDC_UNICHAIN } = UNICHAIN_CHAIN_INFO.tokens
 
 export const { USDC: USDC_UNICHAIN_SEPOLIA } = UNICHAIN_SEPOLIA_CHAIN_INFO.tokens
 
+export const { USDC: USDC_LINEA, USDT: USDT_LINEA } = LINEA_CHAIN_INFO.tokens
+
+export const { USDC: USDC_ARC } = ARC_CHAIN_INFO.tokens
+
+export { CIRBTC_ARC, EURC_ARC, USYC_ARC, WETH_ARC } from 'uniswap/src/features/chains/evm/info/arc'
+
+export const { USDM: USDM_MEGAETH, USDe: USDE_MEGAETH } = MEGAETH_CHAIN_INFO.tokens
+
+export const { USDG: USDG_ROBINHOOD } = ROBINHOOD_CHAIN_INFO.tokens
+
+export const { USDT0: USDT0_INK, USDC: USDC_INK } = INK_CHAIN_INFO.tokens
+
 export const { USDC: USDC_SONEIUM } = SONEIUM_CHAIN_INFO.tokens
+
+export const { pathUSD: PATHUSD_TEMPO, 'USDC.e': USDC_E_TEMPO, OUSD: OUSD_TEMPO } = TEMPO_CHAIN_INFO.tokens
+
+export const { USDC: USDC_XLAYER, USDT0: USDT0_XLAYER } = XLAYER_CHAIN_INFO.tokens
 
 export const { DAI } = MAINNET_CHAIN_INFO.tokens
 
@@ -39,6 +62,7 @@ export const { USDC: USDC_SOLANA } = SOLANA_CHAIN_INFO.tokens
 export const { USDT } = MAINNET_CHAIN_INFO.tokens
 
 export const { USDC: USDC_MAINNET } = MAINNET_CHAIN_INFO.tokens
+export const { USDG: USDG_MAINNET } = MAINNET_CHAIN_INFO.tokens
 
 export const USDC = USDC_MAINNET
 
@@ -162,6 +186,14 @@ export const WBTC = new Token(
   8,
   'WBTC',
   'Wrapped BTC',
+)
+
+export const BTC_B_MEGAETH = new Token(
+  UniverseChainId.MegaETH,
+  '0xB0F70C0bD6FD87dbEb7C10dC692a2a6106817072',
+  8,
+  'BTC.b',
+  'Bitcoin Avalanche Bridged',
 )
 
 export const MATIC_MAINNET = new Token(
@@ -299,12 +331,26 @@ export const WRAPPED_NATIVE_CURRENCY: { [chainId: number]: Token | undefined } =
     'WETH',
     'Wrapped Ether',
   ),
+  [UniverseChainId.Linea]: new Token(
+    UniverseChainId.Linea,
+    '0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f',
+    18,
+    'WETH',
+    'Wrapped Ether',
+  ),
   [UniverseChainId.Soneium]: new Token(
     UniverseChainId.Soneium,
     '0x4200000000000000000000000000000000000006',
     18,
     'WETH',
     'Wrapped Ether',
+  ),
+  [UniverseChainId.XLayer]: new Token(
+    UniverseChainId.XLayer,
+    '0xe538905cf8410324e03A5A23C1c177a474D59b2b',
+    18,
+    'WOKB',
+    'Wrapped OKB',
   ),
   [UniverseChainId.Unichain]: new Token(
     UniverseChainId.Unichain,
@@ -341,6 +387,7 @@ export const WRAPPED_NATIVE_CURRENCY: { [chainId: number]: Token | undefined } =
     'WETH',
     'Wrapped Ether',
   ),
+
   [UniverseChainId.Solana]: new SolanaToken(
     UniverseChainId.Solana,
     WRAPPED_SOL_ADDRESS_SOLANA,

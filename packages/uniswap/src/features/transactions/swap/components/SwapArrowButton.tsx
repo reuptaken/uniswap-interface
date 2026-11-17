@@ -1,6 +1,12 @@
-import { FlexProps, TouchableArea, TouchableAreaProps, useIsShortMobileDevice, useSporeColors } from 'ui/src'
+import {
+  FlexProps,
+  TouchableArea,
+  TouchableAreaProps,
+  useIsShortMobileDevice,
+  useSporeColors,
+} from '@universe/mycelium'
+import { PRESS_SCALE } from '@universe/mycelium/button-compat'
 import { Arrow } from 'ui/src/components/arrow/Arrow'
-import { PRESS_SCALE } from 'ui/src/components/buttons/Button/components/CustomButtonFrame/constants'
 import { iconSizes } from 'ui/src/theme'
 
 type SwapArrowButtonProps = Pick<
@@ -14,6 +20,7 @@ const hoverStyle: FlexProps['hoverStyle'] = { backgroundColor: '$surface2Hovered
 
 export function SwapArrowButton({
   backgroundColor = '$surface2',
+  // oxlint-disable-next-line typescript/no-useless-default-assignment -- explicit default for clarity
   opacity = undefined,
   iconSize = iconSizes.icon24,
   disabled,

@@ -1,16 +1,12 @@
-import { deprecatedStyled } from 'lib/styled-components'
-import { ConnectingViewWrapper } from 'pages/Swap/Buy/shared'
-import { Trans, useTranslation } from 'react-i18next'
-import { ExternalLink } from 'theme/components/Links'
-import { Flex, Text, useIsDarkMode, useSporeColors } from 'ui/src'
+import { Flex, Text, TouchableTextLink } from '@universe/mycelium'
+import { useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
+import { useTranslation } from 'react-i18next'
+import { Trans } from 'ui/src'
+import { UniswapStaticUrls } from 'uniswap/src/constants/urls'
 import { ServiceProviderLogoStyles } from 'uniswap/src/features/fiatOnRamp/constants'
 import { FORServiceProvider } from 'uniswap/src/features/fiatOnRamp/types'
 import { getOptionalServiceProviderLogo } from 'uniswap/src/features/fiatOnRamp/utils'
-
-const StyledLink = deprecatedStyled(ExternalLink)`
-  font-weight: 535;
-  color: ${({ theme }) => theme.neutral3};
-`
+import { ConnectingViewWrapper } from '~/pages/Swap/Buy/shared'
 
 interface ProviderConnectedViewProps {
   closeModal?: () => void
@@ -19,7 +15,6 @@ interface ProviderConnectedViewProps {
 
 export function ProviderConnectedView({ closeModal, selectedServiceProvider }: ProviderConnectedViewProps) {
   const isDarkMode = useIsDarkMode()
-  const colors = useSporeColors()
   const { t } = useTranslation()
 
   return (
@@ -34,13 +29,10 @@ export function ProviderConnectedView({ closeModal, selectedServiceProvider }: P
           />
           <Flex alignItems="center" gap="$spacing8">
             <Text variant="subheading1">
-              <Trans
-                i18nKey="fiatOnRamp.completeTransactionHeader"
-                values={{ serviceProvider: selectedServiceProvider.name }}
-              />
+              {t('fiatOnRamp.completeTransactionHeader', { serviceProvider: selectedServiceProvider.name })}
             </Text>
             <Text variant="body2" textAlign="center" color="$neutral2">
-              <Trans i18nKey="fiatOnRamp.continueInTab" values={{ serviceProvider: selectedServiceProvider.name }} />
+              {t('fiatOnRamp.continueInTab', { serviceProvider: selectedServiceProvider.name })}
             </Text>
           </Flex>
         </Flex>
@@ -52,14 +44,28 @@ export function ProviderConnectedView({ closeModal, selectedServiceProvider }: P
             }}
             components={{
               tosLink: (
-                <StyledLink color={colors.neutral3.val} href="https://uniswap.org/terms-of-service/">
+                <TouchableTextLink
+                  onlyUseText
+                  variant="buttonLabel4"
+                  link={UniswapStaticUrls.termsOfServiceUrl}
+                  target="_blank"
+                  display="inline"
+                  color="$neutral3"
+                >
                   {t('common.termsOfService')}
-                </StyledLink>
+                </TouchableTextLink>
               ),
               privacyLink: (
-                <StyledLink color={colors.neutral3.val} href="https://uniswap.org/privacy-policy">
+                <TouchableTextLink
+                  onlyUseText
+                  variant="buttonLabel4"
+                  link={UniswapStaticUrls.privacyPolicyUrl}
+                  target="_blank"
+                  display="inline"
+                  color="$neutral3"
+                >
                   {t('common.privacyPolicy')}
-                </StyledLink>
+                </TouchableTextLink>
               ),
             }}
           />

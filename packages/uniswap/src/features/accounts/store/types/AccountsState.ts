@@ -1,9 +1,8 @@
+import { type Platform, PlatformSpecificAddress } from '@universe/chains'
 import type { Account } from 'uniswap/src/features/accounts/store/types/Account'
 import { ConnectionStatusInfo, Connector } from 'uniswap/src/features/accounts/store/types/Connector'
 import type { Wallet } from 'uniswap/src/features/accounts/store/types/Wallet'
 import { FlexiblePlatformInput } from 'uniswap/src/features/accounts/store/utils/flexibleInput'
-import type { Platform } from 'uniswap/src/features/platforms/types/Platform'
-import { PlatformSpecificAddress } from 'uniswap/src/features/platforms/types/PlatformSpecificAddress'
 import type { StoreApi, UseBoundStore } from 'zustand'
 
 /**
@@ -25,6 +24,9 @@ export interface AccountsData {
   wallets: { [id: string]: Wallet }
 }
 
+/** A grouping of addresses across multiple platforms. */
+export type AddressGroup = { [P in Platform as `${P}Address`]?: PlatformSpecificAddress<P> }
+
 /** Union type representing any connector across all platforms. Handles all current possible platform combinations. */
 type AnyConnector = { [P in Platform]: Connector<P> }[Platform] | Connector
 
@@ -37,7 +39,7 @@ export interface AccountsGetters {
   getActiveAddress: <P extends Platform>(platform: FlexiblePlatformInput<P>) => PlatformSpecificAddress<P> | undefined
 
   /** Returns all addresses for the currently active account across all platforms. */
-  getActiveAddresses: () => { [P in Platform as `${P}Address`]?: PlatformSpecificAddress<P> }
+  getActiveAddresses: () => AddressGroup
 
   /** Returns the currently active account for the specified platform. */
   getActiveAccount: <P extends Platform>(platform: FlexiblePlatformInput<P>) => Account<P> | undefined

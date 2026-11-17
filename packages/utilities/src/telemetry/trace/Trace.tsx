@@ -1,8 +1,9 @@
 import { useFocusEffect } from '@react-navigation/core'
 import { BrowserEvent, SharedEventName } from '@uniswap/analytics-events'
+import { isWebPlatform } from '@universe/environment'
 import React, { memo, PropsWithChildren, ReactNode, useEffect, useId, useMemo } from 'react'
-import { isWebPlatform } from 'utilities/src/platform'
-// biome-ignore lint/style/noRestrictedImports: Platform-specific implementation needs internal types
+import { useValueAsRef } from 'utilities/src/react/useValueAsRef'
+// oxlint-disable-next-line no-restricted-imports -- Platform-specific implementation needs internal types
 import { analytics } from 'utilities/src/telemetry/analytics/analytics'
 import { useAnalyticsNavigationContext } from 'utilities/src/telemetry/trace/AnalyticsNavigationContext'
 import { ITraceContext, TraceContext, useTrace } from 'utilities/src/telemetry/trace/TraceContext'
@@ -57,7 +58,7 @@ export type TraceProps = {
 // only used for avoiding double logging in development
 const devDoubleLogDisableMap: Record<string, boolean> = {}
 
-function _Trace({
+function TraceInner({
   children,
   logImpression,
   eventOnTrigger,
@@ -74,7 +75,7 @@ function _Trace({
 }: PropsWithChildren<TraceProps & ITraceContext>): JSX.Element {
   const id = useId()
 
-  const { useIsPartOfNavigationTree, shouldLogScreen: shouldLogScreen } = useAnalyticsNavigationContext()
+  const { useIsPartOfNavigationTree, shouldLogScreen } = useAnalyticsNavigationContext()
   const isPartOfNavigationTree = useIsPartOfNavigationTree()
   const parentTrace = useTrace()
 
@@ -100,7 +101,6 @@ function _Trace({
   }, [parentTrace, screen, section, modal, element, page])
 
   // Log impression on mount for elements that are not part of the navigation tree
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Impressions should only be logged on mount
   useEffect(() => {
     if (!devDoubleLogDisableMap[id] && logImpression && !isPartOfNavigationTree) {
       if (shouldLogScreen(directFromPage, (properties as ITraceContext | undefined)?.screen)) {
@@ -117,6 +117,7 @@ function _Trace({
         }
       }
     }
+    // oxlint-disable-next-line react/exhaustive-deps -- biome-parity: oxlint is stricter here
   }, [logImpression])
 
   const modifiedChildren =
@@ -155,6 +156,7 @@ function _Trace({
     <NavAwareTrace
       combinedProps={combinedProps}
       directFromPage={directFromPage}
+      eventOnTrigger={eventOnTrigger}
       logImpression={logImpression}
       properties={properties}
     >
@@ -177,19 +179,23 @@ function NavAwareTrace({
   properties,
 }: { combinedProps: ITraceContext } & PropsWithChildren<NavAwareTraceProps>): JSX.Element {
   const { shouldLogScreen } = useAnalyticsNavigationContext()
+  const propertiesRef = useValueAsRef(properties)
+
   // Note: this does not register impressions when going back to a page from a modal
   useFocusEffect(
     React.useCallback(() => {
+      const latestProperties = propertiesRef.current
+
       if (logImpression) {
-        const eventProps = { ...combinedProps, ...properties }
-        if (shouldLogScreen(directFromPage, (properties as ITraceContext | undefined)?.screen)) {
+        const eventProps = { ...combinedProps, ...latestProperties }
+        if (shouldLogScreen(directFromPage, (latestProperties as ITraceContext | undefined)?.screen)) {
           analytics.sendEvent(eventOnTrigger ?? SharedEventName.PAGE_VIEWED, eventProps)
         }
       }
-    }, [combinedProps, directFromPage, eventOnTrigger, logImpression, properties, shouldLogScreen]),
+    }, [combinedProps, directFromPage, eventOnTrigger, logImpression, propertiesRef, shouldLogScreen]),
   )
 
   return <>{children}</>
 }
 
-export const Trace = memo(_Trace)
+export const Trace = memo(TraceInner)

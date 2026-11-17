@@ -1,6 +1,6 @@
 import { Percent } from '@uniswap/sdk-core'
+import { UniverseChainId } from '@universe/chains'
 import { JupiterLogoMonotone } from 'ui/src/components/logos/JupiterLogoMonotone'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { Trade } from 'uniswap/src/features/transactions/swap/types/trade'
 import { isJupiter } from 'uniswap/src/features/transactions/swap/utils/routing'
 import { buildCurrencyId } from 'uniswap/src/utils/currencyId'
@@ -19,7 +19,7 @@ export const jupiterRoutingProvider: RoutingProvider = {
 
     const { routePlan } = trade.quote.quote
 
-    if (routePlan.length === 0) {
+    if (!routePlan?.length) {
       return []
     }
 
@@ -113,7 +113,7 @@ export const jupiterRoutingProvider: RoutingProvider = {
         type: 'genericHop' as const,
         inputCurrencyId: buildCurrencyId(UniverseChainId.Solana, route.swapInfo.inputMint),
         outputCurrencyId: buildCurrencyId(UniverseChainId.Solana, route.swapInfo.outputMint),
-        name: route.swapInfo.label,
+        name: route.swapInfo.label ?? '',
       }))
 
       return {

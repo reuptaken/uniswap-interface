@@ -1,12 +1,15 @@
+import { isExtensionApp, isWebApp } from '@universe/environment'
 import { useEffect, useState } from 'react'
-// biome-ignore lint/style/noRestrictedImports: needed here
+// AdaptiveWebModal/WebModalWithBottomAttachment stay on ui/src pending INFRA-3513: the INFRA-3316 rebuild
+// took the cluster off Tamagui Dialog/Sheet but two tamagui imports remain (`useMedia` in
+// ui/src/components/modal/AdaptiveWebModal.web.tsx, `isTouchable` in WebBottomSheet.web.tsx). Once
+// INFRA-3513 lands, the cluster is Tamagui-free and this ui/src import is a completed state, not a hold.
+// oxlint-disable-next-line no-restricted-imports -- needed here
 import { AdaptiveWebModal, WebModalWithBottomAttachment } from 'ui/src/components/modal/AdaptiveWebModal'
 import { INTERFACE_NAV_HEIGHT } from 'ui/src/theme'
 import type { ModalProps } from 'uniswap/src/components/modals/ModalProps'
+import { WEB_MODAL_ANIMATION_MS } from 'uniswap/src/constants/misc'
 import Trace from 'uniswap/src/features/telemetry/Trace'
-import { isExtensionApp, isWebApp } from 'utilities/src/platform'
-
-const ANIMATION_MS = 200
 
 export function Modal({
   children,
@@ -35,6 +38,14 @@ export function Modal({
   isDismissible = true,
   hideHandlebar,
   borderWidth,
+  borderColor,
+  borderRadius,
+  overlayOpacity,
+  snapPointsMode,
+  snapPoints,
+  sheetFitHeight,
+  testID,
+  disableRemoveScroll,
 }: ModalProps): JSX.Element {
   const [fullyClosed, setFullyClosed] = useState(false)
 
@@ -48,7 +59,7 @@ export function Modal({
     if (!isModalOpen) {
       const tm = setTimeout(() => {
         setFullyClosed(true)
-      }, ANIMATION_MS)
+      }, WEB_MODAL_ANIMATION_MS)
 
       return () => {
         clearTimeout(tm)
@@ -65,9 +76,14 @@ export function Modal({
         <ModalComponent
           position={position}
           bottomAttachment={bottomAttachment}
+          data-testid={testID}
           shadowOpacity={isExtensionApp ? 0 : undefined}
-          borderWidth={borderWidth !== undefined ? borderWidth : isExtensionApp ? 0 : undefined}
+          borderWidth={borderWidth !== undefined ? borderWidth : isExtensionApp ? 1 : undefined}
+          borderColor={borderColor !== undefined ? borderColor : isExtensionApp ? '$surface2' : undefined}
+          borderRadius={borderRadius}
+          overlayOpacity={overlayOpacity !== undefined ? overlayOpacity : isExtensionApp ? 1 : undefined}
           adaptToSheet={isWebApp}
+          disableRemoveScroll={disableRemoveScroll}
           alignment={alignment}
           backgroundColor={backgroundColor}
           height={height ?? (fullScreen ? '100%' : undefined)}
@@ -79,7 +95,10 @@ export function Modal({
           gap={gap}
           zIndex={zIndex}
           hideHandlebar={hideHandlebar}
-          $sm={{
+          snapPointsMode={snapPointsMode}
+          snapPoints={snapPoints}
+          sheetFitHeight={sheetFitHeight}
+          $md={{
             p: padding ?? '$spacing12',
             ...(isWebApp && {
               '$platform-web': {

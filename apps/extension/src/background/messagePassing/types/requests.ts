@@ -17,8 +17,8 @@ export const ErrorLogSchema = MessageSchema.extend({
   message: z.string(),
   fileName: z.string(),
   functionName: z.string(),
-  tags: z.record(z.string()).optional(),
-  extra: z.record(z.unknown()).optional(),
+  tags: z.record(z.string(), z.string()).optional(),
+  extra: z.record(z.string(), z.unknown()).optional(),
 })
 export type ErrorLog = z.infer<typeof ErrorLogSchema>
 
@@ -32,7 +32,7 @@ export type ArcBrowserCheckMessage = z.infer<typeof ArcBrowserCheckMessageSchema
 export const AnalyticsLogSchema = MessageSchema.extend({
   type: z.literal(ContentScriptUtilityMessageType.AnalyticsLog),
   message: z.string(),
-  tags: z.record(z.string()),
+  tags: z.record(z.string(), z.string()),
 })
 export type AnalyticsLog = z.infer<typeof AnalyticsLogSchema>
 
@@ -48,14 +48,26 @@ export enum BackgroundToSidePanelRequestType {
   RefreshUnitags = 'RefreshUnitags',
 }
 
+const SenderFrameSchema = z.object({
+  tabId: z.number(),
+  frameId: z.number(),
+  // Document URL of the frame that sent the request. Authorization is keyed to its origin.
+  frameUrl: z.string(),
+  // URL of the tab's top-level page, whether or not the request came from it.
+  tabUrl: z.string(),
+})
+
+// A cross-origin frame carries no favicon: the tab's icon belongs to the top-level page, and showing
+// it next to the frame's origin would lend the frame the parent's identity.
+export const SenderTabInfoSchema = z.discriminatedUnion('isCrossOriginFrame', [
+  SenderFrameSchema.extend({ isCrossOriginFrame: z.literal(false), favIconUrl: z.string().optional() }),
+  SenderFrameSchema.extend({ isCrossOriginFrame: z.literal(true), favIconUrl: z.undefined().optional() }),
+])
+
 export const DappRequestMessageSchema = z.object({
   type: z.literal(BackgroundToSidePanelRequestType.DappRequestReceived),
   dappRequest: DappRequestSchema,
-  senderTabInfo: z.object({
-    id: z.number(),
-    url: z.string(),
-    favIconUrl: z.string().optional(),
-  }),
+  senderTabInfo: SenderTabInfoSchema,
   isSidebarClosed: z.optional(z.boolean()),
 })
 export type DappRequestMessage = z.infer<typeof DappRequestMessageSchema>
@@ -80,8 +92,11 @@ const BaseExtensionRequestSchema = MessageSchema.extend({
   type: z.nativeEnum(ExtensionToDappRequestType),
 })
 
+// These are broadcast to every frame in a tab, so each carries the origin it is for and the
+// content script drops updates meant for another origin.
 export const ExtensionChainChangeSchema = BaseExtensionRequestSchema.extend({
   type: z.literal(ExtensionToDappRequestType.SwitchChain),
+  dappUrl: z.string(),
   chainId: z.string(),
   providerUrl: z.string(),
 })
@@ -89,6 +104,7 @@ export type ExtensionChainChange = z.infer<typeof ExtensionChainChangeSchema>
 
 export const UpdateConnectionRequestSchema = BaseExtensionRequestSchema.extend({
   type: z.literal(ExtensionToDappRequestType.UpdateConnections),
+  dappUrl: z.string(),
   addresses: z.array(z.string()), // TODO (Thomas): Figure out what to do for type safety here
 })
 export type UpdateConnectionRequest = z.infer<typeof UpdateConnectionRequestSchema>

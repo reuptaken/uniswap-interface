@@ -1,16 +1,21 @@
 // TODO: Move this to `packages/uniswap/src/components/CurrencyInputPanel/CurrencyInputPanel.tsx`
 
+import { isHoverable, isWebAppDesktop } from '@universe/environment'
+import { Flex, ScrollView } from '@universe/mycelium'
 import { memo } from 'react'
-import { Flex, ScrollView } from 'ui/src'
 import { extraMarginForHoverAnimation } from 'uniswap/src/components/CurrencyInputPanel/DefaultTokenOptions/constants'
 import { TokenOptions } from 'uniswap/src/components/CurrencyInputPanel/DefaultTokenOptions/TokenOptions/TokenOptions'
-
 import { CurrencyField } from 'uniswap/src/types/currency'
-import { isHoverable, isWebAppDesktop } from 'utilities/src/platform'
 
-function _DefaultTokenOptions({ currencyField }: { currencyField: CurrencyField }): JSX.Element {
+export interface DefaultTokenOptionsProps {
+  currencyField: CurrencyField
+  maxTokens?: number
+  alignEnd?: boolean
+}
+
+function DefaultTokenOptionsInner({ currencyField, maxTokens, alignEnd }: DefaultTokenOptionsProps): JSX.Element {
   return (
-    <ScrollView horizontal showsVerticalScrollIndicator={false}>
+    <ScrollView horizontal justifyContent={alignEnd ? 'flex-end' : undefined} showsVerticalScrollIndicator={false}>
       <Flex
         row
         m={extraMarginForHoverAnimation}
@@ -19,16 +24,18 @@ function _DefaultTokenOptions({ currencyField }: { currencyField: CurrencyField 
         {...(isHoverable
           ? {
               opacity: 0,
-              transform: [{ translateY: -4 }],
-              '$group-hover': { opacity: 1, transform: [{ translateY: 0 }] },
+              transition: 'opacity 100ms ease-in-out, transform 100ms ease-in-out',
+              '$group-hover': {
+                opacity: 1,
+                transition: 'opacity 100ms ease-in-out, transform 100ms ease-in-out',
+              },
             }
           : {})}
-        animation="100ms"
       >
-        <TokenOptions currencyField={currencyField} />
+        <TokenOptions currencyField={currencyField} maxTokens={maxTokens} />
       </Flex>
     </ScrollView>
   )
 }
 
-export const DefaultTokenOptions = memo(_DefaultTokenOptions)
+export const DefaultTokenOptions = memo(DefaultTokenOptionsInner)

@@ -1,0 +1,5 @@
+# Context is apps/web; only the runner-built bundle may enter the image. The
+# pulled .env, node_modules and sources stay out.
+*
+!build/client
+!build/server

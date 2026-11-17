@@ -1,5 +1,6 @@
-/* eslint-disable max-lines */
+/* oxlint-disable max-lines */
 import { JsonRpcProvider } from '@ethersproject/providers'
+import { UniverseChainId, Platform, areAddressesEqual } from '@universe/chains'
 import { getPermissions } from 'src/app/features/dappRequests/permissions'
 import { SendTransactionRequest } from 'src/app/features/dappRequests/types/DappRequestTypes'
 import {
@@ -43,13 +44,12 @@ import {
   WalletSwitchEthereumChainRequest,
   WalletSwitchEthereumChainRequestSchema,
 } from 'src/contentScript/WindowEthereumRequestTypes'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
 import { chainIdToHexadecimalString, toSupportedChainId } from 'uniswap/src/features/chains/utils'
 import { DappRequestType, DappResponseType, EthMethod } from 'uniswap/src/features/dappRequests/types'
 import { isSelfCallWithData } from 'uniswap/src/features/dappRequests/utils'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
-import { areAddressesEqual } from 'uniswap/src/utils/addresses'
 import { extractBaseUrl } from 'utilities/src/format/urls'
+import { logger } from 'utilities/src/logger/logger'
+import { walletContextValue } from 'wallet/src/features/wallet/context'
 
 export class ExtensionEthMethodHandler extends BaseMethodHandler<WindowEthereumRequest> {
   private readonly requestIdToSourceMap: Map<string, PendingResponseInfo> = new Map()
@@ -128,12 +128,22 @@ export class ExtensionEthMethodHandler extends BaseMethodHandler<WindowEthereumR
         type: DappResponseType.ChainChangeResponse,
       })?.source
 
-      this.setChainIdAndMaybeEmit(message.chainId)
-      this.setProvider(new JsonRpcProvider(message.providerUrl, parseInt(message.chainId)))
-      source?.postMessage({
-        requestId: message.requestId,
-        result: message.chainId,
-      })
+      const chainId = toSupportedChainId(parseInt(message.chainId))
+      const provider = chainId ? walletContextValue.providers.tryGetProvider(chainId) : null
+      if (provider) {
+        this.setChainIdAndMaybeEmit(message.chainId)
+        this.setProvider(provider)
+        source?.postMessage({
+          requestId: message.requestId,
+          result: message.chainId,
+        })
+      } else {
+        logger.warn(
+          'ExtensionEthMethodHandler',
+          'ChainChangeResponseListener',
+          `Provider unavailable for chain ${message.chainId}`,
+        )
+      }
     })
 
     dappResponseMessageChannel.addMessageListener(DappResponseType.SendTransactionResponse, (message) => {
@@ -281,18 +291,23 @@ export class ExtensionEthMethodHandler extends BaseMethodHandler<WindowEthereumR
   private handleDappUpdate({
     connectedAddresses,
     chainId,
-    providerUrl,
+    providerUrl: _providerUrl,
   }: {
     connectedAddresses: string[]
     chainId: string
     providerUrl: string
   }): void {
-    this.setConnectedAddressesAndMaybeEmit(connectedAddresses)
-    this.setChainIdAndMaybeEmit(chainId)
-    this.setProvider(new JsonRpcProvider(providerUrl, parseInt(chainId)))
+    const supportedChainId = toSupportedChainId(parseInt(chainId))
+    const provider = supportedChainId ? walletContextValue.providers.tryGetProvider(supportedChainId) : null
+    if (provider) {
+      this.setConnectedAddressesAndMaybeEmit(connectedAddresses)
+      this.setChainIdAndMaybeEmit(chainId)
+      this.setProvider(provider)
+    } else {
+      logger.warn('ExtensionEthMethodHandler', 'handleDappUpdate', `Provider unavailable for chain ${chainId}`)
+    }
   }
 
-  // eslint-disable-next-line complexity
   async handleRequest(request: WindowEthereumRequest, source: MessageEventSource | null): Promise<void> {
     switch (request.method) {
       case EthMethod.EthChainId: {
@@ -457,10 +472,8 @@ export class ExtensionEthMethodHandler extends BaseMethodHandler<WindowEthereumR
   }
 
   async handleEthSendTransaction(request: EthSendTransactionRequest, source: MessageEventSource | null): Promise<void> {
-    // Reject transactions where from === to and data !== undefined (self-calls with data)
     if (
-      isSelfCallWithData({
-        from: request.transaction.from,
+      this.isSelfCallToConnectedAccount({
         to: request.transaction.to,
         data: request.transaction.data,
         chainId: toSupportedChainId(request.transaction.chainId) ?? undefined,
@@ -478,7 +491,7 @@ export class ExtensionEthMethodHandler extends BaseMethodHandler<WindowEthereumR
     const sendTransactionRequest: SendTransactionRequest = {
       type: DappRequestType.SendTransaction,
       requestId: request.requestId,
-      transaction: adaptTransactionForEthers(request.transaction),
+      transaction: request.transaction,
     }
 
     // native transactions like native send will not have populated data field
@@ -587,6 +600,25 @@ export class ExtensionEthMethodHandler extends BaseMethodHandler<WindowEthereumR
     })
   }
 
+  /**
+   * The background signs with the active connected account and never reads the dapp-supplied
+   * `from`, so a dapp can omit or spoof it. Judge self-calls by whether `to` is one of the
+   * wallet's connected accounts instead.
+   */
+  private isSelfCallToConnectedAccount({
+    to,
+    data,
+    chainId,
+  }: {
+    to?: string
+    data?: string
+    chainId?: UniverseChainId
+  }): boolean {
+    return (this.getConnectedAddresses() ?? []).some((address) =>
+      isSelfCallWithData({ from: address, to, data, chainId }),
+    )
+  }
+
   private isValidRequestAddress(address: string): boolean {
     return (this.getConnectedAddresses() ?? []).some((connectedAddress) =>
       areAddressesEqual({
@@ -620,14 +652,9 @@ export class ExtensionEthMethodHandler extends BaseMethodHandler<WindowEthereumR
    * This method allows dapps to send a batch of calls to the wallet
    */
   async handleWalletSendCalls(request: WalletSendCallsRequest, source: MessageEventSource | null): Promise<void> {
-    // Reject if any calls have from === to and data !== undefined
+    const chainId = toSupportedChainId(request.chainId) ?? undefined
     const hasSelfCallWithData = request.calls.some((call) =>
-      isSelfCallWithData({
-        from: request.from,
-        to: call.to,
-        data: call.data,
-        chainId: toSupportedChainId(request.chainId) ?? undefined,
-      }),
+      this.isSelfCallToConnectedAccount({ to: call.to, data: call.data, chainId }),
     )
 
     if (hasSelfCallWithData) {
@@ -665,12 +692,4 @@ export class ExtensionEthMethodHandler extends BaseMethodHandler<WindowEthereumR
       batchId: request.batchId,
     })
   }
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: Transaction object from dapp can have various shapes requiring flexible typing
-function adaptTransactionForEthers(transaction: any): any {
-  if (typeof transaction.chainId === 'string') {
-    transaction.chainId = parseInt(transaction.chainId, 16)
-  }
-  return transaction
 }

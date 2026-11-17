@@ -1,5 +1,4 @@
 import { useFocusEffect } from '@react-navigation/core'
-import { useState } from 'react'
 import { SectionName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 import type { TransactionSettingConfig } from 'uniswap/src/features/transactions/components/settings/types'
@@ -8,15 +7,18 @@ import {
   TransactionScreen,
   useTransactionModalContext,
 } from 'uniswap/src/features/transactions/components/TransactionModal/TransactionModalContext'
+import { GeoRestrictionModalStoreContextProvider } from 'uniswap/src/features/transactions/swap/components/GeoRestrictionCard/GeoRestrictionModalStoreContextProvider'
 import { SwapFormButton } from 'uniswap/src/features/transactions/swap/components/SwapFormButton/SwapFormButton'
-import { UnichainInstantBalanceModal } from 'uniswap/src/features/transactions/swap/components/UnichainInstantBalanceModal/UnichainInstantBalanceModal'
+import { SwapFormWarningStoreContextProvider } from 'uniswap/src/features/transactions/swap/form/stores/swapFormWarningStore/SwapFormWarningStoreContextProvider'
 import { SwapFormScreen } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/SwapFormScreen'
 import { SwapFormWarningModals } from 'uniswap/src/features/transactions/swap/form/SwapFormScreen/SwapFormWarningModals/SwapFormWarningModals'
-import { SwapFormWarningStoreContextProvider } from 'uniswap/src/features/transactions/swap/form/stores/swapFormWarningStore/SwapFormWarningStoreContextProvider'
-import { SwapReviewScreen } from 'uniswap/src/features/transactions/swap/review/SwapReviewScreen/SwapReviewScreen'
-import { useEvent } from 'utilities/src/react/hooks'
-import { useTimeout } from 'utilities/src/time/timing'
+import {
+  SwapReviewScreen,
+  SwapReviewScreenProviders,
+} from 'uniswap/src/features/transactions/swap/review/SwapReviewScreen/SwapReviewScreen'
+import { useDelayedRender } from 'utilities/src/react/useDelayedRender'
 
+// oxlint-disable-next-line typescript/consistent-return -- biome-parity: oxlint is stricter here
 export function CurrentScreen({
   settings,
   onSubmitSwap,
@@ -30,25 +32,23 @@ export function CurrentScreen({
   switch (screen) {
     case TransactionScreen.Form:
       return (
-        <Trace logImpression section={SectionName.SwapForm}>
-          <SwapFormScreenDelayedRender settings={settings} />
-          <TransactionModalFooterContainer>
-            <SwapFormWarningStoreContextProvider>
-              <SwapFormButton />
-              <SwapFormWarningModals />
-            </SwapFormWarningStoreContextProvider>
-          </TransactionModalFooterContainer>
-        </Trace>
+        <GeoRestrictionModalStoreContextProvider>
+          <Trace logImpression section={SectionName.SwapForm}>
+            <SwapFormScreenDelayedRender settings={settings} />
+            <TransactionModalFooterContainer>
+              <SwapFormWarningStoreContextProvider>
+                <SwapFormButton />
+                <SwapFormWarningModals />
+              </SwapFormWarningStoreContextProvider>
+            </TransactionModalFooterContainer>
+          </Trace>
+        </GeoRestrictionModalStoreContextProvider>
       )
     case TransactionScreen.Review:
-    case TransactionScreen.UnichainInstantBalance:
       return (
-        <>
-          <Trace logImpression section={SectionName.SwapReview}>
-            <SwapReviewScreenDelayedRender onSubmitSwap={onSubmitSwap} />
-          </Trace>
-          {screen === TransactionScreen.UnichainInstantBalance && <UnichainInstantBalanceModal />}
-        </>
+        <Trace logImpression section={SectionName.SwapReview}>
+          <SwapReviewScreenDelayedRender onSubmitSwap={onSubmitSwap} />
+        </Trace>
       )
   }
 }
@@ -68,13 +68,9 @@ function SwapFormScreenDelayedRender({ settings }: { settings: TransactionSettin
 function SwapReviewScreenDelayedRender({ onSubmitSwap }: { onSubmitSwap?: () => Promise<void> | void }): JSX.Element {
   const { isContentHidden } = useDelayedRender(SWAP_REVIEW_SCREEN_TRANSITION_DELAY)
 
-  return <SwapReviewScreen hideContent={isContentHidden} onSubmitSwap={onSubmitSwap} />
-}
-
-function useDelayedRender(delay: number): { isContentHidden: boolean } {
-  const [isContentHidden, setIsContentHidden] = useState(true)
-  const setVisible = useEvent(() => setIsContentHidden(false))
-  useTimeout(setVisible, delay)
-
-  return { isContentHidden }
+  return (
+    <SwapReviewScreenProviders hideContent={isContentHidden} onSubmitSwap={onSubmitSwap}>
+      <SwapReviewScreen />
+    </SwapReviewScreenProviders>
+  )
 }

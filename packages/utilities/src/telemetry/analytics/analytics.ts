@@ -1,4 +1,5 @@
 import { PlatformSplitStubError } from 'utilities/src/errors'
+import type { AnalyticsDebugBridge } from 'utilities/src/telemetry/analytics/analyticsDebugCapture'
 import { ApplicationTransport } from 'utilities/src/telemetry/analytics/ApplicationTransport'
 
 // matches amplitude supported values, not using amplitude's type to decouple from underlying library
@@ -18,16 +19,20 @@ export type AnalyticsInitConfig = {
   transportProvider: ApplicationTransport
   allowed: boolean
   initHash?: string
+  /** Serving-stack cohort marker ('workers' | 'ecs') attached to every event. */
+  buildType?: string
   userIdGetter?: () => Promise<string>
+  debugBridge?: AnalyticsDebugBridge
 }
 
 export interface Analytics {
-  init(config: AnalyticsInitConfig): Promise<void>
-  setAllowAnalytics(allowed: boolean): Promise<void>
-  setTestnetMode(enabled: boolean, _config: TestnetModeConfig): void
-  sendEvent(eventName: string, eventProperties: Record<string, unknown>): void
-  flushEvents(): void
-  setUserProperty(property: string, value: UserPropertyValue, insert?: boolean): void
+  init: (config: AnalyticsInitConfig) => Promise<void>
+  setAllowAnalytics: (allowed: boolean) => Promise<void>
+  setTestnetMode: (enabled: boolean, _config: TestnetModeConfig) => void
+  sendEvent: (eventName: string, eventProperties: Record<string, unknown>) => void
+  flushEvents: () => void
+  // oxlint-disable-next-line max-params
+  setUserProperty: (property: string, value: UserPropertyValue, insert?: boolean) => void
 }
 
 export const analytics: Analytics = {
@@ -46,7 +51,7 @@ export const analytics: Analytics = {
   flushEvents(): void {
     throw new PlatformSplitStubError('flushAnalyticsEvents')
   },
-  // eslint-disable-next-line max-params
+  // oxlint-disable-next-line max-params
   setUserProperty(_property: string, _value: UserPropertyValue, _insert?: boolean): void {
     throw new PlatformSplitStubError('setUserProperty')
   },

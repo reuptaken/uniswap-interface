@@ -1,25 +1,28 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type */
+// Saga handlers — redux-saga binds the receiver via call([obj, method]), which unbound-method can't model.
+/* oxlint-disable typescript/unbound-method */
 import { rpcErrors, serializeError } from '@metamask/rpc-errors'
 import { removeDappConnection } from 'src/app/features/dapp/actions'
-import { DappInfo } from 'src/app/features/dapp/store'
+import { type DappInfo } from 'src/app/features/dapp/store'
 import { saveAccount } from 'src/app/features/dappRequests/accounts'
 import type { SenderTabInfo } from 'src/app/features/dappRequests/shared'
 import {
-  ErrorResponse,
-  GetPermissionsRequest,
-  GetPermissionsResponse,
-  RequestPermissionsRequest,
-  RequestPermissionsResponse,
-  RevokePermissionsRequest,
-  RevokePermissionsResponse,
+  type ErrorResponse,
+  type GetPermissionsRequest,
+  type GetPermissionsResponse,
+  type RequestPermissionsRequest,
+  type RequestPermissionsResponse,
+  type RevokePermissionsRequest,
+  type RevokePermissionsResponse,
 } from 'src/app/features/dappRequests/types/DappRequestTypes'
 import { dappResponseMessageChannel } from 'src/background/messagePassing/messageChannels'
-import { Permission } from 'src/contentScript/WindowEthereumRequestTypes'
+import { type Permission } from 'src/contentScript/WindowEthereumRequestTypes'
 import { call, put } from 'typed-redux-saga'
 import { chainIdToHexadecimalString } from 'uniswap/src/features/chains/utils'
 import { DappResponseType, EthMethod } from 'uniswap/src/features/dappRequests/types'
 import { pushNotification } from 'uniswap/src/features/notifications/slice/slice'
 import { AppNotificationType } from 'uniswap/src/features/notifications/slice/types'
+import { ExtensionEventName } from 'uniswap/src/features/telemetry/constants'
+import { sendAnalyticsEvent } from 'uniswap/src/features/telemetry/send'
 import { extractBaseUrl } from 'utilities/src/format/urls'
 import { logger } from 'utilities/src/logger/logger'
 
@@ -41,7 +44,7 @@ export function getPermissions(dappUrl: string | undefined, connectedAddresses: 
 
 export function* handleGetPermissionsRequest({
   request,
-  senderTabInfo: { id, url },
+  senderTabInfo,
   dappInfo,
 }: {
   request: GetPermissionsRequest
@@ -51,7 +54,7 @@ export function* handleGetPermissionsRequest({
   const permissions: Permission[] = []
   if (dappInfo) {
     permissions.push({
-      invoker: url,
+      invoker: senderTabInfo.frameUrl,
       parentCapability: EthMethod.EthAccounts,
       caveats: [],
     })
@@ -62,7 +65,7 @@ export function* handleGetPermissionsRequest({
     requestId: request.requestId,
     permissions,
   }
-  yield* call(dappResponseMessageChannel.sendMessageToTab, id, response)
+  yield* call(dappResponseMessageChannel.sendMessageToFrame, senderTabInfo, response)
 }
 
 export function* handleRequestPermissions(request: RequestPermissionsRequest, senderTabInfo: SenderTabInfo) {
@@ -79,7 +82,7 @@ export function* handleRequestPermissions(request: RequestPermissionsRequest, se
 
     const permissions: Permission[] = [
       {
-        invoker: senderTabInfo.url,
+        invoker: senderTabInfo.frameUrl,
         parentCapability: EthMethod.EthAccounts,
         caveats: [],
       },
@@ -90,10 +93,18 @@ export function* handleRequestPermissions(request: RequestPermissionsRequest, se
       permissions,
       accounts,
     }
-    yield* call(dappResponseMessageChannel.sendMessageToTab, senderTabInfo.id, response)
+    yield* call(dappResponseMessageChannel.sendMessageToFrame, senderTabInfo, response)
+
+    // Track that a connection was established
+    sendAnalyticsEvent(ExtensionEventName.DappConnect, {
+      dappUrl: accountInfo?.dappUrl ?? extractBaseUrl(senderTabInfo.frameUrl),
+      chainId: accountInfo?.chainId,
+      activeConnectedAddress: accountInfo?.connectedAddresses[0],
+      connectedAddresses: accountInfo?.connectedAddresses ?? [],
+    })
   } else {
     logger.info('saga.ts', 'handleRequestPermissions', 'Unknown permissions requested', requestedPermissions)
-    yield* call(dappResponseMessageChannel.sendMessageToTab, senderTabInfo.id, {
+    yield* call(dappResponseMessageChannel.sendMessageToFrame, senderTabInfo, {
       type: DappResponseType.ErrorResponse,
       error: serializeError(rpcErrors.methodNotFound()),
       requestId: request.requestId,
@@ -105,7 +116,7 @@ export function* handleRevokePermissions(request: RevokePermissionsRequest, send
   const revokedPermissions = Object.keys(request.permissions)
 
   if (revokedPermissions.includes(EthMethod.EthAccounts)) {
-    const dappUrl = extractBaseUrl(senderTabInfo.url)
+    const dappUrl = extractBaseUrl(senderTabInfo.frameUrl)
 
     if (!dappUrl) {
       return
@@ -114,13 +125,13 @@ export function* handleRevokePermissions(request: RevokePermissionsRequest, send
     yield* call(removeDappConnection, dappUrl, undefined)
     yield* put(pushNotification({ type: AppNotificationType.DappDisconnected, dappIconUrl: senderTabInfo.favIconUrl }))
 
-    yield* call(dappResponseMessageChannel.sendMessageToTab, senderTabInfo.id, {
+    yield* call(dappResponseMessageChannel.sendMessageToFrame, senderTabInfo, {
       type: DappResponseType.RevokePermissionsResponse,
       requestId: request.requestId,
     } satisfies RevokePermissionsResponse)
   } else {
     logger.info('saga.ts', 'handleRevokePermissions', 'Unknown permissions requested', revokedPermissions)
-    yield* call(dappResponseMessageChannel.sendMessageToTab, senderTabInfo.id, {
+    yield* call(dappResponseMessageChannel.sendMessageToFrame, senderTabInfo, {
       type: DappResponseType.ErrorResponse,
       error: serializeError(rpcErrors.methodNotFound()),
       requestId: request.requestId,

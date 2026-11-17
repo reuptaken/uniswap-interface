@@ -1,24 +1,34 @@
 import { MULTICALL_ADDRESSES } from '@uniswap/sdk-core'
-import { useAccount } from 'hooks/useAccount'
+import { UniverseChainId } from '@universe/chains'
 import ms from 'ms'
-import { UniverseChainId } from 'uniswap/src/features/chains/types'
-import { assume0xAddress } from 'utils/wagmi'
 import { useReadContract } from 'wagmi'
+import { assume0xAddress } from '~/chains'
+import { useAccount } from '~/hooks/useAccount'
+
+interface UseCurrentBlockTimestampParams {
+  refetchInterval?: number | false
+  chainId?: UniverseChainId
+}
+
+export interface CurrentBlockTimestampResult {
+  blockTimestamp: bigint | undefined
+  blockTimestampUpdatedAt: number
+}
 
 /**
  * Gets the current block timestamp from the blockchain
  * @param refetchInterval - The interval to refetch the block timestamp (defaults to 3 minutes)
- * @returns The current block timestamp
+ * @returns The current block timestamp and the time it was last fetched
  */
-export default function useCurrentBlockTimestamp({
+export function useCurrentBlockTimestamp({
   refetchInterval = ms('3min'),
-}: {
-  refetchInterval?: number | false
-} = {}): bigint | undefined {
+  chainId,
+}: UseCurrentBlockTimestampParams = {}): CurrentBlockTimestampResult {
   const account = useAccount()
+  const resolvedChainId = chainId ?? account.chainId ?? UniverseChainId.Mainnet
 
-  return useReadContract({
-    address: assume0xAddress(MULTICALL_ADDRESSES[account.chainId ?? UniverseChainId.Mainnet]),
+  const result = useReadContract({
+    address: assume0xAddress(MULTICALL_ADDRESSES[resolvedChainId]),
     abi: [
       {
         inputs: [],
@@ -36,5 +46,10 @@ export default function useCurrentBlockTimestamp({
     ],
     functionName: 'getCurrentBlockTimestamp',
     query: { refetchInterval },
-  }).data
+  })
+
+  return {
+    blockTimestamp: result.data,
+    blockTimestampUpdatedAt: result.dataUpdatedAt,
+  }
 }

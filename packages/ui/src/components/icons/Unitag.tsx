@@ -1,11 +1,10 @@
+import { isMobileApp, isWebApp } from '@universe/environment'
+import { useIsDarkMode } from '@universe/mycelium'
+import { UNITAG_DARK, UNITAG_DARK_SMALL, UNITAG_LIGHT, UNITAG_LIGHT_SMALL } from '@universe/mycelium/assets'
+import { UniversalImage, UniversalImageStyleProps } from '@universe/mycelium/universal-image'
 import { memo, useMemo } from 'react'
-import { getTokenValue } from 'tamagui'
-import { UNITAG_DARK, UNITAG_DARK_SMALL, UNITAG_LIGHT, UNITAG_LIGHT_SMALL } from 'ui/src/assets'
-import { UniversalImageStyleProps } from 'ui/src/components/UniversalImage/types'
-import { UniversalImage } from 'ui/src/components/UniversalImage/UniversalImage'
-import { useIsDarkMode } from 'ui/src/hooks/useIsDarkMode'
+import { ICON_SIZE_TOKEN_PX } from 'ui/src/components/factories/iconTokens'
 import { IconSizeTokens } from 'ui/src/theme'
-import { isMobileApp, isWebApp } from 'utilities/src/platform'
 
 const style: UniversalImageStyleProps = {
   image: {
@@ -13,10 +12,10 @@ const style: UniversalImageStyleProps = {
   },
 }
 
-function _Unitag({ size = '$icon.24' }: { size: IconSizeTokens | number }): JSX.Element {
+function UnitagIcon({ size = '$icon.24' }: { size: IconSizeTokens | number }): JSX.Element {
   const isDarkMode = useIsDarkMode()
 
-  const sizeNumber = typeof size === 'number' ? size : getTokenValue(size)
+  const sizeNumber = typeof size === 'number' ? size : ICON_SIZE_TOKEN_PX[size]
   const universalImageSize = useMemo(() => ({ height: sizeNumber, width: sizeNumber }), [sizeNumber])
 
   const uri = useMemo(() => {
@@ -29,8 +28,8 @@ function _Unitag({ size = '$icon.24' }: { size: IconSizeTokens | number }): JSX.
   if (isWebApp) {
     return <img src={uri} width={universalImageSize.width} height={universalImageSize.height} style={style.image} />
   } else {
-    return <UniversalImage style={style} size={universalImageSize} uri={uri} allowLocalUri />
+    return <UniversalImage allowLocalUri style={style} size={universalImageSize} uri={uri} />
   }
 }
 
-export const Unitag = memo(_Unitag)
+export const Unitag = memo(UnitagIcon)

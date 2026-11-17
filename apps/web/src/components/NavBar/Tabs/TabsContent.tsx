@@ -1,20 +1,24 @@
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { Limit } from 'components/Icons/Limit'
-import { SwapV2 } from 'components/Icons/SwapV2'
-import { MenuItem } from 'components/NavBar/CompanyMenu/Content'
-import { usePortfolioRoutes } from 'pages/Portfolio/Header/hooks/usePortfolioRoutes'
-import { PortfolioTab } from 'pages/Portfolio/types'
-import { buildPortfolioUrl } from 'pages/Portfolio/utils/portfolioUrls'
+import { ChartBar } from '@universe/mycelium/icons/ChartBar'
+import { CoinConvert } from '@universe/mycelium/icons/CoinConvert'
+import { Compass } from '@universe/mycelium/icons/Compass'
+import { CreditCard } from '@universe/mycelium/icons/CreditCard'
+import { Pools } from '@universe/mycelium/icons/Pools'
+import { ReceiveAlt } from '@universe/mycelium/icons/ReceiveAlt'
+import { Rocket } from '@universe/mycelium/icons/Rocket'
+import { Wallet } from '@universe/mycelium/icons/Wallet'
+import { useSporeColors } from '@universe/mycelium/theme-hooks-compat'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from 'react-router'
-import { useSporeColors } from 'ui/src'
-import { CoinConvert } from 'ui/src/components/icons/CoinConvert'
-import { Compass } from 'ui/src/components/icons/Compass'
-import { CreditCard } from 'ui/src/components/icons/CreditCard'
-import { Pools } from 'ui/src/components/icons/Pools'
-import { ReceiveAlt } from 'ui/src/components/icons/ReceiveAlt'
-import { Wallet } from 'ui/src/components/icons/Wallet'
+import Badge, { BadgeVariant } from 'uniswap/src/components/badge/Badge'
 import { ElementName } from 'uniswap/src/features/telemetry/constants'
+import { MenuItem } from '~/components/NavBar/CompanyMenu/Content'
+import { PageType } from '~/hooks/useIsPage'
+import { ADD_LIQUIDITY_PATH } from '~/pages/AddLiquidity/poolLinkParams'
+import { usePortfolioRoutes } from '~/pages/Portfolio/Header/hooks/usePortfolioRoutes'
+import { PortfolioTab } from '~/pages/Portfolio/types'
+import { buildPortfolioUrl } from '~/pages/Portfolio/utils/portfolioUrls'
+import { EntryPointKind, resolveEntryPoint } from '~/utils/createPositionEntryPoint'
 
 export type TabsSection = {
   title: string
@@ -23,139 +27,209 @@ export type TabsSection = {
   items?: TabsItem[]
   closeMenu?: () => void
   icon?: JSX.Element
+  /** Small pill rendered next to the tab label (e.g. the Launches "Beta" tag). */
+  badge?: JSX.Element
+  elementName: ElementName
 }
 
 export type TabsItem = MenuItem & {
   icon?: JSX.Element
-  elementName?: ElementName
 }
 
 export const useTabsContent = (): TabsSection[] => {
   const { t } = useTranslation()
-  const { pathname } = useLocation()
-  const { chainId: portfolioChainId } = usePortfolioRoutes()
+  const { pathname, search, state } = useLocation()
+  const { chainId: portfolioChainId, isExternalWallet } = usePortfolioRoutes()
   const colors = useSporeColors()
-  const isFiatOffRampEnabled = useFeatureFlag(FeatureFlags.FiatOffRamp)
-  const isPortfolioPageEnabled = useFeatureFlag(FeatureFlags.PortfolioPage)
-  const isToucanEnabled = useFeatureFlag(FeatureFlags.Toucan)
   const isPortfolioDefiTabEnabled = useFeatureFlag(FeatureFlags.PortfolioDefiTab)
+  const portfolioPoolsBalancesEnabled = useFeatureFlag(FeatureFlags.PortfolioPoolsBalances)
+  const entryPoint = resolveEntryPoint({ search, state })
+  const isPortfolioPoolsEntryPointActive = entryPoint.kind === EntryPointKind.PortfolioPools
 
   return [
     {
       title: t('common.trade'),
       href: '/swap',
       isActive: pathname.startsWith('/swap') || pathname.startsWith('/limit') || pathname.startsWith('/send'),
-      icon: <CoinConvert color="$accent1" size="$icon.20" />,
+      icon: <CoinConvert color="$accent1" size="$icon.24" />,
+      elementName: ElementName.NavbarTradeTab,
       items: [
         {
           label: t('common.swap'),
-          icon: <SwapV2 fill={colors.neutral2.val} />,
+          icon: <CoinConvert size="$icon.24" color="$neutral2" />,
           href: '/swap',
           internal: true,
+          elementName: ElementName.NavbarTradeDropdownSwap,
         },
         {
           label: t('swap.limit'),
-          icon: <Limit fill={colors.neutral2.val} />,
+          icon: <ChartBar size="$icon.24" color="$neutral2" />,
           href: '/limit',
           internal: true,
+          elementName: ElementName.NavbarTradeDropdownLimit,
         },
         {
           label: t('common.buy.label'),
           icon: <CreditCard size="$icon.24" color="$neutral2" />,
           href: '/buy',
           internal: true,
+          elementName: ElementName.NavbarTradeDropdownBuy,
         },
-        ...(isFiatOffRampEnabled
-          ? [
-              {
-                label: t('common.sell.label'),
-                icon: <ReceiveAlt fill={colors.neutral2.val} size={24} transform="rotate(180deg)" />,
-                href: '/sell',
-                internal: true,
-              },
-            ]
-          : []),
+        {
+          label: t('common.sell.label'),
+          icon: <ReceiveAlt fill={colors.neutral2.val} size={24} transform="rotate(180deg)" />,
+          href: '/sell',
+          internal: true,
+          elementName: ElementName.NavbarTradeDropdownSell,
+        },
       ],
     },
     {
       title: t('common.explore'),
       href: '/explore',
       isActive: pathname.startsWith('/explore') || pathname.startsWith('/nfts'),
-      icon: <Compass color="$accent1" size="$icon.20" />,
+      icon: <Compass color="$accent1" size="$icon.24" />,
+      elementName: ElementName.NavbarExploreTab,
       items: [
-        { label: t('common.tokens'), href: '/explore/tokens', internal: true },
-        { label: t('common.pools'), href: '/explore/pools', internal: true },
+        {
+          label: t('common.token.plural'),
+          href: '/explore/tokens',
+          internal: true,
+          elementName: ElementName.NavbarExploreDropdownTokens,
+        },
+        {
+          label: t('toucan.auctions'),
+          href: '/explore/auctions',
+          internal: true,
+          elementName: ElementName.NavbarExploreDropdownToucan,
+        },
+        {
+          label: t('common.pools'),
+          href: '/explore/pools',
+          internal: true,
+          elementName: ElementName.NavbarExploreDropdownPools,
+        },
         {
           label: t('common.transactions'),
           href: '/explore/transactions',
           internal: true,
+          elementName: ElementName.NavbarExploreDropdownTransactions,
         },
-        ...(isToucanEnabled ? [{ label: 'Toucan', href: '/explore/auctions', internal: true }] : []),
       ],
+    },
+    {
+      title: t('common.launches'),
+      href: '/launches',
+      isActive: pathname.startsWith('/launches'),
+      icon: <Rocket color="$accent1" size="$icon.24" />,
+      badge: (
+        <Badge badgeVariant={BadgeVariant.SOFT} size="small" placement="only">
+          {t('common.beta')}
+        </Badge>
+      ),
+      elementName: ElementName.NavbarLaunchesTab,
     },
     {
       title: t('common.pool'),
       href: '/positions',
-      isActive: pathname.startsWith('/positions'),
-      icon: <Pools color="$accent1" size="$icon.20" />,
+      isActive:
+        !isPortfolioPoolsEntryPointActive && (pathname.startsWith('/positions') || pathname.startsWith('/liquidity')),
+      icon: <Pools color="$accent1" size="$icon.24" />,
+      elementName: ElementName.NavbarPoolTab,
       items: [
         {
           label: t('nav.tabs.viewPositions'),
           href: '/positions',
           internal: true,
+          elementName: ElementName.NavbarPoolDropdownViewPositions,
         },
         {
           label: t('nav.tabs.createPosition'),
-          href: '/positions/create',
+          href: ADD_LIQUIDITY_PATH,
           internal: true,
+          elementName: ElementName.NavbarPoolDropdownCreatePosition,
+        },
+        {
+          label: t('toucan.createAuction.launchAuction'),
+          href: '/liquidity/launch-auction',
+          internal: true,
+          elementName: ElementName.NavbarPoolDropdownLaunchAuction,
         },
       ],
     },
-    ...(isPortfolioPageEnabled
-      ? [
-          {
-            title: t('common.portfolio'),
-            href: buildPortfolioUrl(PortfolioTab.Overview, portfolioChainId),
-            isActive: pathname.startsWith('/portfolio'),
-            icon: <Wallet color="$accent1" size="$icon.20" />,
-            items: [
+    {
+      title: t('common.portfolio'),
+      href: buildPortfolioUrl({
+        tab: PortfolioTab.Overview,
+        chainId: portfolioChainId,
+      }),
+      isActive: (pathname.startsWith(PageType.PORTFOLIO) && !isExternalWallet) || isPortfolioPoolsEntryPointActive,
+      icon: <Wallet color="$accent1" size="$icon.24" />,
+      elementName: ElementName.NavbarPortfolioTab,
+      items: [
+        {
+          label: t('portfolio.overview.title'),
+          href: buildPortfolioUrl({
+            tab: PortfolioTab.Overview,
+            chainId: portfolioChainId,
+          }),
+          internal: true,
+          elementName: ElementName.NavbarPortfolioDropdownOverview,
+        },
+        {
+          label: t('common.token.plural'),
+          href: buildPortfolioUrl({
+            tab: PortfolioTab.Tokens,
+            chainId: portfolioChainId,
+          }),
+          internal: true,
+          elementName: ElementName.NavbarPortfolioDropdownTokens,
+        },
+        ...(portfolioPoolsBalancesEnabled
+          ? [
               {
-                label: t('portfolio.overview.title'),
-                href: buildPortfolioUrl(PortfolioTab.Overview, portfolioChainId),
+                label: t('common.pools'),
+                href: buildPortfolioUrl({
+                  tab: PortfolioTab.Pools,
+                  chainId: portfolioChainId,
+                }),
                 internal: true,
-                elementName: ElementName.NavbarPortfolioDropdownOverview,
+                elementName: ElementName.NavbarPortfolioDropdownPools,
               },
+            ]
+          : []),
+        ...(isPortfolioDefiTabEnabled
+          ? [
               {
-                label: t('portfolio.tokens.title'),
-                href: buildPortfolioUrl(PortfolioTab.Tokens, portfolioChainId),
+                label: t('portfolio.defi.title'),
+                href: buildPortfolioUrl({
+                  tab: PortfolioTab.Defi,
+                  chainId: portfolioChainId,
+                }),
                 internal: true,
-                elementName: ElementName.NavbarPortfolioDropdownTokens,
+                elementName: ElementName.NavbarPortfolioDropdownDefi,
               },
-              ...(isPortfolioDefiTabEnabled
-                ? [
-                    {
-                      label: t('portfolio.defi.title'),
-                      href: buildPortfolioUrl(PortfolioTab.Defi, portfolioChainId),
-                      internal: true,
-                      elementName: ElementName.NavbarPortfolioDropdownDefi,
-                    },
-                  ]
-                : []),
-              {
-                label: t('portfolio.nfts.title'),
-                href: buildPortfolioUrl(PortfolioTab.Nfts, portfolioChainId),
-                internal: true,
-                elementName: ElementName.NavbarPortfolioDropdownNfts,
-              },
-              {
-                label: t('portfolio.activity.title'),
-                href: buildPortfolioUrl(PortfolioTab.Activity, portfolioChainId),
-                internal: true,
-                elementName: ElementName.NavbarPortfolioDropdownActivity,
-              },
-            ],
-          },
-        ]
-      : []),
+            ]
+          : []),
+        {
+          label: t('portfolio.nfts.title'),
+          href: buildPortfolioUrl({
+            tab: PortfolioTab.Nfts,
+            chainId: portfolioChainId,
+          }),
+          internal: true,
+          elementName: ElementName.NavbarPortfolioDropdownNfts,
+        },
+        {
+          label: t('common.activity'),
+          href: buildPortfolioUrl({
+            tab: PortfolioTab.Activity,
+            chainId: portfolioChainId,
+          }),
+          internal: true,
+          elementName: ElementName.NavbarPortfolioDropdownActivity,
+        },
+      ],
+    },
   ]
 }

@@ -1,37 +1,34 @@
-import { NetworkStatus } from '@apollo/client'
-import { Token } from '@uniswap/sdk-core'
+import type { Token } from '@uniswap/sdk-core'
+import { usePortfolioTotalValue } from 'uniswap/src/features/dataApi/balances/balancesRest'
+import type { PortfolioBalance } from 'uniswap/src/features/dataApi/types'
 import {
-  sortPortfolioBalances,
   usePortfolioBalances,
   usePortfolioValueModifiers,
   useSortedPortfolioBalances,
   useTokenBalancesGroupedByVisibility,
-} from 'uniswap/src/features/dataApi/balances/balances'
-import { usePortfolioTotalValue } from 'uniswap/src/features/dataApi/balances/balancesRest'
-import { PortfolioBalance } from 'uniswap/src/features/dataApi/types'
-import { initialUserSettingsState, UserSettingsState } from 'uniswap/src/features/settings/slice'
-import { CurrencyIdToVisibility, initialVisibilityState, VisibilityState } from 'uniswap/src/features/visibility/slice'
+} from 'uniswap/src/features/portfolio/balances/hooks'
+import { sortPortfolioBalances } from 'uniswap/src/features/portfolio/balances/sortPortfolioBalances'
+import { initialUserSettingsState } from 'uniswap/src/features/settings/slice'
+import type { UserSettingsState } from 'uniswap/src/features/settings/slice'
+import { initialVisibilityState } from 'uniswap/src/features/visibility/slice'
+import type { CurrencyIdToVisibility, VisibilityState } from 'uniswap/src/features/visibility/slice'
 import {
   ARBITRUM_CURRENCY,
   BASE_CURRENCY,
   currencyInfo,
-  daiToken,
-  ethToken,
   MAINNET_CURRENCY,
   OPTIMISM_CURRENCY,
   POLYGON_CURRENCY,
   portfolioBalance,
   SAMPLE_SEED_ADDRESS_1,
   SAMPLE_SEED_ADDRESS_2,
-  tokenBalance,
 } from 'uniswap/src/test/fixtures'
+import { daiV2Token, ethV2Token } from 'uniswap/src/test/fixtures/dataApi/tokens'
 import { createArray } from 'uniswap/src/test/utils'
 import { renderHook } from 'wallet/src/test/test-utils'
 
-const daiTokenBalance = tokenBalance({ token: daiToken(), isHidden: true })
-const ethTokenBalance = tokenBalance({ token: ethToken(), isHidden: false })
-const daiPortfolioBalance = portfolioBalance({ fromBalance: daiTokenBalance })
-const ethPortfolioBalance = portfolioBalance({ fromBalance: ethTokenBalance })
+const daiPortfolioBalance = portfolioBalance({ fromToken: daiV2Token(), isHidden: true })
+const ethPortfolioBalance = portfolioBalance({ fromToken: ethV2Token(), isHidden: false })
 
 describe(usePortfolioValueModifiers, () => {
   const sharedModifier = {
@@ -121,6 +118,29 @@ describe(usePortfolioValueModifiers, () => {
         { ...sharedModifier, ownerAddress: SAMPLE_SEED_ADDRESS_2, includeSpamTokens: false },
       ])
     })
+
+    it('returns includeSpamTokens true in testnet mode even when hideSpamTokens is true', () => {
+      const { result } = renderHook(() => usePortfolioValueModifiers([SAMPLE_SEED_ADDRESS_1, SAMPLE_SEED_ADDRESS_2]), {
+        preloadedState: {
+          userSettings: mockUserSettingsState({ hideSpamTokens: true, isTestnetModeEnabled: true }),
+        },
+      })
+
+      expect(result.current).toEqual([
+        {
+          ...sharedModifier,
+          ownerAddress: SAMPLE_SEED_ADDRESS_1,
+          includeSpamTokens: true,
+          includeSmallBalances: true,
+        },
+        {
+          ...sharedModifier,
+          ownerAddress: SAMPLE_SEED_ADDRESS_2,
+          includeSpamTokens: true,
+          includeSmallBalances: true,
+        },
+      ])
+    })
   })
 
   describe('token overrides', () => {
@@ -148,9 +168,12 @@ describe(usePortfolioBalances, () => {
     expect(result.current).toEqual({
       data: undefined,
       loading: false,
-      networkStatus: NetworkStatus.loading, // TanStack Query initial state
+      isPending: true,
+      isError: false,
       refetch: expect.any(Function),
       error: undefined,
+      dataUpdatedAt: undefined,
+      isPlaceholderData: false,
     })
   })
 })
@@ -162,9 +185,11 @@ describe(usePortfolioTotalValue, () => {
     expect(result.current).toEqual({
       data: undefined,
       loading: false,
-      networkStatus: NetworkStatus.loading, // TanStack Query initial state
+      isPending: true,
+      isError: false,
       refetch: expect.any(Function),
       error: undefined,
+      dataUpdatedAt: undefined,
     })
   })
 })
@@ -209,7 +234,8 @@ describe(useSortedPortfolioBalances, () => {
         hiddenBalances: [],
       },
       loading: true,
-      networkStatus: NetworkStatus.loading,
+      isPending: true,
+      isError: false,
       refetch: expect.any(Function),
     })
   })
@@ -308,7 +334,7 @@ describe(sortPortfolioBalances, () => {
   it('[prod mode] sorts balances with USD value by USD value in descending order', () => {
     const result = sortPortfolioBalances({ balances: balancesWithUSD, isTestnetModeEnabled: false })
 
-    expect(result).toEqual(balancesWithUSD.sort((a, b) => b.balanceUSD! - a.balanceUSD!))
+    expect(result).toEqual(balancesWithUSD.sort((a, b) => b.balanceUSD - a.balanceUSD))
   })
 
   it('[prod mode] sorts balances without USD value by name', () => {
@@ -338,7 +364,7 @@ describe(sortPortfolioBalances, () => {
   it('[testnet mode] sorts native balances by balance in descending order', () => {
     const result = sortPortfolioBalances({ balances: nativeBalances, isTestnetModeEnabled: true })
 
-    expect(result).toEqual(nativeBalances.sort((a, b) => b.quantity! - a.quantity!))
+    expect(result).toEqual(nativeBalances.sort((a, b) => b.quantity - a.quantity))
   })
 
   it('[testnet mode] sorts token balances by name', () => {

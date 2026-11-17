@@ -1,6 +1,7 @@
+import { Flex, Input, Text } from '@universe/mycelium'
+import { useMedia } from '@universe/mycelium/theme-hooks-compat'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Flex, Input, Text, useMedia } from 'ui/src'
 import { Search } from 'ui/src/components/icons/Search'
 import { SearchInputProps } from 'uniswap/src/components/nfts/types'
 import { useDebouncedCallback } from 'utilities/src/react/useDebouncedCallback'
@@ -9,9 +10,11 @@ const DEFAULT_SEARCH_INPUT_WIDTH = 320
 const DEBOUNCE_DELAY_MS = 300
 
 interface NftListHeaderProps {
-  count: number
   onSearchValueChange: (value: string) => void
   SearchInputComponent?: React.ComponentType<SearchInputProps>
+  searchInputTestId?: string
+  headerTestId?: string
+  isExternalWallet?: boolean
 }
 
 function DefaultSearchInput({ value, onChangeText, placeholder, width }: SearchInputProps): JSX.Element {
@@ -21,7 +24,7 @@ function DefaultSearchInput({ value, onChangeText, placeholder, width }: SearchI
         placeholder={placeholder}
         value={value}
         backgroundColor="$surface2"
-        borderWidth={1}
+        borderWidth="$spacing1"
         borderRadius="$rounded12"
         width={width}
         height={40}
@@ -58,9 +61,11 @@ function DefaultSearchInput({ value, onChangeText, placeholder, width }: SearchI
 }
 
 export function NftListHeader({
-  count,
   onSearchValueChange,
   SearchInputComponent = DefaultSearchInput,
+  searchInputTestId,
+  headerTestId,
+  isExternalWallet = false,
 }: NftListHeaderProps): JSX.Element {
   const { t } = useTranslation()
   const media = useMedia()
@@ -76,8 +81,6 @@ export function NftListHeader({
     debouncedOnChangeText(newValue)
   }
 
-  const displayCount = count > 0 ? `${count} ` : ''
-  const title = t('portfolio.nfts.title')
   const placeholder = t('portfolio.nfts.search.placeholder')
   const searchWidth = media.md ? '100%' : DEFAULT_SEARCH_INPUT_WIDTH
 
@@ -87,17 +90,18 @@ export function NftListHeader({
       alignItems="flex-end"
       justifyContent="space-between"
       $md={{ flexDirection: 'column', alignItems: 'flex-start', gap: '$spacing24' }}
+      data-testid={headerTestId}
     >
       <Flex group row alignItems="center" gap="$spacing8">
         <Text variant="body2" color="$neutral2" textWrap="nowrap">
-          {displayCount}
-          {title}
+          {isExternalWallet ? t('portfolio.nfts.title') : t('portfolio.nfts.title.yours')}
         </Text>
       </Flex>
       <SearchInputComponent
         value={search}
         placeholder={placeholder}
         width={searchWidth}
+        dataTestId={searchInputTestId}
         onChangeText={handleChangeText}
       />
     </Flex>

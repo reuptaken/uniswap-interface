@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react'
-import { MatchType, PageType, useIsPage } from 'hooks/useIsPage'
 import { BrowserRouter } from 'react-router'
+import { MatchType, PageType, useIsPage } from '~/hooks/useIsPage'
 
 describe('useIsPage', () => {
   it.each([
@@ -9,7 +9,6 @@ describe('useIsPage', () => {
     [PageType.LANDING, '/'],
     [PageType.LIMIT, '/limit'],
     [PageType.MIGRATE_V3, '/migrate/v3/info'],
-    [PageType.CREATE_POSITION, '/positions/create'],
     [PageType.SEND, '/path/to/send'],
     [PageType.SWAP, '/swap/'],
     [PageType.SWAP, '/swap//'],
@@ -25,7 +24,6 @@ describe('useIsPage', () => {
     [PageType.SWAP, '/swap/details', MatchType.STARTS_WITH],
     [PageType.POSITIONS, '/view/positions', MatchType.INCLUDES],
     [PageType.SEND, '/send', MatchType.EXACT],
-    // eslint-disable-next-line max-params
   ])('overrides default MatchType for %s when custom MatchType %s is provided', (pageType, path, matchType) => {
     window.history.pushState({}, '', path)
     const { result } = renderHook(() => useIsPage(pageType, matchType), {

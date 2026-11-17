@@ -13,7 +13,16 @@
  * ```
  */
 
-import { ComponentType, LazyExoticComponent, lazy } from 'react'
+import {
+  ComponentProps,
+  ComponentType,
+  LazyExoticComponent,
+  ReactElement,
+  createElement,
+  lazy,
+  useEffect,
+  useState,
+} from 'react'
 import { logger } from 'utilities/src/logger/logger'
 
 interface RetryOptions {
@@ -42,6 +51,9 @@ function isDynamicImportError(error: Error): boolean {
 
   const dynamicImportErrorPatterns = [
     'failed to fetch dynamically imported module',
+    'importing a module script failed', // Safari
+    'error loading dynamically imported module', // Firefox
+    'unable to preload css',
     'loading chunk failed',
     'loading css chunk failed',
     'failed to fetch',
@@ -78,18 +90,18 @@ function attemptPageRefresh(): void {
     const now = Date.now()
 
     if (lastRefresh && now - parseInt(lastRefresh, 10) < REFRESH_COOLDOWN_DURATION) {
-      // biome-ignore lint/suspicious/noConsole: Need console for debugging retry cooldown logic
+      // oxlint-disable-next-line no-console -- Need console for debugging retry cooldown logic
       console.warn('Page refresh skipped due to recent refresh (cooldown active)')
       return
     }
 
     localStorage.setItem(REFRESH_COOLDOWN_KEY, now.toString())
-    // biome-ignore lint/suspicious/noConsole: Need console for debugging import failure refresh
+    // oxlint-disable-next-line no-console -- Need console for debugging import failure refresh
     console.log('Dynamic import failed after all retries, refreshing page...')
     window.location.reload()
   } catch (error) {
     // If localStorage fails, still try to refresh but log the issue
-    // biome-ignore lint/suspicious/noConsole: Need console for debugging refresh fallback logic
+    // oxlint-disable-next-line no-console -- Need console for debugging refresh fallback logic
     console.warn('Failed to set refresh cooldown, refreshing anyway:', error)
     window.location.reload()
   }
@@ -107,7 +119,13 @@ function createRetryableImport<T extends ComponentType<any>>(
 
     for (let attempt = 1; attempt <= options.maxRetries + 1; attempt++) {
       try {
-        const result = await importFn()
+        // Cast: a cancelled vite:preloadError event makes failed imports resolve undefined at
+        // runtime even though the declared type is Promise<{ default: T }>
+        const result = (await importFn()) as { default: T } | undefined
+        if (result === undefined) {
+          // Treat as a load failure so it retries rather than reaching React.lazy
+          throw new Error('Failed to fetch dynamically imported module: import resolved undefined')
+        }
         return result
       } catch (error) {
         lastError = error as Error
@@ -144,7 +162,7 @@ function createRetryableImport<T extends ComponentType<any>>(
         // Calculate delay and wait before retrying
         const delay = calculateDelay(attempt, { baseDelay: options.baseDelay, maxDelay: options.maxDelay })
 
-        // biome-ignore lint/suspicious/noConsole: Need console for debugging import retry attempts
+        // oxlint-disable-next-line no-console -- Need console for debugging import retry attempts
         console.warn(
           `Dynamic import failed (attempt ${attempt}/${options.maxRetries}), retrying in ${Math.round(delay)}ms:`,
           lastError.message,
@@ -252,6 +270,67 @@ export const createLazy = createLazyFactory({
   maxDelay: 8000,
   refreshOnFinalFailure: true,
 })
+
+function RenderNothing(): null {
+  return null
+}
+
+/**
+ * Enhanced React.lazy for components that mount eagerly rather than in response to a user action
+ * (e.g. always-mounted modals in the top-level modal registry).
+ *
+ * A hidden component failing to load must never reload the page under the user, so unlike
+ * `createLazy`, exhausting all retries logs the failure and renders nothing. The failed import is
+ * not cached: the next mount re-attempts it, so the component recovers once its chunk is fetchable
+ * again. Non-import errors are rethrown to the nearest error boundary.
+ *
+ * Requires a Suspense boundary, like React.lazy.
+ */
+export function createLazyNoReload<T extends ComponentType<any>>(
+  importFn: () => Promise<{ default: T }>,
+  options: RetryOptions = {},
+): ComponentType<ComponentProps<T>> {
+  const finalOptions: Required<RetryOptions> = { ...DEFAULT_OPTIONS, ...options, refreshOnFinalFailure: false }
+  const retryableImport = createRetryableImport(importFn, finalOptions)
+
+  let currentLazy: LazyExoticComponent<T> | undefined
+  let importFailed = false
+
+  function getOrCreateLazy(): LazyExoticComponent<T> {
+    // Final failure is already logged by the retry loop
+    currentLazy ??= lazy(async () => {
+      try {
+        return await retryableImport()
+      } catch (error) {
+        if (!(error instanceof Error) || !isDynamicImportError(error)) {
+          throw error
+        }
+        importFailed = true
+        return { default: RenderNothing as unknown as T }
+      }
+    })
+    return currentLazy
+  }
+
+  function LazyNoReload(props: ComponentProps<T>): ReactElement {
+    const [LazyComponent] = useState(getOrCreateLazy)
+
+    // React re-runs render-phase initializers when a suspended tree is retried, so the cached
+    // lazy can only be dropped after a commit — dropping it inside the import catch re-attempts
+    // the import in a loop. This effect runs once the failed load has committed (rendering
+    // nothing); the next mount then re-attempts the import.
+    useEffect(() => {
+      if (importFailed) {
+        importFailed = false
+        currentLazy = undefined
+      }
+    }, [])
+
+    return createElement(LazyComponent, props)
+  }
+
+  return LazyNoReload
+}
 
 // Export for testing purposes
 export { isDynamicImportError }

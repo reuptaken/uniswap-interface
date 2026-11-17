@@ -1,17 +1,13 @@
-import { GraphQLApi } from '@universe/api'
+import { GraphQLApi, TradingApi } from '@universe/api'
+import { UniverseChainId, Platform } from '@universe/chains'
 import { SwapConfigKey } from '@universe/gating'
-import { POLYGON_LOGO } from 'ui/src/assets'
+import { POLYGON_LOGO } from '@universe/mycelium/assets'
 import { config } from 'uniswap/src/config'
-import { getQuicknodeEndpointUrl } from 'uniswap/src/features/chains/evm/rpc'
+import { ALL_APPS_CHAIN_SUPPORTED_APPS } from 'uniswap/src/features/chains/chainAppSupport'
+import { CHAIN_ID_TO_URL_PARAM } from 'uniswap/src/features/chains/chainUrlParam'
+import { getUniRpcEndpointUrl } from 'uniswap/src/features/chains/evm/rpc'
 import { buildChainTokens } from 'uniswap/src/features/chains/evm/tokens'
-import {
-  GqlChainId,
-  NetworkLayer,
-  RPCType,
-  UniverseChainId,
-  UniverseChainInfo,
-} from 'uniswap/src/features/chains/types'
-import { Platform } from 'uniswap/src/features/platforms/types/Platform'
+import { GqlChainId, NetworkLayer, RPCType, UniverseChainInfo } from 'uniswap/src/features/chains/types'
 import { ElementName } from 'uniswap/src/features/telemetry/constants'
 import { buildDAI, buildUSDC, buildUSDT } from 'uniswap/src/features/tokens/stablecoin'
 import { polygon } from 'wagmi/chains'
@@ -28,6 +24,7 @@ export const POLYGON_CHAIN_INFO = {
   ...polygon,
   id: UniverseChainId.Polygon,
   platform: Platform.EVM,
+  supportedApps: ALL_APPS_CHAIN_SUPPORTED_APPS,
   assetRepoNetworkName: 'polygon',
   blockPerMainnetEpochForChainId: 5,
   backendChain: {
@@ -42,10 +39,10 @@ export const POLYGON_CHAIN_INFO = {
   explorer: {
     name: 'PolygonScan',
     url: 'https://polygonscan.com/',
-    apiURL: 'https://api.polygonscan.com',
   },
   openseaName: 'matic',
   interfaceName: 'polygon',
+  searchAliases: ['poly'],
   label: 'Polygon',
   logo: POLYGON_LOGO,
   name: 'Polygon Mainnet',
@@ -57,18 +54,22 @@ export const POLYGON_CHAIN_INFO = {
     logo: POLYGON_LOGO,
   },
   networkLayer: NetworkLayer.L1,
+  blockTimeMs: 2000,
   pendingTransactionsRetryOptions: undefined,
   rpcUrls: {
-    [RPCType.Public]: { http: [getQuicknodeEndpointUrl(UniverseChainId.Polygon)] },
+    [RPCType.Public]: { http: [getUniRpcEndpointUrl(UniverseChainId.Polygon)] },
     [RPCType.PublicAlt]: { http: ['https://polygon-rpc.com/'] },
-    [RPCType.Default]: { http: ['https://polygon-rpc.com/'] },
+    // Default feeds wallet-connector rpc maps (cookieless). Unkeyed, CSP-allowed public endpoint.
+    [RPCType.Default]: { http: ['https://polygon.drpc.org'] },
+    [RPCType.Fallback]: { http: ['https://polygon-rpc.com/'] },
     [RPCType.Interface]: { http: [`https://polygon-mainnet.infura.io/v3/${config.infuraKey}`] },
   },
   tokens,
   statusPage: undefined,
+  supportedURVersions: [TradingApi.UniversalRouterVersion._2_0, TradingApi.UniversalRouterVersion._2_1_1],
   supportsV4: true,
   supportsNFTs: true,
-  urlParam: 'polygon',
+  urlParam: CHAIN_ID_TO_URL_PARAM[UniverseChainId.Polygon],
   wrappedNativeCurrency: {
     name: 'Wrapped POL',
     symbol: 'WPOL',

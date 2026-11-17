@@ -1,18 +1,21 @@
-import { UnitagClaimSource } from '@universe/api'
+import { isMobileApp } from '@universe/environment'
+import { Button, Flex, spacing, Text, TouchableArea } from '@universe/mycelium'
+import { Pen } from '@universe/mycelium/icons/Pen'
+import { useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
+import { TestID } from '@universe/test'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button, Flex, Text, TouchableArea, useIsDarkMode } from 'ui/src'
-import { Pen } from 'ui/src/components/icons'
-import { imageSizes, spacing } from 'ui/src/theme'
+import { imageSizes } from 'ui/src/theme'
 import { useENSName } from 'uniswap/src/features/ens/api'
 import { useClaimUnitag } from 'uniswap/src/features/unitags/hooks/useClaimUnitag'
+import { UnitagClaimSource } from 'uniswap/src/features/unitags/types'
 import { UnitagName } from 'uniswap/src/features/unitags/UnitagName'
-import { TestID } from 'uniswap/src/test/fixtures/testIDs'
 import { ExtensionScreens } from 'uniswap/src/types/screens/extension'
-import { MobileScreens, OnboardingScreens, UnitagEntryPoint } from 'uniswap/src/types/screens/mobile'
-import { isMobileApp } from 'utilities/src/platform'
+import { MobileScreens, OnboardingScreens } from 'uniswap/src/types/screens/mobile'
+import type { UnitagEntryPoint } from 'uniswap/src/types/screens/mobile'
 import { useAvatarSelectionHandler } from 'wallet/src/features/unitags/AvatarSelection'
-import { ChoosePhotoOptionsModal, ChoosePhotoOptionsProps } from 'wallet/src/features/unitags/ChoosePhotoOptionsModal'
+import { ChoosePhotoOptionsModal } from 'wallet/src/features/unitags/ChoosePhotoOptionsModal'
+import type { ChoosePhotoOptionsProps } from 'wallet/src/features/unitags/ChoosePhotoOptionsModal'
 import { UnitagProfilePicture } from 'wallet/src/features/unitags/UnitagProfilePicture'
 import { useWalletSigners } from 'wallet/src/features/wallet/context'
 import { useAccounts } from 'wallet/src/features/wallet/hooks'
@@ -59,23 +62,13 @@ export function UnitagChooseProfilePicContent({
   const account = accounts[address]
 
   const [imageUri, setImageUri] = useState<string>()
-  const [showModal, setShowModal] = useState(false)
   const [claimError, setClaimError] = useState<string>()
   const [isClaiming, setIsClaiming] = useState(false)
 
-  const openModal = (): void => {
-    setShowModal(true)
-  }
-
-  const onCloseModal = (): void => {
-    setShowModal(false)
-  }
-
-  const { avatarSelectionHandler, hasNFTs } = useAvatarSelectionHandler({
+  const { avatarSelectionHandler, hasNFTs, showModal, closeModal } = useAvatarSelectionHandler({
     address,
     avatarImageUri: imageUri,
     setAvatarImageUri: setImageUri,
-    showModal: openModal,
   })
 
   const onPressContinue = async (): Promise<void> => {
@@ -144,8 +137,8 @@ export function UnitagChooseProfilePicContent({
         <Button
           loading={isClaiming}
           testID={TestID.Continue}
-          isDisabled={!!claimError || isClaiming}
-          size="medium"
+          disabled={!!claimError || isClaiming}
+          size="large"
           variant="branded"
           onPress={onPressContinue}
         >
@@ -160,7 +153,7 @@ export function UnitagChooseProfilePicContent({
           nftModalProps={nftModalProps}
           showRemoveOption={!!imageUri}
           setPhotoUri={setImageUri}
-          onClose={onCloseModal}
+          onClose={closeModal}
         />
       )}
     </>

@@ -1,15 +1,31 @@
+import { isExtensionApp } from '@universe/environment'
+import { uriToGatewayUrls } from 'utilities/src/format/gatewayUrls'
 import { logger } from 'utilities/src/logger/logger'
 
 /**
- * Given a URI that may be ipfs, ipns, http, https, ar, or data protocol, return the fetch-able http(s) URLs for the same content
+ * Given a URI that may be ipfs, ipns, http, https, ar, or data protocol, return the fetch-able http(s) URLs for the same content.
+ * Raw `ipfs://` content, and links baked against a retired public gateway (ipfs.io), resolve through the dedicated gateway
+ * first (see `uriToGatewayUrls`). A link on a gateway that still works is left as given: `UniversalImage` renders only
+ * the first candidate, so re-pointing it would trade a working image for a cold pull with no fallback.
  * @param uri to convert to fetch-able http url
  */
 export function uriToHttpUrls(uri: string, options?: { allowLocalUri?: boolean }): string[] {
+  if (uri.startsWith('/')) {
+    return options?.allowLocalUri ? [uri] : []
+  }
+  const gatewayUrls = uriToGatewayUrls(uri, { rewrite: 'retired' })
+  if (gatewayUrls) {
+    return gatewayUrls
+  }
   const protocol = uri.split(':')[0]?.toLowerCase()
-
   switch (protocol) {
-    case uri: {
-      // If the result of protocol equals the uri, it means the uri has no protocol and is a local file (ie. a relative or absolute path).
+    // if uri is a path to a local file, return it only if allowed
+    case 'file': {
+      return options?.allowLocalUri ? [uri] : []
+    }
+    // Object URLs from `URL.createObjectURL` — only safe to pass through when the caller opted in
+    // (e.g. UniversalImage with `allowLocalUri`); otherwise reject like unknown schemes.
+    case 'blob': {
       return options?.allowLocalUri ? [uri] : []
     }
     case 'data':
@@ -18,25 +34,59 @@ export function uriToHttpUrls(uri: string, options?: { allowLocalUri?: boolean }
       return [uri]
     case 'http':
       // In extensions, prioritize HTTP for localhost since HTTPS localhost doesn't work
-      if (typeof process !== 'undefined' && process.env.IS_UNISWAP_EXTENSION === 'true' && uri.includes('localhost')) {
+      if (isExtensionApp && uri.includes('localhost')) {
         return [uri, 'https' + uri.slice(4)]
       }
       return ['https' + uri.slice(4), uri]
-    case 'ipfs': {
-      const hash = uri.match(/^ipfs:(\/\/)?(ipfs\/)?(.*)$/i)?.[3]
-      return [`https://ipfs.io/ipfs/${hash}/`, `https://hardbin.com/ipfs/${hash}/`]
-    }
-    case 'ipns': {
-      const name = uri.match(/^ipns:(\/\/)?(.*)$/i)?.[2]
-      return [`https://ipfs.io/ipns/${name}/`, `https://hardbin.com/ipns/${name}/`]
-    }
-    case 'ar': {
-      const tx = uri.match(/^ar:(\/\/)?(.*)$/i)?.[2]
-      return [`https://arweave.net/${tx}`]
-    }
     default:
+      // If protocol equals the full uri, there's no ':' separator — it's a bare path (e.g. "eth-logo.png").
+      // Treat it like a local file URI.
+      if (protocol === uri) {
+        return options?.allowLocalUri ? [uri] : []
+      }
       return []
   }
+}
+
+function matchesProtocol({
+  uri,
+  allowedProtocols,
+  callerName,
+}: {
+  uri: Maybe<string>
+  allowedProtocols: readonly string[]
+  callerName: string
+}): boolean {
+  if (typeof uri !== 'string' || !uri.trim()) {
+    return false
+  }
+
+  try {
+    return allowedProtocols.includes(new URL(uri).protocol)
+  } catch {
+    logger.warn('format/urls', callerName, 'Invalid URI', { uri })
+    return false
+  }
+}
+
+/**
+ * Checks if the provided URI uses HTTP or HTTPS protocol.
+ *
+ * @param {Maybe<string>} uri The URI to check.
+ * @returns {boolean} True if the URI uses http:// or https://, false otherwise.
+ */
+export function isHttpUri(uri: Maybe<string>): boolean {
+  return matchesProtocol({ uri, allowedProtocols: ['http:', 'https:'], callerName: 'isHttpUri' })
+}
+
+/**
+ * Checks if the provided URI uses the HTTPS protocol.
+ *
+ * @param {Maybe<string>} uri The URI to check.
+ * @returns {boolean} True if the URI uses https://, false otherwise.
+ */
+export function isHttpsUri(uri: Maybe<string>): boolean {
+  return matchesProtocol({ uri, allowedProtocols: ['https:'], callerName: 'isHttpsUri' })
 }
 
 export function isSegmentUri(uri: Maybe<string>, extension: string): boolean {
@@ -122,4 +172,50 @@ export function extractUrlHost(url?: string): string | undefined {
 /** Returns the url origin (includes http or https) */
 export function extractBaseUrl(url?: string): string | undefined {
   return parseUrl(url)?.origin
+}
+
+/**
+ * Sanitizes a URL by ensuring it uses one of the allowed protocols.
+ * Returns the original URL if its scheme matches `allowedProtocols`, otherwise
+ * `undefined`. Use this to reject `javascript:`, `data:`, `ipfs:`, and other
+ * schemes for URLs that will be opened in a browser context or shown to users.
+ *
+ * @example
+ *   sanitizeUrl({ url: avatarUrl, allowedProtocols: ['http:', 'https:'], callerName: 'getAvatar' })
+ *   sanitizeUrl({ url: kycUrl, allowedProtocols: ['https:'], callerName: 'useTokenKYCStatus' })
+ */
+export function sanitizeUrl({
+  url,
+  allowedProtocols,
+  callerName,
+}: {
+  url: Maybe<string>
+  allowedProtocols: readonly string[]
+  callerName: string
+}): string | undefined {
+  if (!url) {
+    return undefined
+  }
+
+  // Parse + protocol-check inline so we can emit one precise log per failure
+  // (`invalid URI` vs `disallowed protocol`) instead of double-logging through
+  // `matchesProtocol`, which has its own `Invalid URI` warn for its callers.
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    logger.warn('format/urls', callerName, 'Rejected URL: invalid URI', { url })
+    return undefined
+  }
+
+  if (!allowedProtocols.includes(parsed.protocol)) {
+    logger.warn('format/urls', callerName, 'Rejected URL: disallowed protocol', {
+      url,
+      protocol: parsed.protocol,
+      allowedProtocols,
+    })
+    return undefined
+  }
+
+  return url
 }
