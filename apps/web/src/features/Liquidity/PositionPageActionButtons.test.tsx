@@ -48,6 +48,12 @@ describe('PositionPageActionButtons', () => {
   })
 
   // Tier 2 (450–768px): the "…" header menu (MobileHeaderActions + WebBottomSheet).
+  it('leaves Migrate out when the page provides no migrate action', () => {
+    render(<PositionPageActionButtons isOwner positionInfo={positionInfo} />)
+    expect(screen.queryByText('Migrate liquidity')).toBeNull()
+    expect(screen.getByText('Add liquidity')).toBeInTheDocument()
+  })
+
   it('collapses into the "…" header menu between 450 and 768px', () => {
     mockUseMedia.mockReturnValue({ lg: true })
     render(<PositionPageActionButtons isOwner positionInfo={positionInfo} onMigrate={() => {}} />)

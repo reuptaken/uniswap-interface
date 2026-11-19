@@ -1,11 +1,14 @@
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { Flex } from '@universe/mycelium'
+import { Flex, TouchableArea } from '@universe/mycelium'
 import { useMedia } from '@universe/mycelium/theme-hooks-compat'
 import { memo } from 'react'
 import { useLocation } from 'react-router'
 import { zIndexes } from 'ui/src/theme/zIndexes'
 import { GRID_AREAS } from '~/app/layout/gridAreas'
+import { NavIcon } from '~/components/Logo/NavIcon'
 import { Navbar } from '~/components/NavBar/index'
+import { useNavCollapsedStore } from '~/components/NavBar/navCollapsedStore'
+import { MouseoverTooltip } from '~/components/Tooltip'
 import {
   MobileAppPromoBanner,
   useMobileAppPromoBannerEligible,
@@ -28,6 +31,8 @@ export const Header = memo(function Header() {
   const navHasBottomBorder = isScrolledDown
   const renderUkBanner = useRenderUkBanner()
   const extensionEligible = useMobileAppPromoBannerEligible()
+  const isNavCollapsed = useNavCollapsedStore((state) => state.isCollapsed)
+  const setNavCollapsed = useNavCollapsedStore((state) => state.setCollapsed)
 
   return (
     <Flex
@@ -54,16 +59,34 @@ export const Header = memo(function Header() {
         {extensionEligible && <MobileAppPromoBanner />}
         {renderUkBanner && <UkBanner />}
       </Flex>
-      <Flex
-        width="100%"
-        backgroundColor={isHeaderTransparent ? 'transparent' : '$surface1'}
-        borderBottomColor={navHasBottomBorder ? '$surface3' : 'transparent'}
-        borderBottomWidth={1}
-        pointerEvents="auto"
-        transition="border-bottom-color 0.2s ease-in-out"
-      >
-        <Navbar />
-      </Flex>
+      {isNavCollapsed ? (
+        // Collapsed, the bar takes no height: only its logo stays, floating in the corner, to bring it back.
+        <Flex position="absolute" top="$spacing12" left="$spacing12" pointerEvents="auto">
+          <MouseoverTooltip text="Show navigation" placement="right">
+            <TouchableArea
+              onPress={() => setNavCollapsed(false)}
+              aria-label="Show navigation"
+              p="$spacing8"
+              borderRadius="$rounded12"
+              backgroundColor="$surface1"
+              hoverStyle={{ backgroundColor: '$surface2' }}
+            >
+              <NavIcon />
+            </TouchableArea>
+          </MouseoverTooltip>
+        </Flex>
+      ) : (
+        <Flex
+          width="100%"
+          backgroundColor={isHeaderTransparent ? 'transparent' : '$surface1'}
+          borderBottomColor={navHasBottomBorder ? '$surface3' : 'transparent'}
+          borderBottomWidth={1}
+          pointerEvents="auto"
+          transition="border-bottom-color 0.2s ease-in-out"
+        >
+          <Navbar />
+        </Flex>
+      )}
     </Flex>
   )
 })

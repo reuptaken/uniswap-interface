@@ -42,7 +42,17 @@ export function App() {
   }, [])
 
   const metaTags = useDynamicMetatags()
-  const staticTitle = findRouteByPath(pathname)?.getTitle(pathname) ?? 'Uniswap Interface'
+  const route = findRouteByPath(pathname)
+  const staticTitle = route?.getTitle(pathname) ?? 'Uniswap Interface'
+  // A page that titles itself is left to it: a static title here would win over the page's.
+  const pageSetsTitle = route?.pageSetsTitle === true
+  // Also set directly: in dev, StrictMode's simulated remount drops Helmet instances, so after leaving a page that
+  // titles itself, Helmet alone would leave its title behind. (A page's own Helmet title still lands after this.)
+  useEffect(() => {
+    if (!pageSetsTitle) {
+      document.title = staticTitle
+    }
+  }, [pageSetsTitle, staticTitle])
   const staticDescription = findRouteByPath(pathname)?.getDescription(pathname)
 
   // redirect address to landing pages until implemented
@@ -75,7 +85,7 @@ export function App() {
           you can set it later in the page component itself, since react-helmet-async prefers the most recently rendered title.
         */}
         <Helmet>
-          <title>{staticTitle}</title>
+          {!pageSetsTitle && <title>{staticTitle}</title>}
           {staticDescription && <meta name="description" content={staticDescription} />}
           {staticDescription && <meta property="og:description" content={staticDescription} />}
           {metaTags.map((tag, index) => (

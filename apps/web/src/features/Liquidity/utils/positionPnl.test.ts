@@ -1,7 +1,7 @@
 import { ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
 import type { PositionInfo } from 'uniswap/src/features/positions/types'
 import { describe, expect, it } from 'vitest'
-import { getPositionPnlUsd } from '~/features/Liquidity/utils/positionPnl'
+import { getPositionPnlUsd, wholeDollarPnl } from '~/features/Liquidity/utils/positionPnl'
 
 const WETH_DECIMALS = 18
 const USDC_DECIMALS = 6
@@ -54,5 +54,19 @@ describe('getPositionPnlUsd', () => {
 
   it('is unavailable for V4 positions, whose history is not loaded', () => {
     expect(getPositionPnlUsd(makePosition({ version: ProtocolVersion.V4 }), depositedTenThousandUsdc)).toBeUndefined()
+  })
+})
+
+describe('wholeDollarPnl', () => {
+  it('shows a profit with a plus sign', () => {
+    expect(wholeDollarPnl(12.6)).toEqual({ amount: 13, sign: '+', tone: 'profit' })
+  })
+
+  it('shows a loss without an extra sign (the formatter adds the minus)', () => {
+    expect(wholeDollarPnl(-7.2)).toEqual({ amount: -7, sign: '', tone: 'loss' })
+  })
+
+  it.each([0, 0.4, -0.4, -0])('treats %s, which reads as $0, as flat: no sign, neutral, a plain 0', (pnl) => {
+    expect(wholeDollarPnl(pnl)).toEqual({ amount: 0, sign: '', tone: 'flat' })
   })
 })

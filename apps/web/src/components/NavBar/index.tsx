@@ -1,18 +1,21 @@
 import { FeatureFlags, useFeatureFlag } from '@universe/gating'
-import { Flex, type FlexCompatProps } from '@universe/mycelium'
+import { Flex, type FlexCompatProps, TouchableArea } from '@universe/mycelium'
 import { useMedia } from '@universe/mycelium/theme-hooks-compat'
 import { forwardRef } from 'react'
+import { ChevronsIn } from 'ui/src/components/icons/ChevronsIn'
 import { INTERFACE_NAV_HEIGHT, zIndexes } from 'ui/src/theme'
 import { useConnectionStatus } from 'uniswap/src/features/accounts/store/hooks'
 import { useEnabledChains } from 'uniswap/src/features/chains/hooks/useEnabledChains'
 import { CompanyMenu } from '~/components/NavBar/CompanyMenu'
 import { NewUserCTAButton } from '~/components/NavBar/DownloadApp/NewUserCTAButton'
+import { useNavCollapsedStore } from '~/components/NavBar/navCollapsedStore'
 import { PreferenceMenu } from '~/components/NavBar/PreferencesMenu'
 import { useTabsVisible } from '~/components/NavBar/ScreenSizes'
 import { SearchBar } from '~/components/NavBar/SearchBar'
 import { useIsSearchBarVisible } from '~/components/NavBar/SearchBar/useIsSearchBarVisible'
 import { Tabs } from '~/components/NavBar/Tabs/Tabs'
 import { TestnetModeTooltip } from '~/components/NavBar/TestnetMode/TestnetModeTooltip'
+import { MouseoverTooltip } from '~/components/Tooltip'
 import { Web3Status } from '~/components/Web3Status'
 import { PageType, useIsPage } from '~/hooks/useIsPage'
 
@@ -32,6 +35,18 @@ const NavItemsRow = forwardRef<HTMLDivElement, FlexCompatProps>(function NavItem
     />
   )
 })
+
+/** Folds the nav bar away into the corner logo (see Header), giving its height back to the page. */
+function CollapseNavButton(): JSX.Element {
+  const setCollapsed = useNavCollapsedStore((state) => state.setCollapsed)
+  return (
+    <MouseoverTooltip text="Hide navigation" placement="bottom">
+      <TouchableArea onPress={() => setCollapsed(true)} aria-label="Hide navigation" p="$spacing4">
+        <ChevronsIn size="$icon.16" color="$neutral3" />
+      </TouchableArea>
+    </MouseoverTooltip>
+  )
+}
 
 export function Navbar() {
   const isLandingPage = useIsPage(PageType.LANDING)
@@ -70,6 +85,7 @@ export function Navbar() {
       >
         <NavItemsRow>
           <CompanyMenu />
+          <CollapseNavButton />
           {areTabsVisible && <Tabs />}
         </NavItemsRow>
 

@@ -1,5 +1,5 @@
 import { ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
-import { UniverseChainId, areEvmAddressesEqual } from '@universe/chains'
+import { UniverseChainId } from '@universe/chains'
 import { Button, Flex, Flex as FlexCompat, type FlexCompatProps, Spacer } from '@universe/mycelium'
 import { useIsTouchDevice, useMedia } from '@universe/mycelium/theme-hooks-compat'
 import { TestID } from '@universe/test'
@@ -14,7 +14,6 @@ import { Modal } from 'uniswap/src/components/modals/Modal'
 import { CurrencyInfo } from 'uniswap/src/features/dataApi/types'
 import type { ParsedToken } from 'uniswap/src/features/dataApi/utils/parsedToken'
 import { v2TokenToCurrency } from 'uniswap/src/features/dataApi/utils/parsedToken'
-import { useWalletPositions } from 'uniswap/src/features/positions/hooks/useWalletPositions'
 import { ModalName } from 'uniswap/src/features/telemetry/constants'
 import { useCurrencyInfo } from 'uniswap/src/features/tokens/useCurrencyInfo'
 import { TokenWarningCard } from 'uniswap/src/features/tokens/warnings/TokenWarningCard'
@@ -28,7 +27,6 @@ import { getNextFlowStep } from '~/features/Liquidity/Create/flowSteps'
 import { PositionFlowStep } from '~/features/Liquidity/Create/types'
 import { useLPGeoRestriction } from '~/features/Liquidity/useLPGeoRestriction'
 import { getProtocolVersionLabel } from '~/features/Liquidity/utils/protocolVersion'
-import { useAccount } from '~/hooks/useAccount'
 import { ScrollDirection, useScroll } from '~/hooks/useScroll'
 import { buildPoolSearchParams } from '~/pages/AddLiquidity/poolLinkParams'
 import { Swap } from '~/pages/Swap'
@@ -110,23 +108,7 @@ export function PoolDetailsStatsButtons({
   protocolVersion,
   loading,
 }: PoolDetailsStatsButtonsProps) {
-  const account = useAccount()
   const { t } = useTranslation()
-  // Default statuses are open-only positions, so a
-  // closed position falls through to the add flow.
-  const { allPositions: ownedPositions } = useWalletPositions({
-    account: account.address ?? '',
-    chainIds: chainId ? [chainId] : undefined,
-    liquiditySearch: poolIdOrAddress,
-  })
-  // V2 pairs carry no tokenId, fall through to the add flow.
-  const tokenId = ownedPositions.find(
-    (position) =>
-      (chainId === undefined || position.chainId === chainId) &&
-      // poolId and the URL param are both the service's poolAddressOrId
-      // (v2/v3 address, v4 id); areEvmAddressesEqual handles either.
-      areEvmAddressesEqual(position.poolId, poolIdOrAddress),
-  )?.tokenId
 
   const navigate = useNavigate()
   const location = useLocation()
@@ -143,40 +125,36 @@ export function PoolDetailsStatsButtons({
     token1: currency1,
   })
 
-  const handleAddLiquidity = async () => {
+  // Always a new position in this pool, preselected, even when the wallet already holds some here: adding to an
+  // existing one is done from that position's page.
+  const handleNewPosition = async () => {
     if (currency0 && currency1) {
       const currency0Address = currency0.isNative ? NATIVE_CHAIN_ID : currency0.address
       const currency1Address = currency1.isNative ? NATIVE_CHAIN_ID : currency1.address
       const chainUrlParam = getChainUrlParam(chainId ?? currency0.chainId)
 
-      if (tokenId) {
-        navigate(`/positions/${protocolVersionLabel}/${chainUrlParam}/${tokenId}`, {
-          state: { from: location.pathname },
-        })
-      } else {
-        const params = buildPoolSearchParams({
-          currencyA: currency0Address,
-          currencyB: currency1Address,
-          chain: chainUrlParam,
-          fee:
-            feeTier !== undefined
-              ? { feeAmount: feeTier, tickSpacing: tickSpacing ?? 0, isDynamic: isDynamic ?? false }
-              : undefined,
-          hookAddress,
-          protocolVersion: protocolVersionLabel,
-        })
-        // The pool already exists here, so creatingPoolOrPair is false.
-        const nextStep = getNextFlowStep({
-          currentStep: PositionFlowStep.SELECT_TOKENS_AND_FEE_TIER,
-          protocolVersion: protocolVersion ?? ProtocolVersion.V4,
-          creatingPoolOrPair: false,
-        })
-        params.set('step', String(nextStep))
-        const search = params.toString()
-        navigate(`/positions/add/${chainUrlParam}/${poolIdOrAddress}${search ? `?${search}` : ''}`, {
-          state: { from: location.pathname, entryPoint: location.pathname },
-        })
-      }
+      const params = buildPoolSearchParams({
+        currencyA: currency0Address,
+        currencyB: currency1Address,
+        chain: chainUrlParam,
+        fee:
+          feeTier !== undefined
+            ? { feeAmount: feeTier, tickSpacing: tickSpacing ?? 0, isDynamic: isDynamic ?? false }
+            : undefined,
+        hookAddress,
+        protocolVersion: protocolVersionLabel,
+      })
+      // The pool already exists here, so creatingPoolOrPair is false.
+      const nextStep = getNextFlowStep({
+        currentStep: PositionFlowStep.SELECT_TOKENS_AND_FEE_TIER,
+        protocolVersion: protocolVersion ?? ProtocolVersion.V4,
+        creatingPoolOrPair: false,
+      })
+      params.set('step', String(nextStep))
+      const search = params.toString()
+      navigate(`/positions/add/${chainUrlParam}/${poolIdOrAddress}${search ? `?${search}` : ''}`, {
+        state: { from: location.pathname, entryPoint: location.pathname },
+      })
     }
   }
   const [swapModalOpen, setSwapModalOpen] = useState(false)
@@ -226,10 +204,10 @@ export function PoolDetailsStatsButtons({
           {/* Shown even when restricted: the add flow opens on the region modal and keeps its CTA disabled. */}
           <PoolButton
             icon={<Plus size="$icon.20" />}
-            onPress={handleAddLiquidity}
+            onPress={handleNewPosition}
             data-testid={TestID.PoolDetailsAddLiquidityButton}
           >
-            {t('common.addLiquidity')}
+            {t('position.new')}
           </PoolButton>
         </Flex>
       </PoolButtonsWrapper>

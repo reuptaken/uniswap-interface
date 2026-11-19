@@ -28,38 +28,30 @@ import { useAppDispatch } from '~/state/hooks'
 import { isV2MigrationUnsupportedChain } from '~/utils/networkSupportsV2Migration'
 import { isV4UnsupportedChain } from '~/utils/networkSupportsV4'
 
-export function PositionPageActionButtons({
-  buttonFill = false,
+export interface PositionActionOptions {
+  migrateOption: MenuOptionItem | undefined
+  removeLiquidityOption: MenuOptionItem | undefined
+  addLiquidityOption: MenuOptionItem
+  collectFeesOption: MenuOptionItem | undefined
+}
+
+/** The position's liquidity actions, each opening its modal; usable apart from the header button row. */
+export function usePositionActionOptions({
   positionInfo,
-  isOwner,
   onMigrate,
 }: {
-  buttonFill?: boolean
   positionInfo?: PositionInfo
-  isOwner: boolean
-  onMigrate: () => void
-}) {
+  onMigrate?: () => void
+}): PositionActionOptions {
   const { t } = useTranslation()
   const dispatch = useAppDispatch()
   const trace = useTrace()
-  const media = useMedia()
-  const { direction: scrollDirection } = useScroll()
-  const isTouchDevice = useIsTouchDevice()
-
   const { status, fee0Amount, fee1Amount } = positionInfo ?? {}
-
-  const migrateDisabledReason =
-    positionInfo?.version === ProtocolVersion.V3 && isV4UnsupportedChain(positionInfo.chainId)
-      ? t('pool.migrateLiquidityDisabledTooltip')
-      : positionInfo?.version === ProtocolVersion.V2 && isV2MigrationUnsupportedChain(positionInfo.chainId)
-        ? t('pool.migrateLiquidityV2DisabledTooltip')
-        : undefined
   const hasFees = fee0Amount?.greaterThan(0) || fee1Amount?.greaterThan(0)
 
-  const { migrateOption, removeLiquidityOption, addLiquidityOption, collectFeesOption } = useMemo(() => {
-    // oxlint-disable-next-line no-shadow
+  return useMemo(() => {
     const migrateOption: MenuOptionItem | undefined =
-      positionInfo?.version !== ProtocolVersion.V4 && status !== PositionStatus.CLOSED
+      onMigrate && positionInfo?.version !== ProtocolVersion.V4 && status !== PositionStatus.CLOSED
         ? {
             label: t('pool.migrateLiquidity'),
             onPress: onMigrate,
@@ -67,7 +59,6 @@ export function PositionPageActionButtons({
         : undefined
 
     // Add remove liquidity option if position is not closed
-    // oxlint-disable-next-line no-shadow
     const removeLiquidityOption: MenuOptionItem | undefined =
       status !== PositionStatus.CLOSED
         ? {
@@ -83,7 +74,6 @@ export function PositionPageActionButtons({
           }
         : undefined
 
-    // oxlint-disable-next-line no-shadow
     const addLiquidityOption: MenuOptionItem = {
       label: t('common.addLiquidity'),
       onPress: () => {
@@ -97,7 +87,6 @@ export function PositionPageActionButtons({
     }
 
     // Add collect fees option if there are fees
-    // oxlint-disable-next-line no-shadow
     const collectFeesOption: MenuOptionItem | undefined =
       positionInfo?.version !== ProtocolVersion.V2 && hasFees
         ? {
@@ -124,6 +113,36 @@ export function PositionPageActionButtons({
       collectFeesOption,
     }
   }, [dispatch, hasFees, positionInfo, status, t, onMigrate, trace])
+}
+
+export function PositionPageActionButtons({
+  buttonFill = false,
+  positionInfo,
+  isOwner,
+  onMigrate,
+}: {
+  buttonFill?: boolean
+  positionInfo?: PositionInfo
+  isOwner: boolean
+  /** Omit to hide Migrate entirely, e.g. where moving the position to a newer protocol version isn't wanted. */
+  onMigrate?: () => void
+}) {
+  const { t } = useTranslation()
+  const media = useMedia()
+  const { direction: scrollDirection } = useScroll()
+  const isTouchDevice = useIsTouchDevice()
+
+  const migrateDisabledReason =
+    positionInfo?.version === ProtocolVersion.V3 && isV4UnsupportedChain(positionInfo.chainId)
+      ? t('pool.migrateLiquidityDisabledTooltip')
+      : positionInfo?.version === ProtocolVersion.V2 && isV2MigrationUnsupportedChain(positionInfo.chainId)
+        ? t('pool.migrateLiquidityV2DisabledTooltip')
+        : undefined
+
+  const { migrateOption, removeLiquidityOption, addLiquidityOption, collectFeesOption } = usePositionActionOptions({
+    positionInfo,
+    onMigrate,
+  })
 
   // Where migration is unsupported the inline Migrate button renders disabled under a tooltip.
   // A sheet row has no hover, so the reason rides as a subtitle instead — the row stays

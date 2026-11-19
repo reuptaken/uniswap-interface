@@ -35,7 +35,7 @@ import { PoolAprTooltip } from '~/features/Liquidity/LPIncentives/PoolAprTooltip
 import { RewardAprBadge } from '~/features/Liquidity/LPIncentives/RewardAprBadge'
 import { getPositionFeeAprEstimate } from '~/features/Liquidity/utils/positionFeeApr'
 import { getPositionFeeStats } from '~/features/Liquidity/utils/positionFeeStats'
-import { getPositionPnlUsd } from '~/features/Liquidity/utils/positionPnl'
+import { getPositionPnlUsd, PNL_TONE_COLOR, wholeDollarPnl } from '~/features/Liquidity/utils/positionPnl'
 import { useColor } from '~/hooks/useColor'
 
 export function PoolCellContent({ position }: { position: PositionInfo }): JSX.Element {
@@ -226,10 +226,11 @@ export function PnlCellContent({ position }: { position: PositionInfo }): JSX.El
   if (pnl === undefined) {
     return <TableText variant="body3">–</TableText>
   }
+  const { amount, sign, tone } = wholeDollarPnl(pnl)
   return (
-    <TableText variant="body3" color={pnl >= 0 ? '$statusSuccess' : '$statusCritical'}>
-      {pnl >= 0 ? '+' : ''}
-      {formatWholeFiat(pnl)}
+    <TableText variant="body3" color={PNL_TONE_COLOR[tone]}>
+      {sign}
+      {formatWholeFiat(amount)}
     </TableText>
   )
 }

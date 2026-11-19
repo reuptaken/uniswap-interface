@@ -2,19 +2,25 @@
 import '~/pages/Positions/PositionPage.css'
 import { PositionStatus, ProtocolVersion } from '@uniswap/client-data-api/dist/data/v1/poolTypes_pb'
 import { Currency, CurrencyAmount, Fraction, Percent, Price } from '@uniswap/sdk-core'
-import { areAddressesEqual, EVMUniverseChainId, isEVMChain, UniverseChainId } from '@universe/chains'
+import {
+  AddressStringFormat,
+  areAddressesEqual,
+  EVMUniverseChainId,
+  isEVMChain,
+  normalizeAddress,
+  UniverseChainId,
+} from '@universe/chains'
 import { isMobileWeb } from '@universe/environment'
 import { Button, Flex, Text, TouchableArea } from '@universe/mycelium'
 import { FlexCompat, type FlexCompatProps } from '@universe/mycelium/flex-compat'
 import { SegmentedControl, type SegmentedControlOption } from '@universe/mycelium/segmented-control-compat'
 import { useDeviceDimensions, useIsDarkMode } from '@universe/mycelium/theme-hooks-compat'
 import { TestID } from '@universe/test'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Helmet } from 'react-helmet-async/lib/index'
 import { useTranslation } from 'react-i18next'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router'
 import { AlertTriangleFilled } from 'ui/src/components/icons/AlertTriangleFilled'
-import { ArrowLeft } from 'ui/src/components/icons/ArrowLeft'
 import { ExchangeHorizontal } from 'ui/src/components/icons/ExchangeHorizontal'
 import { Flag } from 'ui/src/components/icons/Flag'
 import { InfoCircleFilled } from 'ui/src/components/icons/InfoCircleFilled'
@@ -23,16 +29,16 @@ import { breakpoints } from 'ui/src/theme/breakpoints'
 import { PollingInterval, ZERO_ADDRESS } from 'uniswap/src/constants/misc'
 import { getChainInfo } from 'uniswap/src/features/chains/chainInfo'
 import { useSupportedChainId } from 'uniswap/src/features/chains/hooks/useSupportedChainId'
-import { getPrimaryStablecoin } from 'uniswap/src/features/chains/utils'
 import { HistoryDuration } from 'uniswap/src/features/dataApi/types'
 import { useCurrentLocale } from 'uniswap/src/features/language/hooks'
 import { useLocalizationContext } from 'uniswap/src/features/language/LocalizationContext'
 import { formatPositionPrice } from 'uniswap/src/features/positions/formatPositionPrice'
+import { getPositionUrl } from 'uniswap/src/features/positions/getPositionUrl'
 import { useEffectivePositionStatus } from 'uniswap/src/features/positions/hooks/useEffectivePositionStatus'
 import { useGetPositionInfo } from 'uniswap/src/features/positions/hooks/useGetPositionInfo'
 import { useGetRangeDisplay } from 'uniswap/src/features/positions/hooks/useGetRangeDisplay'
 import type { PositionInfo, PositionRewardApr } from 'uniswap/src/features/positions/types'
-import { getExactSharePercent } from 'uniswap/src/features/positions/utils'
+import { getExactSharePercent, getPositionKey } from 'uniswap/src/features/positions/utils'
 import { InterfacePageName } from 'uniswap/src/features/telemetry/constants'
 import Trace from 'uniswap/src/features/telemetry/Trace'
 import { shouldReverseForWaterfall } from 'uniswap/src/features/tokens/waterfallPriority'
@@ -42,23 +48,28 @@ import { currencyId, currencyIdToAddress } from 'uniswap/src/utils/currencyId'
 import { ExplorerDataType, getExplorerLink } from 'uniswap/src/utils/linking'
 import { NumberType } from 'utilities/src/format/types'
 import { useEvent } from 'utilities/src/react/hooks'
-import { BreadcrumbNavContainer, BreadcrumbNavLink } from '~/components/BreadcrumbNav'
 import { Dropdown } from '~/components/Dropdowns/Dropdown'
 import { LoadingFullscreen, LoadingRows } from '~/components/Loader/styled'
 import { MouseoverTooltip, TooltipSize } from '~/components/Tooltip'
+import { AutoSwitchToggle } from '~/features/Liquidity/AutoSwitchToggle'
 import { BlastShutdownBanner } from '~/features/Liquidity/BlastShutdownBanner'
 import { DexToolsChart, getDexToolsChartUrl } from '~/features/Liquidity/charts/DexToolsChart/DexToolsChart'
 import { WrappedLiquidityPositionRangeChart } from '~/features/Liquidity/charts/LiquidityPositionRangeChart/LiquidityPositionRangeChart'
+import { useDensityChartData } from '~/features/Liquidity/charts/LiquidityRangeInput/hooks'
+import { token1PerMoveAt } from '~/features/Liquidity/charts/PositionCandlestickChart/marketDepth'
 import {
   CANDLE_INTERVALS,
   type CandleIntervalLabel,
   DEFAULT_CANDLE_INTERVAL,
   getCandleInterval,
-  getPoolCandlesUrl,
+  getPoolCandlesSource,
 } from '~/features/Liquidity/charts/PositionCandlestickChart/poolCandles'
+import { getPoolPositionRanges } from '~/features/Liquidity/charts/PositionCandlestickChart/poolPositionRanges'
 import { PositionCandlestickChart } from '~/features/Liquidity/charts/PositionCandlestickChart/PositionCandlestickChart'
 import { useEntryPointBreadcrumb } from '~/features/Liquidity/Create/hooks/useEntryPointBreadcrumb'
+import { useAutoSwitchPosition, useAutoSwitchPositionStore } from '~/features/Liquidity/hooks/useAutoSwitchPosition'
 import { useLpIncentivesFormattedEarnings } from '~/features/Liquidity/hooks/useLpIncentivesFormattedEarnings'
+import { isNftPosition, useOwnerOpenPositions } from '~/features/Liquidity/hooks/useOwnerOpenPositions'
 import { usePositionMintData } from '~/features/Liquidity/hooks/usePositionMintData'
 import { useReportPositionHandler } from '~/features/Liquidity/hooks/useReportPositionHandler'
 import { LiquidityPositionAmountRows } from '~/features/Liquidity/LiquidityPositionAmountRows'
@@ -69,19 +80,24 @@ import { usePositionRewardEarnings } from '~/features/Liquidity/LPIncentives/hoo
 import { PoolAprTooltip } from '~/features/Liquidity/LPIncentives/PoolAprTooltip'
 import { RewardAprBadge } from '~/features/Liquidity/LPIncentives/RewardAprBadge'
 import { rewardCurrencyId } from '~/features/Liquidity/LPIncentives/utils'
+import { PoolSwapsList } from '~/features/Liquidity/PoolSwaps/PoolSwapsList'
+import { PositionCardActions } from '~/features/Liquidity/PositionCardActions'
 import { PositionExternalLinks } from '~/features/Liquidity/PositionExternalLinks'
 import { PositionNFT } from '~/features/Liquidity/PositionNFT'
-import { PositionPageActionButtons } from '~/features/Liquidity/PositionPageActionButtons'
+import { usePositionActionOptions } from '~/features/Liquidity/PositionPageActionButtons'
+import { PositionSwitcher } from '~/features/Liquidity/PositionSwitcher'
 import { getBaseAndQuoteCurrencies } from '~/features/Liquidity/utils/currency'
 import { useCurrencyInfo } from '~/hooks/Tokens'
 import { useAccount } from '~/hooks/useAccount'
 import { useDynamicMetatags } from '~/pages/metatags'
 import { NotFound } from '~/pages/NotFound'
+import { useFlashColor } from '~/pages/Positions/useFlashColor'
 import { useLivePositionInfo } from '~/pages/Positions/useLivePositionInfo'
 import { usePositionTokenURI } from '~/pages/Positions/usePositionTokenURI'
 import { MultichainContextProvider } from '~/state/multichain/MultichainContext'
 import { usePendingLPTransactionsChangeListener } from '~/state/transactions/hooks'
 import { ClickableTamaguiStyle } from '~/theme/components/styles'
+import { PositionField } from '~/types/position'
 import { useChainIdFromUrlParam } from '~/utils/params/chainParams'
 
 type MainView = 'chart' | 'candles' | 'dextools' | 'nft'
@@ -97,19 +113,6 @@ const STABLECOIN_SYMBOLS = ['USDC', 'USDT', 'DAI', 'BUSD', 'FRAX', 'LUSD']
 
 // Pool prices routinely run to 1e-6 and below, so keep enough significant digits to survive `Number()`.
 const SPOT_PRICE_SIGNIFICANT_DIGITS = 12
-
-// Wrap a backend-provided fee USD number as a CurrencyAmount so it flows through the same
-// consumers (sum, share %, formatting) as the live-priced values it replaces. Denominated in a
-// single fixed stablecoin (Mainnet USDC) so token0 and token1 fees share one currency — the value
-// is chain-independent USD, and the UNI-rewards fiat value uses the same currency, so `.add()` and
-// the percentage math stay consistent. LP-1616.
-function fiatFeeCurrencyAmount(usd: number | undefined): CurrencyAmount<Currency> | undefined {
-  if (usd === undefined || !Number.isFinite(usd)) {
-    return undefined
-  }
-  const stablecoin = getPrimaryStablecoin(UniverseChainId.Mainnet)
-  return CurrencyAmount.fromRawAmount(stablecoin, Math.round(usd * 10 ** stablecoin.decimals))
-}
 
 const EMPTY_REWARDS: PositionRewardApr[] = []
 
@@ -158,8 +161,13 @@ function quoteOrNull(
   }
 }
 
-// Both sides are priced in the pair's own stablecoin so the two results always share a currency; callers `.add()` them.
-function withStablecoinFallback({
+/**
+ * USD values for a pair of amounts. A pair with a stablecoin is priced from its own pool, the stablecoin taken as $1:
+ * on-chain, as live as the pool price, and exactly in step with the price shown. Other pairs keep the price service's
+ * values (fiat0/fiat1), as do amounts too incomplete to price. Both sides always come from one branch, so they share
+ * a currency; callers `.add()` them.
+ */
+function toUsdValues({
   amount0,
   amount1,
   fiat0,
@@ -178,7 +186,7 @@ function withStablecoinFallback({
   token0Price?: Price<Currency, Currency>
   token1Price?: Price<Currency, Currency>
 }): [FiatAmount, FiatAmount] {
-  if ((fiat0 && fiat1) || !amount0 || !amount1) {
+  if (!amount0 || !amount1) {
     return [fiat0, fiat1]
   }
   if (STABLECOIN_SYMBOLS.includes(currency0.symbol ?? '')) {
@@ -188,36 +196,6 @@ function withStablecoinFallback({
     return [quoteOrNull(token0Price, amount0), amount1]
   }
   return [fiat0, fiat1]
-}
-
-function parseDisplayedNumber(s: string): number {
-  return parseFloat(s.replace(/[^0-9.-]/g, ''))
-}
-
-function useFlashColor(displayedValue: string | undefined): string | undefined {
-  const prevValueRef = useRef<string | undefined>(undefined)
-  const [flashColor, setFlashColor] = useState<string | undefined>(undefined)
-
-  useEffect(() => {
-    const prev = prevValueRef.current
-    prevValueRef.current = displayedValue
-
-    if (prev === undefined || displayedValue === undefined || prev === displayedValue) {
-      return undefined
-    }
-
-    const prevNum = parseDisplayedNumber(prev)
-    const currNum = parseDisplayedNumber(displayedValue)
-    if (Number.isNaN(prevNum) || Number.isNaN(currNum) || prevNum === currNum) {
-      return undefined
-    }
-
-    setFlashColor(currNum > prevNum ? '$statusSuccess' : '$statusCritical')
-    const timer = setTimeout(() => setFlashColor(undefined), 3000)
-    return () => clearTimeout(timer)
-  }, [displayedValue])
-
-  return flashColor
 }
 
 export function PositionPageWrapper() {
@@ -247,23 +225,49 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
   const breadcrumb = useEntryPointBreadcrumb()
   // tokenIds are only unique per position manager; the flag routes the read to the PermissionedPositionManager
   const isPermissionedFromUrl = useMemo(() => new URLSearchParams(search).get('permissioned') === 'true', [search])
+  const protocolVersionFromUrl = pathname.includes('v3')
+    ? ProtocolVersion.V3
+    : pathname.includes('v4')
+      ? ProtocolVersion.V4
+      : ProtocolVersion.UNSPECIFIED
   const {
     positionInfo: servedPositionInfo,
-    isLoading: positionLoading,
+    isLoading: servedPositionLoading,
     refetch,
     dataUpdatedAt: positionUpdatedAt,
-  } = useGetPositionInfo({
-    owner: account.address ?? ZERO_ADDRESS,
-    protocolVersion: pathname.includes('v3')
-      ? ProtocolVersion.V3
-      : pathname.includes('v4')
-        ? ProtocolVersion.V4
-        : ProtocolVersion.UNSPECIFIED,
-    tokenId: tokenIdFromUrl,
-    chainId: chainId ?? supportedAccountChainId,
-    permissioned: isPermissionedFromUrl,
-  })
-  const { positionInfo, poolUpdatedAt, poolError } = useLivePositionInfo(servedPositionInfo)
+  } = useGetPositionInfo(
+    {
+      owner: account.address ?? ZERO_ADDRESS,
+      protocolVersion: protocolVersionFromUrl,
+      tokenId: tokenIdFromUrl,
+      chainId: chainId ?? supportedAccountChainId,
+      permissioned: isPermissionedFromUrl,
+    },
+    // Read once per visit (and again after this wallet's own LP transactions, below): what changes, the price, fees,
+    // liquidity and range status, is read from the chain every few seconds instead (useLivePositionInfo).
+  )
+  // The owner's open positions, kept loaded across a switch to a sibling by remembering the last position served.
+  const lastServedPositionInfoRef = useRef<PositionInfo | undefined>(undefined)
+  useEffect(() => {
+    if (servedPositionInfo) {
+      lastServedPositionInfoRef.current = servedPositionInfo
+    }
+  }, [servedPositionInfo])
+  const ownerPositions = useOwnerOpenPositions(servedPositionInfo ?? lastServedPositionInfoRef.current)
+  // While a sibling picked on the chart or in the switcher loads, show the owner list's copy of it rather than a
+  // skeleton: the page, and the chart's zoom and scroll with it, stay put until the fresh read swaps in.
+  const placeholderPositionInfo =
+    !servedPositionInfo && servedPositionLoading
+      ? ownerPositions.find(
+          (position) =>
+            position.tokenId === tokenIdFromUrl &&
+            position.chainId === (chainId ?? supportedAccountChainId) &&
+            position.version === protocolVersionFromUrl &&
+            (position.version !== ProtocolVersion.V4 || !!position.isPermissioned === isPermissionedFromUrl),
+        )
+      : undefined
+  const positionLoading = servedPositionLoading && !placeholderPositionInfo
+  const { positionInfo, poolUpdatedAt, poolError } = useLivePositionInfo(servedPositionInfo ?? placeholderPositionInfo)
   const metadata = usePositionTokenURI({ tokenId, chainId, version: positionInfo?.version })
   const {
     timestamp: mintTimestamp,
@@ -276,16 +280,55 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     events: positionEvents,
   } = usePositionMintData({ chainId, tokenId: tokenIdFromUrl, version: positionInfo?.version })
   usePendingLPTransactionsChangeListener(refetch)
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refetch()
-    }, 20_000)
-    return () => clearInterval(interval)
-  }, [refetch])
+  const { addLiquidityOption, removeLiquidityOption, collectFeesOption } = usePositionActionOptions({ positionInfo })
 
   const navigate = useNavigate()
   const { t } = useTranslation()
+  const setAutoSwitchEnabled = useAutoSwitchPositionStore((state) => state.setEnabled)
+  const onSelectPoolPosition = useCallback(
+    (key: string) => {
+      const position = ownerPositions.find((candidate) => getPositionKey(candidate) === key)
+      if (position) {
+        // A position picked by hand overrides auto-switch, which would otherwise move straight off it.
+        setAutoSwitchEnabled(false)
+        navigate(getPositionUrl(position))
+      }
+    },
+    [ownerPositions, navigate, setAutoSwitchEnabled],
+  )
+  // The owner's open positions in this pool, for the swaps table's owner fee total; the current one with its live
+  // liquidity.
+  const ownerPoolPositions = useMemo(
+    () =>
+      positionInfo && isNftPosition(positionInfo)
+        ? ownerPositions.flatMap((owned) => {
+            const latest = getPositionKey(owned) === getPositionKey(positionInfo) ? positionInfo : owned
+            const samePool =
+              latest.chainId === positionInfo.chainId &&
+              normalizeAddress(latest.poolId, AddressStringFormat.Lowercase) ===
+                normalizeAddress(positionInfo.poolId, AddressStringFormat.Lowercase)
+            return samePool && latest.liquidity && latest.tickLower !== undefined && latest.tickUpper !== undefined
+              ? [
+                  {
+                    tokenId: latest.tokenId,
+                    liquidity: latest.liquidity,
+                    tickLower: latest.tickLower,
+                    tickUpper: latest.tickUpper,
+                  },
+                ]
+              : []
+          })
+        : undefined,
+    [ownerPositions, positionInfo],
+  )
+  const onAutoSwitch = useCallback((position: PositionInfo) => navigate(getPositionUrl(position)), [navigate])
+  useAutoSwitchPosition({
+    current: positionInfo && isNftPosition(positionInfo) ? positionInfo : undefined,
+    positions: ownerPositions,
+    liveTick: positionInfo?.version === ProtocolVersion.V2 ? undefined : positionInfo?.poolOrPair?.tickCurrent,
+    isLive: poolUpdatedAt !== undefined,
+    onSwitch: onAutoSwitch,
+  })
 
   const metatagProperties = useMemo(() => {
     const token0Symbol = positionInfo?.currency0Amount.currency.symbol
@@ -308,21 +351,28 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     tokenIdFromUrl,
   ])
   const metatags = useDynamicMetatags(metatagProperties)
+  // Set directly rather than through Helmet: in dev, StrictMode's simulated remount drops a page's Helmet, and the app
+  // leaves the title of this route to the page (pageSetsTitle).
+  const tabTitle = positionInfo
+    ? getPositionTabTitle({
+        tokenId: isNftPosition(positionInfo) ? positionInfo.tokenId : undefined,
+        symbol0: positionInfo.currency0Amount.currency.symbol ?? t('common.token'),
+        symbol1: positionInfo.currency1Amount.currency.symbol ?? t('common.token'),
+        feeAmount: positionInfo.feeTier?.feeAmount,
+        network: chainInfo?.label,
+      })
+    : undefined
+  useEffect(() => {
+    if (tabTitle) {
+      document.title = tabTitle
+    }
+  }, [tabTitle])
 
   const { currency0Amount, currency1Amount, status, fee0Amount, fee1Amount } = positionInfo ?? {}
-  // Prefer the backend's per-token fee USD (priced with the same token prices it used for the
-  // total `uncollectedFeesUsd`) so the fee breakdown here matches the positions-list total. Only
-  // the liquidity-service path serves these; fall back to live pricing on the data-api path.
-  // Re-pricing with a live oracle is what made this page disagree with the list (LP-1616).
-  const liveFiatFeeValue0 = useUSDCValue(fee0Amount, PollingInterval.Slow)
-  const liveFiatFeeValue1 = useUSDCValue(fee1Amount, PollingInterval.Slow)
-  const backendFiatFeeValue0 = fiatFeeCurrencyAmount(positionInfo?.token0UncollectedFeesUsd)
-  const backendFiatFeeValue1 = fiatFeeCurrencyAmount(positionInfo?.token1UncollectedFeesUsd)
-  // All-or-nothing so fee0 and fee1 never mix currencies (backend USD vs the live oracle's
-  // per-chain stablecoin), which would break the .add() and share-percentage math downstream.
-  const useBackendFees = backendFiatFeeValue0 !== undefined && backendFiatFeeValue1 !== undefined
-  const fiatFeeValue0Raw = useBackendFees ? backendFiatFeeValue0 : liveFiatFeeValue0
-  const fiatFeeValue1Raw = useBackendFees ? backendFiatFeeValue1 : liveFiatFeeValue1
+  // The live price service's USD values. A pair with a stablecoin is priced from its own pool instead (toUsdValues),
+  // so these only count for pairs without one. Fees are priced like the amounts, so the page uses one price source.
+  const fiatFeeValue0Raw = useUSDCValue(fee0Amount, PollingInterval.Slow)
+  const fiatFeeValue1Raw = useUSDCValue(fee1Amount, PollingInterval.Slow)
   const fiatValue0Raw = useUSDCValue(currency0Amount, PollingInterval.Slow)
   const fiatValue1Raw = useUSDCValue(currency1Amount, PollingInterval.Slow)
 
@@ -400,6 +450,44 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
   const [userFlipped, setUserFlipped] = useState(false)
   const togglePriceInverted = useEvent(() => setUserFlipped((flipped) => !flipped))
   const priceInverted = waterfallDefault !== userFlipped
+  // The pool's liquidity by price for the candle chart's depth bars, in the chart's orientation. The tick distribution
+  // only changes when LPs add or remove liquidity, so the backend's copy is fresh enough.
+  const { formattedData: densityData } = useDensityChartData({
+    poolId: positionInfo?.poolId,
+    sdkCurrencies: {
+      [PositionField.TOKEN0]: currency0Amount?.currency,
+      [PositionField.TOKEN1]: currency1Amount?.currency,
+    },
+    feeAmount: positionInfo?.feeTier?.feeAmount,
+    priceInverted,
+    version: positionInfo?.version ?? ProtocolVersion.UNSPECIFIED,
+    chainId: positionInfo?.chainId,
+    tickSpacing: positionInfo?.tickSpacing,
+    skip: positionInfo?.version !== ProtocolVersion.V3,
+  })
+  const liquiditySegments = useMemo(() => {
+    if (!densityData) {
+      return undefined
+    }
+    // Ticks in order (the response can repeat one); each holds its liquidity up to the next tick.
+    const byTick = [...new Map(densityData.map((entry) => [entry.tick, entry])).values()].sort(
+      (a, b) => a.tick - b.tick,
+    )
+    return byTick.slice(0, -1).map((entry, index) => ({
+      tick: entry.tick,
+      priceFrom: entry.price0,
+      priceTo: byTick[index + 1].price0,
+      liquidity: entry.liquidityActive,
+    }))
+  }, [densityData])
+
+  const poolPositions = useMemo(
+    () =>
+      positionInfo && isNftPosition(positionInfo)
+        ? getPoolPositionRanges({ positions: ownerPositions, current: positionInfo, priceInverted })
+        : undefined,
+    [ownerPositions, positionInfo, priceInverted],
+  )
 
   const { formatNumberOrString } = useLocalizationContext()
   const { isPoolPriceStale, isPoolOutOfSync, marketPrice } = useEffectivePositionStatus(positionInfo)
@@ -492,20 +580,28 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
       })),
     [],
   )
-  const candlesUrl =
-    positionInfo?.version === ProtocolVersion.V3 && candlesBaseToken
-      ? getPoolCandlesUrl({
+  // The pair's stablecoin lets the recent candles come from a source that leaves out dust trades (poolCandles.ts).
+  const candlesStablecoin = [currency0Amount?.currency, currency1Amount?.currency].find((currency) =>
+    STABLECOIN_SYMBOLS.includes(currency?.symbol ?? ''),
+  )
+  const candlesSource =
+    positionInfo?.version === ProtocolVersion.V3 && candlesBaseToken && currency0Amount && currency1Amount
+      ? getPoolCandlesSource({
           chainId: positionInfo.chainId,
           poolAddress: positionInfo.poolId,
+          token0Address: currency0Amount.currency.wrapped.address,
+          token1Address: currency1Amount.currency.wrapped.address,
           pricedTokenAddress: candlesBaseToken.wrapped.address,
+          stablecoinAddress: candlesStablecoin?.wrapped.address,
           interval: candleInterval,
         })
       : undefined
   // The line chart is no longer offered, but still stands in where candles aren't available (V4, unsupported chains).
-  const shownView: MainView = mainView === 'candles' && !candlesUrl ? 'chart' : mainView
+  const hasCandles = candlesSource !== undefined
+  const shownView: MainView = mainView === 'candles' && !hasCandles ? 'chart' : mainView
   const mainViewOptions = useMemo(() => {
     const options: { value: MainView; display: JSX.Element }[] = []
-    if (candlesUrl) {
+    if (hasCandles) {
       options.push({ value: 'candles', display: <Text variant="buttonLabel3">Candles</Text> })
     }
     if (dexToolsChartUrl) {
@@ -513,7 +609,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     }
     options.push({ value: 'nft', display: <Text variant="buttonLabel3">{t('common.nft')}</Text> })
     return options
-  }, [t, dexToolsChartUrl, candlesUrl])
+  }, [t, dexToolsChartUrl, hasCandles])
 
   const { fullWidth: screenWidth } = useDeviceDimensions()
   const [contentRowWidth, setContentRowWidth] = useState<number | undefined>(undefined)
@@ -533,10 +629,6 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     }
     return 620
   }, [screenWidth, contentRowWidth])
-
-  const onMigrate = useEvent(() => {
-    navigate(`/migrate/v3/${chainInfo?.urlParam}/${tokenIdFromUrl}`)
-  })
 
   if (positionLoading) {
     return (
@@ -631,28 +723,40 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     currency0: currency0Amount.currency,
     currency1: currency1Amount.currency,
   }
-  const [fiatValue0, fiatValue1] = withStablecoinFallback({
+  const [fiatValue0, fiatValue1] = toUsdValues({
     ...stablePricing,
     amount0: currency0Amount,
     amount1: currency1Amount,
     fiat0: fiatValue0Raw,
     fiat1: fiatValue1Raw,
   })
-  const [fiatFeeValue0, fiatFeeValue1] = withStablecoinFallback({
+
+  // USD to move the price 0.01% at a depth segment's level: token1's worth there, priced at that level for a stable pair.
+  const depthPerPercentUsd = (segment: { tick: number; liquidity: number }): number | undefined => {
+    const token1 = token1PerMoveAt(segment) / 10 ** currency1Amount.currency.decimals
+    const stable0 = STABLECOIN_SYMBOLS.includes(currency0Amount.currency.symbol ?? '')
+    const stable1 = STABLECOIN_SYMBOLS.includes(currency1Amount.currency.symbol ?? '')
+    const price0In1AtLevel =
+      1.0001 ** segment.tick * 10 ** (currency0Amount.currency.decimals - currency1Amount.currency.decimals)
+    const usd1 = stable1 ? 1 : stable0 ? 1 / price0In1AtLevel : usdPerUnit(fiatValue1, currency1Amount)
+    return usd1 === undefined ? undefined : token1 * usd1
+  }
+
+  const [fiatFeeValue0, fiatFeeValue1] = toUsdValues({
     ...stablePricing,
     amount0: fee0Amount,
     amount1: fee1Amount,
     fiat0: fiatFeeValue0Raw,
     fiat1: fiatFeeValue1Raw,
   })
-  const [depositedFiatValue0, depositedFiatValue1] = withStablecoinFallback({
+  const [depositedFiatValue0, depositedFiatValue1] = toUsdValues({
     ...stablePricing,
     amount0: depositedCurrency0Amount,
     amount1: depositedCurrency1Amount,
     fiat0: depositedFiat0,
     fiat1: depositedFiat1,
   })
-  const [collectedFiatValue0, collectedFiatValue1] = withStablecoinFallback({
+  const [collectedFiatValue0, collectedFiatValue1] = toUsdValues({
     ...stablePricing,
     amount0: collectedCurrency0Amount,
     amount1: collectedCurrency1Amount,
@@ -673,7 +777,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     }),
   )
 
-  const { profitLoss, realizedApr, feesApr } = (() => {
+  const { profitLoss, roi, realizedApr, feesApr } = (() => {
     const deposited0 = usdOrZero(depositedFiatValue0, totalDeposited0)
     const deposited1 = usdOrZero(depositedFiatValue1, totalDeposited1)
     const collected0 = usdOrZero(collectedFiatValue0, totalCollected0)
@@ -694,7 +798,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
       collected0 === undefined ||
       collected1 === undefined
     ) {
-      return { profitLoss: undefined, realizedApr: undefined, feesApr: undefined }
+      return { profitLoss: undefined, roi: undefined, realizedApr: undefined, feesApr: undefined }
     }
 
     const uncollectedFeesUsd = feeValue0 + feeValue1
@@ -704,15 +808,18 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
 
     const pl = currentValueUsd + totalCollectedUsd - totalDepositedUsd
 
+    // Return on what went in, not annualized: P/L over the total deposited.
+    const totalReturn = totalDepositedUsd === 0 ? undefined : pl / totalDepositedUsd
+    const roiPercent = totalReturn === undefined ? undefined : totalReturn * 100
     const ageSeconds = Date.now() / 1000 - mintTimestamp
-    if (totalDepositedUsd === 0 || ageSeconds <= 0) {
-      return { profitLoss: pl, realizedApr: undefined, feesApr: undefined }
+    if (totalReturn === undefined || ageSeconds <= 0) {
+      return { profitLoss: pl, roi: roiPercent, realizedApr: undefined, feesApr: undefined }
     }
 
     const annualizer = (365 * 24 * 3600) / ageSeconds
-    const totalReturn = (currentValueUsd + totalCollectedUsd - totalDepositedUsd) / totalDepositedUsd
     return {
       profitLoss: pl,
+      roi: roiPercent,
       realizedApr: totalReturn * annualizer * 100,
       feesApr:
         collectedFeesUsd === undefined
@@ -742,23 +849,12 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
       }}
     >
       <Helmet>
-        <title>
-          {t(`liquidityPool.positions.page.title`, {
-            quoteSymbol: currency1Amount.currency.symbol ?? t('common.token'),
-            baseSymbol: currency0Amount.currency.symbol ?? t('common.token'),
-          })}
-        </title>
         {metatags.map((tag, index) => (
           <meta key={index} {...tag} />
         ))}
       </Helmet>
       <BodyWrapper mb={100} className={COMPACT_TEXT_CLASS}>
         <Flex gap="$gap20">
-          <BreadcrumbNavContainer aria-label="breadcrumb-nav">
-            <BreadcrumbNavLink style={{ gap: '8px' }} to={breadcrumb.to}>
-              <ArrowLeft size="$icon.16" /> {breadcrumb.label}
-            </BreadcrumbNavLink>
-          </BreadcrumbNavContainer>
           {positionInfo.chainId === UniverseChainId.Blast && <BlastShutdownBanner />}
           <Flex
             row
@@ -778,6 +874,9 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                 includeNetwork
                 stackedLogo
                 stalePriceWarning={stalePriceWarning}
+                logoAccessory={
+                  isNftPosition(positionInfo) ? <Text variant="heading1">#{positionInfo.tokenId}</Text> : undefined
+                }
                 titleAccessory={
                   <Flex row gap="$gap8" alignItems="center">
                     <TouchableArea onPress={togglePriceInverted}>
@@ -800,12 +899,18 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                 }
               />
             </Flex>
-            <PositionPageActionButtons isOwner={isOwner} positionInfo={positionInfo} onMigrate={onMigrate} />
+            <Flex row alignItems="center" gap="$gap12">
+              {/* Only with somewhere to switch to, like the dropdown beside it. */}
+              {ownerPositions.length > 1 && <AutoSwitchToggle />}
+              <PositionSwitcher current={positionInfo} />
+            </Flex>
           </Flex>
         </Flex>
+        {/* -12 against the page's 32 gap: the price row sits 20 under the header's line. */}
         <Flex
           row
           justifyContent="space-between"
+          mt={-12}
           $lg={{ row: false, gap: '$gap24' }}
           onLayout={(event) => setContentRowWidth(event.nativeEvent.layout.width)}
         >
@@ -822,14 +927,7 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
               token1CurrentPrice={token1Price}
               priceInverted={priceInverted}
             />
-            <Flex
-              height="auto"
-              width="100%"
-              $lg={{ width: '100%' }}
-              borderWidth={0}
-              borderColor="$surface3"
-              pb="$padding12"
-            >
+            <Flex height="auto" width="100%" $lg={{ width: '100%' }} borderWidth={0} borderColor="$surface3">
               {shownView === 'chart' ? (
                 <WrappedLiquidityPositionRangeChart
                   version={positionInfo.version}
@@ -862,17 +960,21 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                   crosshairEnabled={false}
                   currentPrice={currentChartPrice}
                 />
-              ) : shownView === 'candles' && candlesUrl ? (
+              ) : shownView === 'candles' && candlesSource ? (
                 <PositionCandlestickChart
-                  candlesUrl={candlesUrl}
+                  candlesSource={candlesSource}
                   candleSeconds={candleInterval.seconds}
                   width={chartWidth}
-                  height={440}
                   startTime={mintTimestamp ?? positionInfo.createdAt}
                   priceLower={candleRange?.lower}
                   priceUpper={candleRange?.upper}
                   inRange={positionInfo.status === PositionStatus.IN_RANGE}
                   livePrice={livePoolPrice}
+                  poolPositions={poolPositions}
+                  positionKey={getPositionKey(positionInfo)}
+                  onSelectPosition={onSelectPoolPosition}
+                  liquiditySegments={liquiditySegments}
+                  depthPerPercentUsd={depthPerPercentUsd}
                 />
               ) : shownView === 'dextools' && dexToolsChartUrl ? (
                 <DexToolsChart url={dexToolsChartUrl} width={chartWidth} height={440} />
@@ -894,7 +996,16 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                 </Flex>
               )}
             </Flex>
-            <Flex row alignItems="center" justifyContent="space-between" flexDirection="row-reverse" width="100%">
+            {/* Pulled up against the chart (into the column's gap), so the controls read as part of it. */}
+            <Flex
+              row
+              alignItems="center"
+              justifyContent="space-between"
+              flexDirection="row-reverse"
+              width="100%"
+              mt={-8}
+              pb="$spacing8"
+            >
               {isMobileWeb ? (
                 <Dropdown
                   containerStyle={{ width: 'auto' }}
@@ -1025,7 +1136,45 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                   />
                 ))}
             </Flex>
-            <Flex mt="$spacing24" gap="$spacing16">
+            {/* 20 between the two rows of pickers: the pickers' row padding and the column's gap, less 2 for the row
+                standing a little taller than the pickers in it. */}
+            <Flex mt={-2} gap="$spacing16">
+              {positionInfo.version === ProtocolVersion.V3 && chainId && (
+                <PoolSwapsList
+                  chainId={chainId}
+                  poolAddress={positionInfo.poolId}
+                  token0={currency0Amount.currency}
+                  token1={currency1Amount.currency}
+                  // The pair reads like the headline price: base first (see candlesBaseToken).
+                  baseIsToken0={!priceInverted}
+                  position={
+                    positionInfo.liquidity !== undefined &&
+                    positionInfo.tickLower !== undefined &&
+                    positionInfo.tickUpper !== undefined &&
+                    positionInfo.feeTier
+                      ? {
+                          liquidity: positionInfo.liquidity,
+                          tickLower: positionInfo.tickLower,
+                          tickUpper: positionInfo.tickUpper,
+                          feeAmount: positionInfo.feeTier.feeAmount,
+                        }
+                      : undefined
+                  }
+                  ownerPoolPositions={ownerPoolPositions}
+                  currentTokenId={tokenIdFromUrl}
+                  stablecoinIndex={
+                    candlesStablecoin === undefined
+                      ? undefined
+                      : candlesStablecoin.equals(currency0Amount.currency)
+                        ? 0
+                        : 1
+                  }
+                  usdPerToken={{
+                    token0: usdPerUnit(fiatValue0, currency0Amount),
+                    token1: usdPerUnit(fiatValue1, currency1Amount),
+                  }}
+                />
+              )}
               {positionEvents.length > 0 && chainId && (
                 <Flex gap="$spacing12" mt="$spacing12">
                   <Text variant="body2" color="$neutral2" fontWeight="600">
@@ -1132,6 +1281,25 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
             </Flex>
           </Flex>
           <Flex gap="$spacing20">
+            <EarningsSection
+              positionInfo={positionInfo}
+              collectedFeesUsd={collectedFeesUsd}
+              currency0Amount={currency0Amount}
+              currency1Amount={currency1Amount}
+              fiatFeeValue0={fiatFeeValue0}
+              fiatFeeValue1={fiatFeeValue1}
+              fee0Amount={fee0Amount}
+              fee1Amount={fee1Amount}
+              actions={isOwner ? <PositionCardActions options={[collectFeesOption]} /> : null}
+            />
+            <PositionSection
+              status={positionInfo.status}
+              currency0Amount={currency0Amount}
+              currency1Amount={currency1Amount}
+              fiatValue0={fiatValue0}
+              fiatValue1={fiatValue1}
+              actions={isOwner ? <PositionCardActions options={[addLiquidityOption, removeLiquidityOption]} /> : null}
+            />
             <TotalValueSection
               status={positionInfo.status}
               currency0Amount={currency0Amount}
@@ -1143,25 +1311,9 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
               fiatFeeValue0={fiatFeeValue0}
               fiatFeeValue1={fiatFeeValue1}
               profitLoss={profitLoss}
+              roi={roi}
               realizedApr={realizedApr}
               feesApr={feesApr}
-            />
-            <PositionSection
-              status={positionInfo.status}
-              currency0Amount={currency0Amount}
-              currency1Amount={currency1Amount}
-              fiatValue0={fiatValue0}
-              fiatValue1={fiatValue1}
-            />
-            <EarningsSection
-              positionInfo={positionInfo}
-              collectedFeesUsd={collectedFeesUsd}
-              currency0Amount={currency0Amount}
-              currency1Amount={currency1Amount}
-              fiatFeeValue0={fiatFeeValue0}
-              fiatFeeValue1={fiatFeeValue1}
-              fee0Amount={fee0Amount}
-              fee1Amount={fee1Amount}
             />
             {rewards.length > 0 && (
               <APRSection
@@ -1194,6 +1346,12 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
   )
 }
 
+/** A token's USD price, from a USD value and the amount it's for; undefined without a nonzero amount. */
+function usdPerUnit(fiatValue: FiatAmount, amount: CurrencyAmount<Currency>): number | undefined {
+  const tokens = Number(amount.toExact())
+  return fiatValue && tokens > 0 ? Number(fiatValue.toExact()) / tokens : undefined
+}
+
 function formatRefreshTime(updatedAt: number | undefined, now: number): string {
   if (!updatedAt) {
     return 'never'
@@ -1221,10 +1379,10 @@ const RefreshStatusBar = ({
   return (
     <Flex row gap="$gap16" flexWrap="wrap" testID="position-refresh-status">
       <Text variant="body3" color="$neutral2">
-        Pool price (on-chain): {formatRefreshTime(poolUpdatedAt, now)}
+        Price, liquidity, fees (on-chain): {formatRefreshTime(poolUpdatedAt, now)}
       </Text>
       <Text variant="body3" color="$neutral2">
-        Position data (backend): {formatRefreshTime(positionUpdatedAt, now)}
+        Position details (backend, read once): {formatRefreshTime(positionUpdatedAt, now)}
       </Text>
       {poolError && (
         <Text variant="body3" color="$statusCritical">
@@ -1239,6 +1397,7 @@ const SectionContainer = ({ children, testID }: { children: React.ReactNode; tes
   return (
     <Flex
       p="$spacing20"
+      position="relative"
       backgroundColor="$surface2"
       width={RIGHT_COLUMN_WIDTH}
       $lg={{ width: '100%' }}
@@ -1265,6 +1424,7 @@ const TotalValueSection = ({
   fiatFeeValue0,
   fiatFeeValue1,
   profitLoss,
+  roi,
   realizedApr,
   feesApr,
 }: {
@@ -1278,11 +1438,12 @@ const TotalValueSection = ({
   fiatFeeValue0: Maybe<CurrencyAmount<Currency>>
   fiatFeeValue1: Maybe<CurrencyAmount<Currency>>
   profitLoss?: number
+  /** P/L as a percentage of the total deposited, not annualized. */
+  roi?: number
   realizedApr?: number
   feesApr?: number
 }) => {
   const { convertFiatAmountFormatted, formatPercent, formatCurrencyAmount } = useLocalizationContext()
-  const { t } = useTranslation()
   const currencyInfo0 = useCurrencyInfo(currency0Amount.currency)
   const currencyInfo1 = useCurrencyInfo(currency1Amount.currency)
 
@@ -1311,20 +1472,17 @@ const TotalValueSection = ({
     return totalFiat0 + totalFiat1
   }, [totalFiat0, totalFiat1])
 
-  const formattedTotalValue = useMemo(
-    () =>
-      totalValueExact !== undefined
-        ? convertFiatAmountFormatted(totalValueExact, NumberType.FiatTokenPrice)
-        : undefined,
-    [totalValueExact, convertFiatAmountFormatted],
-  )
-  const totalValueFlashColor = useFlashColor(formattedTotalValue)
-
   const formattedPL = useMemo(
     () => (profitLoss !== undefined ? convertFiatAmountFormatted(profitLoss, NumberType.FiatTokenPrice) : undefined),
     [profitLoss, convertFiatAmountFormatted],
   )
   const plFlashColor = useFlashColor(formattedPL)
+
+  const formattedRoi = useMemo(
+    () => (roi !== undefined ? `${roi >= 0 ? '+' : '−'}${formatPercent(Math.abs(roi))}` : undefined),
+    [roi, formatPercent],
+  )
+  const roiFlashColor = useFlashColor(formattedRoi)
 
   const formattedApr = useMemo(
     () => (realizedApr !== undefined ? formatPercent(realizedApr) : undefined),
@@ -1413,67 +1571,48 @@ const TotalValueSection = ({
     <SectionContainer>
       <Flex gap="$gap8">
         <Text color="$neutral2" variant="body2">
-          {t('common.totalValue')}
+          {profitLoss === undefined ? 'Profit/Loss' : profitLoss < 0 ? 'Loss' : 'Profit'}
         </Text>
-        {status === PositionStatus.CLOSED ? (
-          <Text variant="heading2" $lg={{ variant: 'heading3' }}>
-            {convertFiatAmountFormatted(0, NumberType.FiatTokenPrice)}
-          </Text>
-        ) : (
-          <>
-            <Text variant="heading2" mb="$spacing12" color={totalValueFlashColor ?? '$neutral1'}>
-              {formattedTotalValue ? (
-                formattedTotalValue
-              ) : (
-                <MouseoverTooltip text={t('pool.positions.usdValueUnavailable.tooltip')} placement="right">
-                  <Flex alignItems="center" row gap="$gap8">
-                    <Text variant="body1" color="$neutral2">
-                      {t('pool.positions.usdValueUnavailable')}
-                    </Text>
-                    <InfoCircleFilled color="$neutral2" size="$icon.16" />
-                  </Flex>
-                </MouseoverTooltip>
-              )}
+        <Text variant="heading2" mb="$spacing12" color={formattedPL ? (plFlashColor ?? '$neutral1') : '$neutral3'}>
+          {formattedPL !== undefined ? `${profitLoss !== undefined && profitLoss >= 0 ? '+' : ''}${formattedPL}` : '–'}
+        </Text>
+        {formattedRoi !== undefined && (
+          <Flex row gap="$gap8" mb="$spacing4">
+            <Text variant="body2" color="$neutral2">
+              ROI
             </Text>
-            {formattedPL !== undefined && (
-              <Flex row gap="$gap8" mb="$spacing4">
-                <Text variant="body2" color="$neutral2">
-                  P/L
-                </Text>
-                <Text variant="body2" color={plFlashColor ?? '$neutral1'}>
-                  {profitLoss !== undefined && profitLoss >= 0 ? '+' : ''}
-                  {formattedPL}
-                </Text>
-              </Flex>
-            )}
-            {formattedApr !== undefined && (
-              <Flex row gap="$gap8" mb="$spacing4">
-                <Text variant="body2" color="$neutral2">
-                  APR
-                </Text>
-                <Text variant="body2" color={aprFlashColor ?? '$neutral1'}>
-                  {formattedApr}
-                </Text>
-              </Flex>
-            )}
-            {formattedFeesApr !== undefined && (
-              <Flex row gap="$gap8" mb="$spacing8">
-                <Text variant="body2" color="$neutral2">
-                  Fees APR
-                </Text>
-                <Text variant="body2" color={feesAprFlashColor ?? '$neutral1'}>
-                  {formattedFeesApr}
-                </Text>
-              </Flex>
-            )}
-            {bars.length > 0 && (
-              <Flex mb="$spacing24">
-                <LiquidityPositionStackedBars bars={bars} />
-              </Flex>
-            )}
-            {rows.length > 0 && <LiquidityPositionAmountRows rows={rows} />}
-          </>
+            <Text variant="body2" color={roiFlashColor ?? '$neutral1'}>
+              {formattedRoi}
+            </Text>
+          </Flex>
         )}
+        {formattedApr !== undefined && (
+          <Flex row gap="$gap8" mb="$spacing4">
+            <Text variant="body2" color="$neutral2">
+              APR
+            </Text>
+            <Text variant="body2" color={aprFlashColor ?? '$neutral1'}>
+              {formattedApr}
+            </Text>
+          </Flex>
+        )}
+        {formattedFeesApr !== undefined && (
+          <Flex row gap="$gap8" mb="$spacing8">
+            <Text variant="body2" color="$neutral2">
+              Fees APR
+            </Text>
+            <Text variant="body2" color={feesAprFlashColor ?? '$neutral1'}>
+              {formattedFeesApr}
+            </Text>
+          </Flex>
+        )}
+        {/* What the position holds now, fees included; a closed one holds nothing. */}
+        {status !== PositionStatus.CLOSED && bars.length > 0 && (
+          <Flex mb="$spacing24">
+            <LiquidityPositionStackedBars bars={bars} layout="inline" />
+          </Flex>
+        )}
+        {status !== PositionStatus.CLOSED && rows.length > 0 && <LiquidityPositionAmountRows rows={rows} />}
       </Flex>
     </SectionContainer>
   )
@@ -1485,12 +1624,14 @@ const PositionSection = ({
   currency1Amount,
   fiatValue0,
   fiatValue1,
+  actions,
 }: {
   status?: PositionStatus
   currency0Amount: CurrencyAmount<Currency>
   currency1Amount: CurrencyAmount<Currency>
   fiatValue0: Maybe<CurrencyAmount<Currency>>
   fiatValue1: Maybe<CurrencyAmount<Currency>>
+  actions?: React.ReactNode
 }) => {
   const { convertFiatAmountFormatted, formatCurrencyAmount: formatCurrencyAmountPos } = useLocalizationContext()
   const { t } = useTranslation()
@@ -1591,13 +1732,19 @@ const PositionSection = ({
             </Text>
             {bars.length > 0 && (
               <Flex mb="$spacing24">
-                <LiquidityPositionStackedBars bars={bars} />
+                <LiquidityPositionStackedBars bars={bars} layout="inline" />
               </Flex>
             )}
             {rows.length > 0 && <LiquidityPositionAmountRows rows={rows} />}
           </>
         )}
       </Flex>
+      {/* Pinned to the corner so the actions don't add to the card's height. */}
+      {actions && (
+        <Flex position="absolute" top="$spacing16" right="$spacing16">
+          {actions}
+        </Flex>
+      )}
     </SectionContainer>
   )
 }
@@ -1734,6 +1881,7 @@ function toEarningsShare(value: number | undefined, total: number | undefined): 
 const EarningsSection = ({
   positionInfo,
   collectedFeesUsd,
+  actions,
   currency0Amount,
   currency1Amount,
   fiatFeeValue0,
@@ -1744,6 +1892,7 @@ const EarningsSection = ({
   positionInfo: PositionInfo
   /** Fees already collected over the position's life, in USD; undefined until its history loads. */
   collectedFeesUsd?: number
+  actions?: React.ReactNode
   currency0Amount: CurrencyAmount<Currency>
   currency1Amount: CurrencyAmount<Currency>
   fiatFeeValue0: Maybe<CurrencyAmount<Currency>>
@@ -1851,7 +2000,7 @@ const EarningsSection = ({
     <SectionContainer testID={TestID.PositionEarningsSection}>
       <Flex gap="$gap8">
         <Text color="$neutral2" variant="body2">
-          {hasRewards ? t('pool.earnings') : t('common.feesEarned')}
+          {hasRewards ? t('pool.earnings') : t('common.fees')}
         </Text>
         {isClosed ? (
           <>
@@ -1878,7 +2027,7 @@ const EarningsSection = ({
             <Flex mb="$spacing12" />
             {bars.length > 0 && (
               <Flex mb="$spacing24">
-                <LiquidityPositionStackedBars bars={bars} />
+                <LiquidityPositionStackedBars bars={bars} layout="inline" />
               </Flex>
             )}
 
@@ -1909,6 +2058,12 @@ const EarningsSection = ({
           </>
         )}
       </Flex>
+      {/* Pinned to the corner so the actions don't add to the card's height. */}
+      {actions && (
+        <Flex position="absolute" top="$spacing16" right="$spacing16">
+          {actions}
+        </Flex>
+      )}
     </SectionContainer>
   )
 }
@@ -1925,22 +2080,49 @@ const CollectedFeesNote = ({ collectedFeesUsd }: { collectedFeesUsd?: number }) 
   )
 }
 
+/** The browser tab's title, e.g. "#6574078 - WETH/USDC 0.05% @Base". */
+function getPositionTabTitle({
+  tokenId,
+  symbol0,
+  symbol1,
+  feeAmount,
+  network,
+}: {
+  tokenId: string | undefined
+  symbol0: string
+  symbol1: string
+  /** In hundredths of a basis point, e.g. 500 for 0.05%. */
+  feeAmount: number | undefined
+  network: string | undefined
+}): string {
+  const pair = `${symbol0}/${symbol1}${feeAmount !== undefined ? ` ${feeAmount / 10_000}%` : ''}`
+  return [tokenId !== undefined ? `#${tokenId} -` : undefined, pair, network ? `@${network}` : undefined]
+    .filter((part) => part !== undefined)
+    .join(' ')
+}
+
+/** A range bound's hover text: how far it is from the current price, and its tick. */
+function boundTooltip({ delta, tick }: { delta: string | undefined; tick: number | undefined }): string | undefined {
+  const parts = [delta, tick !== undefined ? `Tick ${tick}` : undefined]
+  const text = parts.filter((part) => part !== undefined).join(' · ')
+  return text || undefined
+}
+
 const PriceDisplay = ({
   labelText,
   price,
   priceColor,
-  subText,
   tooltip,
 }: {
   labelText: string
   price: string
   priceColor?: string
-  subText?: string
+  /** Shown on hovering the price, e.g. its distance from the current price and its tick. */
   tooltip?: string
 }) => {
   const priceText = (
     <Text
-      variant="subheading1"
+      variant="heading3"
       color={priceColor}
       ellipsizeMode="middle"
       numberOfLines={1}
@@ -1967,11 +2149,6 @@ const PriceDisplay = ({
         </MouseoverTooltip>
       ) : (
         priceText
-      )}
-      {subText !== undefined && (
-        <Text variant="body4" color="$neutral2" numberOfLines={1}>
-          {subText}
-        </Text>
       )}
     </Flex>
   )
@@ -2008,11 +2185,14 @@ const PriceRangeSection = ({
     delta === undefined ? undefined : `${delta >= 0 ? '+' : '−'}${formatPercent(Math.abs(delta))}`
   const locale = useCurrentLocale()
   const formattedMarketPrice = useMemo(() => {
-    return formatPositionPrice({
-      value: (priceInverted ? token1CurrentPrice : token0CurrentPrice)?.toSignificant(),
-      locale,
-      formatNumberOrString,
-    })
+    const price = priceInverted ? token1CurrentPrice : token0CurrentPrice
+    const value = price ? Number(price.toSignificant(12)) : undefined
+    // Two decimals, always (1,803.80, not 1,803.8), like the prices elsewhere on the page; prices below 1 keep their
+    // significant digits, which two decimals would round away.
+    if (value !== undefined && value >= 1) {
+      return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)
+    }
+    return formatPositionPrice({ value: price?.toSignificant(), locale, formatNumberOrString })
   }, [priceInverted, token0CurrentPrice, token1CurrentPrice, locale, formatNumberOrString])
   const marketPriceFlashColor = useFlashColor(formattedMarketPrice)
 
@@ -2039,15 +2219,13 @@ const PriceRangeSection = ({
         <PriceDisplay
           labelText={t('pool.minPrice')}
           price={minPrice}
-          subText={formatDelta(minPriceDelta)}
-          tooltip={minTick === undefined ? undefined : `Tick ${minTick}`}
+          tooltip={boundTooltip({ delta: formatDelta(minPriceDelta), tick: minTick })}
         />
 
         <PriceDisplay
           labelText={t('pool.maxPrice')}
           price={maxPrice}
-          subText={formatDelta(maxPriceDelta)}
-          tooltip={maxTick === undefined ? undefined : `Tick ${maxTick}`}
+          tooltip={boundTooltip({ delta: formatDelta(maxPriceDelta), tick: maxTick })}
         />
       </Flex>
     </Flex>

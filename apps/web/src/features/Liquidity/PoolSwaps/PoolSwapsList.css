@@ -1,0 +1,40 @@
+/*
+ * The segmented control draws its selection highlight as a layer over the selected option, which takes the pointer:
+ * that option's tooltip would never open. Let the pointer through, in this control only; a click then lands on the
+ * option itself, and selecting the selected option does nothing.
+ */
+.pool-swaps-filter [data-testid='segmented-control-indicator'] {
+  pointer-events: none;
+}
+
+/*
+ * A swap that just arrived: its row starts tinted in its side's color (--arrival-color, stronger for bigger swaps) and
+ * fades out at one steady rate for every swap, so a fainter start ends sooner (--arrival-duration). Runs once, when
+ * the row first appears.
+ */
+.pool-swap-arrived {
+  animation: pool-swap-arrival var(--arrival-duration) linear;
+}
+
+@keyframes pool-swap-arrival {
+  from {
+    background-color: var(--arrival-color);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+/* The dot by the clock: lights up when the swaps are read, then dims, ready for the next read. */
+.pool-swaps-update-dot {
+  animation: pool-swaps-update 1s ease-out forwards;
+}
+
+@keyframes pool-swaps-update {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.15;
+  }
+}

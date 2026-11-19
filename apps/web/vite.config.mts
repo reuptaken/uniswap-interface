@@ -546,6 +546,20 @@ export default defineConfig(({ mode, command, isPreview }) => {
           rewrite: (path) => path.replace(/^\/config/, '/v1/statsig-proxy'),
         },
         ...(ENABLE_PROXY ? createEntryGatewayProxies({ getLogger, env }) : {}),
+        // Dust-filtered pool candles (position page chart). DexPaprika sends no CORS headers, and its key stays
+        // server-side: the proxy adds it, so it never reaches the bundle. Without a key there is no route, and the
+        // chart falls back to GeckoTerminal.
+        ...(env.DEXPAPRIKA_API_KEY
+          ? {
+              '/dexpaprika': {
+                target: 'https://api.dexpaprika.com',
+                changeOrigin: true,
+                secure: true,
+                rewrite: (path: string) => path.replace(/^\/dexpaprika/, ''),
+                headers: { Authorization: env.DEXPAPRIKA_API_KEY },
+              },
+            }
+          : {}),
         // Dev only: `vite preview` (which inherits server.proxy) serves e2e without a live socket.
         ...(isPreview ? {} : createWebSocketProxy(env)),
       },

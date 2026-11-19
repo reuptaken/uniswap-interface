@@ -166,7 +166,7 @@ describe('PoolDetailsStatsButton', () => {
     expect(screen.getByTestId('pool-details-close-button')).toBeVisible()
   })
 
-  it('clicking add liquidity goes to correct url with default fee tier', async () => {
+  it('clicking new position goes to correct url with default fee tier', async () => {
     render(<PoolDetailsStatsButtons {...mockPropsTokensReversed} />)
 
     await userEvent.click(screen.getByTestId(TestID.PoolDetailsAddLiquidityButton))
@@ -175,7 +175,7 @@ describe('PoolDetailsStatsButton', () => {
     )
   })
 
-  it('clicking add liquidity goes to correct url with custom fee tier', async () => {
+  it('clicking new position goes to correct url with custom fee tier', async () => {
     render(<PoolDetailsStatsButtons {...mockPropsTokensReversed} feeTier={6200} tickSpacing={11} isDynamic={true} />)
     await userEvent.click(screen.getByTestId(TestID.PoolDetailsAddLiquidityButton))
     expect(globalThis.window.location.href).toContain(
@@ -183,20 +183,10 @@ describe('PoolDetailsStatsButton', () => {
     )
   })
 
-  it('clicking add liquidity opens the position', async () => {
-    mockUseWalletPositions([
-      buildFeePosition({ poolId: '0xother', tokenId: '1' }),
-      buildFeePosition({ poolId: '0xPOOL', tokenId: '42' }),
-    ])
+  it('clicking new position opens the new-position flow even when the wallet has a position in the pool', async () => {
+    mockUseWalletPositions([buildFeePosition({ poolId: '0xPOOL', tokenId: '42' })])
     render(<PoolDetailsStatsButtons {...mockProps} />)
     await userEvent.click(screen.getByTestId(TestID.PoolDetailsAddLiquidityButton))
-    expect(globalThis.window.location.pathname).toBe('/positions/v3/ethereum/42')
-  })
-
-  it('clicking add liquidity ignores other chain positions', async () => {
-    mockUseWalletPositions([buildFeePosition({ poolId: '0xpool', tokenId: '42' })])
-    render(<PoolDetailsStatsButtons {...mockProps} chainId={UniverseChainId.Base} />)
-    await userEvent.click(screen.getByTestId(TestID.PoolDetailsAddLiquidityButton))
-    expect(globalThis.window.location.pathname).toBe('/positions/add/base/0xpool')
+    expect(globalThis.window.location.pathname).toBe('/positions/add/ethereum/0xpool')
   })
 })

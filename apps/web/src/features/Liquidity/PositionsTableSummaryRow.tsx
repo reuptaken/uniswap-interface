@@ -8,6 +8,7 @@ import { TableText } from '~/components/Table/shared/TableText'
 import { useFormatWholeFiat } from '~/features/Liquidity/hooks/useFormatWholeFiat'
 import { usePositionsSummary } from '~/features/Liquidity/hooks/usePositionsSummary'
 import type { ColumnId } from '~/features/Liquidity/PositionsTableColumns'
+import { PNL_TONE_COLOR, wholeDollarPnl } from '~/features/Liquidity/utils/positionPnl'
 import type { PositionsSummary } from '~/features/Liquidity/utils/summarizePositions'
 
 export function SummaryCellContent({
@@ -40,7 +41,7 @@ export function SummaryCellContent({
           {formatWholeFiat(summary.feesUsd)}
         </TableText>
       )
-    case 'pnl':
+    case 'pnl': {
       if (pnlUsd === undefined) {
         return (
           <TableText variant="body3" fontWeight="600">
@@ -48,13 +49,15 @@ export function SummaryCellContent({
           </TableText>
         )
       }
+      const { amount, sign, tone } = wholeDollarPnl(pnlUsd)
       return (
-        <TableText variant="body3" fontWeight="600" color={pnlUsd >= 0 ? '$statusSuccess' : '$statusCritical'}>
-          {pnlUsd >= 0 ? '+' : ''}
-          {formatWholeFiat(pnlUsd)}
+        <TableText variant="body3" fontWeight="600" color={PNL_TONE_COLOR[tone]}>
+          {sign}
+          {formatWholeFiat(amount)}
           {pnlCount < openCount ? ` (${pnlCount}/${openCount})` : ''}
         </TableText>
       )
+    }
     case 'apr':
       return (
         <TableText variant="body3" fontWeight="600">

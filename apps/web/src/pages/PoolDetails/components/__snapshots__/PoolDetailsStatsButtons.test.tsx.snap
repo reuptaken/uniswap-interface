@@ -83,7 +83,7 @@ exports[`PoolDetailsStatsButton > renders both buttons correctly 1`] = `
         <button
           class="group/sbtn relative box-border flex min-h-0 min-w-0 cursor-pointer items-center justify-center border border-solid border-transparent select-none [transition:transform_100ms_cubic-bezier(0.17,0.67,0.45,1),filter_100ms_cubic-bezier(0.17,0.67,0.45,1)] active:scale-[0.98] focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-solid gap-2 rounded-16 px-4 py-3 flex-row flex-1 basis-0 self-stretch focus-visible:scale-x-[0.98] focus-visible:scale-y-[0.905] bg-accent2 hover:bg-accent2-hovered active:bg-accent2-hovered focus-visible:bg-accent2-hovered focus-visible:outline-accent1-hovered"
           data-testid="pool-details-add-liquidity-button"
-          dd-action-name="Add liquidity"
+          dd-action-name="New position"
           type="button"
         >
           <span
@@ -104,7 +104,7 @@ exports[`PoolDetailsStatsButton > renders both buttons correctly 1`] = `
           <span
             class="text-center font-medium whitespace-nowrap [font-family:var(--sbtn-font-button)] [transition:color_100ms_cubic-bezier(0.17,0.67,0.45,1)] text-[16px] leading-[20.7px] text-accent1 group-hover/sbtn:text-accent1-hovered"
           >
-            Add liquidity
+            New position
           </span>
         </button>
       </div>

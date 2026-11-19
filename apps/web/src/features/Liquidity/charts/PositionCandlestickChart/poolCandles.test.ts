@@ -1,85 +1,174 @@
 import { UniverseChainId } from '@universe/chains'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  getPoolCandlesUrl,
-  nextLiveCandle,
-  parsePoolCandles,
   DEFAULT_CANDLE_INTERVAL,
+  fetchPoolCandles,
   getCandleInterval,
+  getPoolCandlesSource,
+  groupCandles,
+  mergeCandles,
+  nextLiveCandle,
+  parseDexPaprikaCandles,
+  parsePoolCandles,
   pricePrecision,
 } from '~/features/Liquidity/charts/PositionCandlestickChart/poolCandles'
 
 const POOL = '0xd0b53D9277642d899DF5C87A3966A349A798F224'
 const WETH = '0x4200000000000000000000000000000000000006'
-const FIFTEEN_MINUTES = { timeframe: 'minute', aggregate: 15, seconds: 900, label: '15m' } as const
+const USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+const CBBTC = '0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf'
 
-describe('getPoolCandlesUrl', () => {
-  it('asks for 15-minute candles priced in the given token', () => {
-    expect(
-      getPoolCandlesUrl({
-        chainId: UniverseChainId.Base,
-        poolAddress: POOL,
-        pricedTokenAddress: WETH,
-        interval: FIFTEEN_MINUTES,
-      }),
-    ).toBe(
+function source(overrides: Partial<Parameters<typeof getPoolCandlesSource>[0]> = {}) {
+  return getPoolCandlesSource({
+    chainId: UniverseChainId.Base,
+    poolAddress: POOL,
+    token0Address: WETH,
+    token1Address: USDC,
+    pricedTokenAddress: WETH,
+    stablecoinAddress: USDC,
+    interval: getCandleInterval('15m'),
+    ...overrides,
+  })
+}
+
+describe('getPoolCandlesSource', () => {
+  it('asks GeckoTerminal for 15-minute candles priced in the given token', () => {
+    expect(source()?.geckoUrl).toBe(
       `https://api.geckoterminal.com/api/v2/networks/base/pools/${POOL}/ohlcv/minute?aggregate=15&limit=1000&currency=token&token=${WETH}`,
     )
   })
 
-  it('uses GeckoTerminal network ids', () => {
-    expect(
-      getPoolCandlesUrl({
-        chainId: UniverseChainId.Mainnet,
-        poolAddress: POOL,
-        pricedTokenAddress: WETH,
-        interval: FIFTEEN_MINUTES,
-      }),
-    ).toContain('/networks/eth/')
+  it('takes recent candles from DexPaprika for a pair with a stablecoin, inverted when pricing the stablecoin', () => {
+    expect(source()?.recent).toEqual({
+      network: 'base',
+      poolAddress: POOL.toLowerCase(),
+      volatileTokenAddress: WETH.toLowerCase(),
+      invert: false,
+    })
+    expect(source({ pricedTokenAddress: USDC })?.recent?.invert).toBe(true)
+  })
+
+  it('keeps a pair without a stablecoin on GeckoTerminal alone', () => {
+    expect(source({ token1Address: CBBTC, stablecoinAddress: undefined })?.recent).toBeUndefined()
+  })
+
+  it('changes its key with the series', () => {
+    expect(source()?.key).not.toBe(source({ pricedTokenAddress: USDC })?.key)
+    expect(source()?.key).not.toBe(source({ interval: getCandleInterval('1h') })?.key)
+    // 1h and 6h are both built from GeckoTerminal's hourly series, so the URL alone doesn't tell them apart.
+    expect(source({ interval: getCandleInterval('1h') })?.key).not.toBe(
+      source({ interval: getCandleInterval('6h') })?.key,
+    )
   })
 
   it('is unavailable for unsupported chains and V4 pool ids', () => {
-    expect(
-      getPoolCandlesUrl({
-        chainId: UniverseChainId.Zora,
-        poolAddress: POOL,
-        pricedTokenAddress: WETH,
-        interval: FIFTEEN_MINUTES,
-      }),
-    ).toBeUndefined()
-    expect(
-      getPoolCandlesUrl({
-        chainId: UniverseChainId.Base,
-        poolAddress: `0x${'ab'.repeat(32)}`,
-        pricedTokenAddress: WETH,
-        interval: FIFTEEN_MINUTES,
-      }),
-    ).toBeUndefined()
+    expect(source({ chainId: UniverseChainId.Zora })).toBeUndefined()
+    expect(source({ poolAddress: `0x${'ab'.repeat(32)}` })).toBeUndefined()
   })
 })
 
 describe('getCandleInterval', () => {
-  it('offers 5m to 1d and maps each to the GeckoTerminal timeframe', () => {
-    const urls = (['5m', '15m', '1h', '4h', '1d'] as const).map((label) =>
-      getPoolCandlesUrl({
-        chainId: UniverseChainId.Base,
-        poolAddress: POOL,
-        pricedTokenAddress: WETH,
-        interval: getCandleInterval(label),
-      }),
-    )
-    expect(
-      urls.map((url) =>
-        url
-          ?.match(/ohlcv\/(\w+)\?aggregate=(\d+)/)
-          ?.slice(1)
-          .join(':'),
-      ),
-    ).toEqual(['minute:5', 'minute:15', 'hour:1', 'hour:4', 'day:1'])
+  it('offers 10m to 1d, each native on DexPaprika, with the GeckoTerminal series to build it from', () => {
+    const intervals = (['10m', '15m', '1h', '6h', '1d'] as const).map(getCandleInterval)
+    expect(intervals.map((interval) => interval.dexPaprika)).toEqual(['10m', '15m', '1h', '6h', '24h'])
+    expect(intervals.map(({ gecko }) => `${gecko.timeframe}:${gecko.aggregate}`)).toEqual([
+      'minute:5',
+      'minute:15',
+      'hour:1',
+      'hour:1',
+      'day:1',
+    ])
   })
 
   it('defaults to 15 minutes', () => {
     expect(getCandleInterval(DEFAULT_CANDLE_INTERVAL).seconds).toBe(900)
+  })
+})
+
+describe('groupCandles', () => {
+  it('builds epoch-aligned coarser candles from finer ones', () => {
+    const hour = 3600
+    const hourly = [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+      time: i * hour,
+      open: 10 + i,
+      high: 20 + i,
+      low: 5 - i,
+      close: 11 + i,
+      volume: 1,
+    }))
+    expect(groupCandles(hourly, 6 * hour)).toEqual([
+      { time: 0, open: 10, high: 25, low: 0, close: 16, volume: 6 },
+      { time: 6 * hour, open: 16, high: 26, low: -1, close: 17, volume: 1 },
+    ])
+  })
+})
+
+describe('parseDexPaprikaCandles', () => {
+  const row = { time_open: '2026-11-18T08:45:00Z', open: 2000, high: 2500, low: 1600, close: 2000, volume: 4000 }
+
+  it('reads USD candles of the volatile token as its price in the stablecoin', () => {
+    expect(parseDexPaprikaCandles([row], false)).toEqual([
+      { time: Date.parse('2026-11-18T08:45:00Z') / 1000, open: 2000, high: 2500, low: 1600, close: 2000, volume: 4000 },
+    ])
+  })
+
+  it('inverts them to price the stablecoin, swapping high and low and converting volume to the volatile token', () => {
+    const [candle] = parseDexPaprikaCandles([row], true)
+    expect(candle.open).toBeCloseTo(1 / 2000)
+    expect(candle.high).toBeCloseTo(1 / 1600)
+    expect(candle.low).toBeCloseTo(1 / 2500)
+    // $4,000 at a typical price of (2000 + 2500 + 1600 + 2000) / 4 = 2025.
+    expect(candle.volume).toBeCloseTo(4000 / 2025)
+  })
+
+  it('drops malformed rows and tolerates unexpected shapes', () => {
+    expect(
+      parseDexPaprikaCandles(
+        [
+          { ...row, time_open: undefined },
+          { ...row, high: 'x' },
+        ],
+        false,
+      ),
+    ).toEqual([])
+    expect(parseDexPaprikaCandles({ message: 'Forbidden' }, false)).toEqual([])
+  })
+})
+
+describe('mergeCandles', () => {
+  const candle = (time: number, close: number) => ({ time, open: close, high: close, low: close, close })
+
+  it('keeps older candles up to where the recent series starts', () => {
+    expect(mergeCandles([candle(1, 1), candle(2, 2), candle(3, 3)], [candle(2, 20), candle(3, 30)])).toEqual([
+      candle(1, 1),
+      candle(2, 20),
+      candle(3, 30),
+    ])
+  })
+
+  it('keeps the older series when there is no recent one', () => {
+    expect(mergeCandles([candle(1, 1)], [])).toEqual([candle(1, 1)])
+  })
+})
+
+describe('fetchPoolCandles', () => {
+  const geckoResponse = { data: { attributes: { ohlcv_list: [[1800, 1, 2, 0.5, 1.5, 10]] } } }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back to GeckoTerminal alone when DexPaprika is unavailable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.startsWith('https://api.geckoterminal.com')
+          ? new Response(JSON.stringify(geckoResponse))
+          : new Response('not found', { status: 404 }),
+      ),
+    )
+    const candles = await fetchPoolCandles(source()!)
+    expect(candles).toEqual([{ time: 1800, open: 1, high: 2, low: 0.5, close: 1.5, volume: 10 }])
   })
 })
 

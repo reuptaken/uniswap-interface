@@ -44,7 +44,7 @@ function mockGeoRestriction(overrides: Partial<ReturnType<typeof useLPGeoRestric
 }
 
 /**
- * Seam E: the PDP's "Add liquidity" CTA. It only navigates, so it stays visible for a restricted pair
+ * Seam E: the PDP's "New position" CTA. It only navigates, so it stays visible for a restricted pair
  * (block the action, not the product): the add flow it lands in opens the region modal and keeps its
  * CTA disabled. The banner here states the restriction up front.
  */
@@ -135,7 +135,7 @@ describe('PoolDetailsStatsButtons geo gate (pool details CTA seam)', () => {
 
       const swap = screen.getByTestId(TestID.PoolDetailsSwapButton)
       const cta = screen.getByTestId(TestID.PoolDetailsAddLiquidityButton)
-      expect(cta).toHaveTextContent('Add liquidity')
+      expect(cta).toHaveTextContent('New position')
       // No wrapper between row and Button: each Button is its own flex item and sizes itself.
       expect(rowChildren()).toEqual([swap, cta])
     })

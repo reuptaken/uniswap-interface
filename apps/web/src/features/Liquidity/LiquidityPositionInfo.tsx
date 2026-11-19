@@ -52,6 +52,8 @@ interface LiquidityPositionInfoProps {
   stackedLogo?: boolean
   /** Rendered at the end of the title row, after the pair name and badges. */
   titleAccessory?: ReactNode
+  /** Rendered right after the token logos, e.g. the position's id on its detail page. */
+  logoAccessory?: ReactNode
 }
 
 // Default per-logo size, shared by the component and its loader so the loading placeholder always
@@ -190,6 +192,7 @@ export function LiquidityPositionInfo({
   stalePriceWarning,
   stackedLogo = false,
   titleAccessory,
+  logoAccessory,
 }: LiquidityPositionInfoProps) {
   const { currency0Amount, currency1Amount, feeTier, v4hook, version, chainId } = positionInfo
   const navigate = useNavigate()
@@ -267,7 +270,14 @@ export function LiquidityPositionInfo({
   )
 
   return (
-    <Flex row gap="$gap16" $md={{ width: '100%' }} alignItems={isMiniVersion ? 'center' : 'flex-start'} minWidth={0}>
+    <Flex
+      row
+      gap="$gap16"
+      $md={{ width: '100%' }}
+      // With an accessory beside the logos (a large id), center the row so the title block sits level with it.
+      alignItems={isMiniVersion || logoAccessory ? 'center' : 'flex-start'}
+      minWidth={0}
+    >
       <SplitLogo
         inputCurrencyInfo={baseInfo}
         outputCurrencyInfo={quoteInfo}
@@ -275,6 +285,7 @@ export function LiquidityPositionInfo({
         chainId={includeNetworkInLogo ? chainId : null}
         orientation={isDetailHeader ? 'stacked' : 'split'}
       />
+      {logoAccessory}
       <Flex gap={isMiniVersion ? '$none' : '$spacing2'}>
         <Flex
           flexDirection={isMiniVersion ? 'column' : 'row'}

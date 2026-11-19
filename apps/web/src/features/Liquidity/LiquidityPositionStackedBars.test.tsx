@@ -76,4 +76,36 @@ describe('LiquidityPositionStackedBars', () => {
     expect(screen.getByText('100%')).toBeDefined()
     expect(screen.getByText('0%')).toBeDefined()
   })
+
+  it('shows each share at its end of the bar in the inline layout', () => {
+    render(
+      <LiquidityPositionStackedBars
+        layout="inline"
+        bars={[
+          { id: WETH.address, value: new Percent(1, 4), currencyInfo: currencyInfo(WETH) },
+          { id: USDC.address, value: new Percent(3, 4), currencyInfo: currencyInfo(USDC) },
+        ]}
+      />,
+    )
+
+    const segments = screen.getAllByTestId(TestID.LiquidityPositionStackedBarSegment)
+    expect(segments).toHaveLength(2)
+    expect(segments[0].textContent).toContain('25%')
+    expect(segments[1].textContent).toContain('75%')
+  })
+
+  it('keeps every share listed when the inline layout gets more than two tokens', () => {
+    render(
+      <LiquidityPositionStackedBars
+        layout="inline"
+        bars={[
+          { id: `fee-${WETH.address}`, value: new Percent(1, 2), currencyInfo: currencyInfo(WETH) },
+          { id: `fee-${USDC.address}`, value: new Percent(1, 4), currencyInfo: currencyInfo(USDC) },
+          { id: `reward-${WETH.address}`, value: new Percent(1, 4), currencyInfo: currencyInfo(WETH) },
+        ]}
+      />,
+    )
+
+    expect(screen.getAllByTestId(TestID.LiquidityPositionStackedBarSegment)).toHaveLength(3)
+  })
 })

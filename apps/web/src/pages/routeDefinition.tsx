@@ -32,6 +32,11 @@ export interface RouteDefinition {
   nestedPaths: string[]
   getTitle: (path?: string) => string
   getDescription: (path?: string) => string
+  /**
+   * The page sets the tab title itself (document.title), from its data; the app then sets none on this route, since
+   * its static title would override the page's. getTitle still serves SEO metadata.
+   */
+  pageSetsTitle?: boolean
   enabled: (args: RouterConfig) => boolean
   getElement: (args: RouterConfig) => ReactNode
 }

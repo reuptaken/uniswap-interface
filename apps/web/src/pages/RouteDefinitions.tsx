@@ -314,12 +314,14 @@ export const routes: RouteDefinition[] = [
     getElement: () => <PositionPage />,
     getTitle: getPositionPageTitle,
     getDescription: getPositionPageDescription,
+    pageSetsTitle: true,
   }),
   createRouteDefinition({
     path: '/positions/v4/:chainName/:tokenId',
     getElement: () => <PositionPage />,
     getTitle: getPositionPageTitle,
     getDescription: getPositionPageDescription,
+    pageSetsTitle: true,
   }),
   createRouteDefinition({
     path: '/migrate/v2/:chainName/:pairAddress',
