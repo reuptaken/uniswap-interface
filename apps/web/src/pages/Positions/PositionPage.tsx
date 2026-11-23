@@ -685,14 +685,10 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
     return priceInverted ? { lower: 1 / upper, upper: 1 / lower } : { lower, upper }
   })()
 
-  // While the pool is out of sync, substitute the most liquid sibling pool's price when one exists
-  // (marketPrice); without a trustworthy substitute, keep the pool's own price and only warn
-  const token0Price =
-    positionInfo.version !== ProtocolVersion.V2 ? (marketPrice ?? positionInfo.poolOrPair?.token0Price) : undefined
-  const token1Price =
-    positionInfo.version !== ProtocolVersion.V2
-      ? (marketPrice?.invert() ?? positionInfo.poolOrPair?.token1Price)
-      : undefined
+  // Always the pool's own price, read live from the chain. When it disagrees with another pool's (marketPrice, from
+  // the API and possibly an old cached copy), the page only warns: the status and the triangle's tooltip say so.
+  const token0Price = positionInfo.version !== ProtocolVersion.V2 ? positionInfo.poolOrPair?.token0Price : undefined
+  const token1Price = positionInfo.version !== ProtocolVersion.V2 ? positionInfo.poolOrPair?.token1Price : undefined
 
   // Live spot price from the pool's active tick, oriented to match the chart's `priceInverted` display.
   const currentSpotPrice = priceInverted ? token1Price : token0Price
@@ -884,12 +880,9 @@ function PositionPage({ chainId }: { chainId: EVMUniverseChainId | undefined }) 
                     </TouchableArea>
                     <PositionExternalLinks position={positionInfo} />
                     {isPoolOutOfSync && (
+                      // The pool's price is still shown (see token0Price), so never the "showing the market price" text.
                       <MouseoverTooltip
-                        text={
-                          marketPrice
-                            ? t('position.currentPrice.poolOutOfSync.tooltip')
-                            : t('position.currentPrice.poolOutOfSync.tooltip.noMarketPrice')
-                        }
+                        text={t('position.currentPrice.poolOutOfSync.tooltip.noMarketPrice')}
                         placement="top"
                       >
                         <AlertTriangleFilled color="$statusWarning" size="$icon.16" />
